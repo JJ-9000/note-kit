@@ -25,7 +25,7 @@ Three sources, in order. If all are empty, append nothing and stop.
 
 The outbox-empty check excludes `<machine-queue>` itself; the queue file is never a drop.
 
-**Start-of-run sweep.** First remove from `<machine-queue>` every item already marked `[x]` (a prior-pass completion stays visible for exactly one pass), logging each as `machine-queue-clear`. Because the sweep runs first, this pass's completions stay checked until the next run's sweep. Give any resolved item lingering in `<user-queue>` the same one-pass grace. The sweep is idempotent: nothing crossed off means nothing removed and nothing logged.
+**Start-of-run sweep.** First remove from `<machine-queue>` every item already marked `[x]` (a prior-pass completion stays visible for exactly one pass), logging each as `machine-queue-clear`. A cleared line carrying the `*(item skipped)*` marker was cancelled by the user from the UI, never executed — log it `machine-queue-skip`. Because the sweep runs first, this pass's completions stay checked until the next run's sweep. Give any resolved item lingering in `<user-queue>` the same one-pass grace. The sweep is idempotent: nothing crossed off means nothing removed and nothing logged.
 
 ## 2 — Execute approved user-queue items
 

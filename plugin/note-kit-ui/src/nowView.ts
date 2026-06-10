@@ -70,6 +70,8 @@ const BUCKET_CAP = 50;
 const CHECKBOX_RE = /^(\s*[-*]\s+\[)(.)(\]\s+)(.*\S)(\s*)$/;
 /** A `##`/`###` heading line. */
 const HEADING_RE = /^(#{2,})\s+(.*\S)\s*$/;
+/** The literal a user cross-off writes beside its [x] — a skip, not a completion. */
+const SKIP_MARK_RE = /\s*\*\(item skipped\)\*$/;
 
 /**
  * The kit's front page. Surfaces what needs you (drafts grouped by type),
@@ -443,23 +445,28 @@ export class NowView extends ItemView {
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
 		for (const item of opts.items) {
-			// Machine queue: click the text to cross it off (toggles [x], matched by text).
-			// Crossing off is not just visual — the agent's next-run sweep deletes [x]
-			// lines from the file, so a done item shows its fate inline (tooltips
-			// don't exist on mobile).
+			// Machine queue: click the text to cross it off. A user cross-off is a
+			// SKIP, not a completion — the line gains the literal "*(item skipped)*"
+			// marker with its [x] so the file and the agent's sweep can tell it from
+			// the agent's own completion receipts. The sweep deletes [x] lines next
+			// run, so the fate is labelled inline (tooltips don't exist on mobile).
 			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
-			const txt = row.createSpan({ cls: "nkui-now-qtext", text: item.text });
+			const txt = row.createSpan({
+				cls: "nkui-now-qtext",
+				text: item.text.replace(SKIP_MARK_RE, ""),
+			});
 			if (item.done) {
 				txt.addClass("is-done");
-				row.createSpan({ cls: "nkui-now-qclear", text: "clears next agent run" });
-				row.setAttr("aria-label", "Crossed off — the agent removes this from the queue on its next run. Click to restore.");
+				row.createSpan({
+					cls: "nkui-now-qclear",
+					text: SKIP_MARK_RE.test(item.text) ? "skipped — clears next agent run" : "done — clears next agent run",
+				});
+				row.setAttr("aria-label", "Crossed off — marked \"(item skipped)\" in the queue; the agent clears it next run without executing. Click to restore.");
 			} else {
-				row.setAttr("aria-label", "Click to cross off — the agent removes crossed-off items from the queue on its next run.");
+				row.setAttr("aria-label", "Click to skip — the item is marked \"(item skipped)\" and the agent clears it next run without executing.");
 			}
 			row.setAttr("title", row.getAttr("aria-label") ?? "");
-			row.addEventListener("click", () =>
-				void this.setItemChecked(opts.path, item.text, !item.done)
-			);
+			row.addEventListener("click", () => void this.skipMachineItem(item));
 		}
 		if (!opts.items.length) {
 			list.createDiv({ cls: "nkui-now-empty", text: "Nothing queued." });
@@ -651,6 +658,28 @@ export class NowView extends ItemView {
 		if (at < 0) return;
 		lines.splice(at + 1, 0, `- [ ] ${text}`);
 		await this.app.vault.modify(f, lines.join("\n"));
+		await this.reloadAndRender();
+	}
+
+	/** Cross off / restore a machine-queue item. Crossing off writes the literal
+	 * "*(item skipped)*" marker beside the [x]; restoring removes both. */
+	private async skipMachineItem(item: QueueItem): Promise<void> {
+		const path = this.plugin.settings.machineQueuePath;
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (!(f instanceof TFile)) return;
+		const lines = (await this.app.vault.read(f)).split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const m = lines[i].match(CHECKBOX_RE);
+			if (m && m[4] === item.text) {
+				if (item.done) {
+					lines[i] = `${m[1]} ${m[3]}${item.text.replace(SKIP_MARK_RE, "")}${m[5]}`;
+				} else {
+					lines[i] = `${m[1]}x${m[3]}${item.text} *(item skipped)*${m[5]}`;
+				}
+				await this.app.vault.modify(f, lines.join("\n"));
+				break;
+			}
+		}
 		await this.reloadAndRender();
 	}
 

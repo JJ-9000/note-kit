@@ -59,7 +59,7 @@ Read each `[ ]` line in `<machine-queue>` (a `[x]` line is a prior-pass completi
 
 **`needs-live-session`.** A `<machine-queue>` item that cannot run unattended takes the `needs-live-session` disposition per CONFIG § Queue protocol: it stays `[ ]`, annotated, with one queue note — never checked `[x]` without execution.
 
-Every item routes; recover the shape, do not refuse it. Spawn the named skill (top line model) with the content as input; its output follows the inbox-output convention. Archive each dispatched `<outbox>` file once its run produces output; leave a failed run's file in place for the next cycle. A resolved `<machine-queue>` line is checked `[x]`, logged like a queue item, and left for the §1 sweep. If a file does not process as expected or is too confusing, raise it to the `<user-queue>` and suggest a table amendment linking an existing skill so it re-processes next run.
+Every item routes; recover the shape, do not refuse it. Spawn the named skill (top line model) with the content as input; its output follows the inbox-output convention. Archive each dispatched `<outbox>` file once its run produces output; leave a failed run's file in place for the next cycle. A resolved `<machine-queue>` line is checked `[x]` with the literal marker `*(executed)*` appended, logged like a queue item, and left for the §1 sweep. If a file does not process as expected or is too confusing, raise it to the `<user-queue>` and suggest a table amendment linking an existing skill so it re-processes next run.
 
 ## 4 — Resume answered skill clarifications
 

@@ -72,6 +72,8 @@ const CHECKBOX_RE = /^(\s*[-*]\s+\[)(.)(\]\s+)(.*\S)(\s*)$/;
 const HEADING_RE = /^(#{2,})\s+(.*\S)\s*$/;
 /** The literal a user cross-off writes beside its [x] — a skip, not a completion. */
 const SKIP_MARK_RE = /\s*\*\(item skipped\)\*$/;
+/** The literal the action-agent writes beside its [x] — a completion receipt. */
+const EXEC_MARK_RE = /\s*\*\(executed\)\*$/;
 
 /**
  * The kit's front page. Surfaces what needs you (drafts grouped by type),
@@ -310,24 +312,21 @@ export class NowView extends ItemView {
 		for (const d of resolved) this.renderResolvedDecision(list, d);
 	}
 
-	/** A resolved decision: approved in the file, not yet executed. It stays
-	 * visible so the approval is reversible until the agent acts — unchecking
-	 * returns the option to open. */
+	/** A resolved decision: approved in the file, not yet executed. It lingers
+	 * as ONE diminished, truncated row — visibly not an active decision — until
+	 * the agent's pass clears it; unchecking re-opens it. */
 	private renderResolvedDecision(list: HTMLElement, d: Decision): void {
 		const path = this.plugin.settings.userQueuePath;
-		const card = list.createDiv("nkui-now-decision is-resolved");
-		const openQueue = () =>
-			this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false);
-		if (d.title) {
-			const title = card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
-			title.addEventListener("click", openQueue);
-		}
 		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
 		if (!picked) return;
-		const row = card.createDiv("nkui-now-optrow");
+		const row = list.createDiv("nkui-now-resolvedrow");
 		const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
 		cb.checked = true;
-		row.createSpan({ cls: "nkui-now-opttext", text: plainText(picked.text) });
+		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
+		const txt = row.createSpan({ cls: "nkui-now-restext", text: label });
+		txt.addEventListener("click", () =>
+			this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false)
+		);
 		row.createSpan({ cls: "nkui-now-qclear", text: "runs next agent pass" });
 		row.setAttr(
 			"aria-label",
@@ -399,7 +398,9 @@ export class NowView extends ItemView {
 						fill.focus();
 						return;
 					}
-					void this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v));
+					void this.fadeThen(card, () =>
+					this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v))
+				);
 				};
 				cb.addEventListener("change", submit);
 				fill.addEventListener("keydown", (ev) => {
@@ -411,7 +412,9 @@ export class NowView extends ItemView {
 				});
 				continue;
 			}
-			cb.addEventListener("change", () => void this.pickOption(path, o.text));
+			cb.addEventListener("change", () =>
+				void this.fadeThen(card, () => this.pickOption(path, o.text))
+			);
 			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
 		}
 
@@ -453,15 +456,26 @@ export class NowView extends ItemView {
 			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
 			const txt = row.createSpan({
 				cls: "nkui-now-qtext",
-				text: item.text.replace(SKIP_MARK_RE, ""),
+				text: item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, ""),
 			});
 			if (item.done) {
 				txt.addClass("is-done");
+				const skipped = SKIP_MARK_RE.test(item.text);
+				const executed = EXEC_MARK_RE.test(item.text);
 				row.createSpan({
 					cls: "nkui-now-qclear",
-					text: SKIP_MARK_RE.test(item.text) ? "skipped — clears next agent run" : "done — clears next agent run",
+					text: skipped
+						? "skipped — clears next agent run"
+						: executed
+							? "executed by action agent — clears next run"
+							: "done — clears next agent run",
 				});
-				row.setAttr("aria-label", "Crossed off — marked \"(item skipped)\" in the queue; the agent clears it next run without executing. Click to restore.");
+				row.setAttr(
+					"aria-label",
+					executed
+						? "Executed by the action agent; clears on its next run. Click to restore — it will run again."
+						: "Crossed off — marked \"(item skipped)\" in the queue; the agent clears it next run without executing. Click to restore."
+				);
 			} else {
 				row.setAttr("aria-label", "Click to skip — the item is marked \"(item skipped)\" and the agent clears it next run without executing.");
 			}
@@ -628,6 +642,14 @@ export class NowView extends ItemView {
 	}
 
 	/** Approve one option of a decision — writes [x] to its line, resolving the decision. */
+	/** Soften the card before the write re-renders it into its resolved row, so
+	 * the pick reads as a transition rather than a snap. */
+	private async fadeThen(card: HTMLElement, write: () => Promise<void>): Promise<void> {
+		card.addClass("is-resolving");
+		await new Promise((r) => setTimeout(r, 180));
+		await write();
+	}
+
 	private async pickOption(path: string, text: string): Promise<void> {
 		await this.setItemChecked(path, text, true);
 		await this.reloadAndRender();
@@ -672,7 +694,7 @@ export class NowView extends ItemView {
 			const m = lines[i].match(CHECKBOX_RE);
 			if (m && m[4] === item.text) {
 				if (item.done) {
-					lines[i] = `${m[1]} ${m[3]}${item.text.replace(SKIP_MARK_RE, "")}${m[5]}`;
+					lines[i] = `${m[1]} ${m[3]}${item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, "")}${m[5]}`;
 				} else {
 					lines[i] = `${m[1]}x${m[3]}${item.text} *(item skipped)*${m[5]}`;
 				}

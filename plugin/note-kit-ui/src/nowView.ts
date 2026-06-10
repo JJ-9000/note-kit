@@ -373,9 +373,19 @@ export class NowView extends ItemView {
 		const list = wrap.createDiv("nkui-now-list");
 		for (const item of opts.items) {
 			// Machine queue: click the text to cross it off (toggles [x], matched by text).
+			// Crossing off is not just visual — the agent's next-run sweep deletes [x]
+			// lines from the file, so a done item shows its fate inline (tooltips
+			// don't exist on mobile).
 			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
 			const txt = row.createSpan({ cls: "nkui-now-qtext", text: item.text });
-			if (item.done) txt.addClass("is-done");
+			if (item.done) {
+				txt.addClass("is-done");
+				row.createSpan({ cls: "nkui-now-qclear", text: "clears next agent run" });
+				row.setAttr("aria-label", "Crossed off — the agent removes this from the queue on its next run. Click to restore.");
+			} else {
+				row.setAttr("aria-label", "Click to cross off — the agent removes crossed-off items from the queue on its next run.");
+			}
+			row.setAttr("title", row.getAttr("aria-label") ?? "");
 			row.addEventListener("click", () =>
 				void this.setItemChecked(opts.path, item.text, !item.done)
 			);

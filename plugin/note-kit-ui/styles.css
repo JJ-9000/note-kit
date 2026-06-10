@@ -351,6 +351,17 @@
 	text-decoration: line-through;
 	color: var(--text-faint);
 }
+/* Fate label on a crossed-off queue item: the agent's next-run sweep deletes
+   [x] lines from the file, and that consequence must be visible without hover
+   (mobile has no tooltips). */
+.nkui-now-qclear {
+	flex: 0 0 auto;
+	margin-left: var(--nkui-gap-s, 8px);
+	color: var(--text-faint);
+	font-style: italic;
+	font-size: 0.85em;
+	white-space: nowrap;
+}
 .nkui-now-qadd {
 	padding: 0.25em 0.5em 0.1em 1.55em;
 }

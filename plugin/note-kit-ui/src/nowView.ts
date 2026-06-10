@@ -359,7 +359,9 @@ export class NowView extends ItemView {
 						fill.focus();
 						return;
 					}
-					void this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v));
+					void this.resolveCard(card, () =>
+					this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v))
+				);
 				};
 				cb.addEventListener("change", submit);
 				fill.addEventListener("keydown", (ev) => {
@@ -371,7 +373,9 @@ export class NowView extends ItemView {
 				});
 				continue;
 			}
-			cb.addEventListener("change", () => void this.pickOption(path, o.text));
+			cb.addEventListener("change", () =>
+				void this.resolveCard(card, () => this.pickOption(path, o.text))
+			);
 			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
 		}
 
@@ -583,6 +587,17 @@ export class NowView extends ItemView {
 	}
 
 	/** Approve one option of a decision — writes [x] to its line, resolving the decision. */
+	/** Collapse a resolved decision card (measured height -> 0) before the write
+	 * re-renders the list, so the item leaves rather than blinks out. */
+	private async resolveCard(card: HTMLElement, write: () => Promise<void>): Promise<void> {
+		card.style.height = `${card.getBoundingClientRect().height}px`;
+		void card.offsetHeight; // commit the measured height before transitioning
+		card.addClass("is-resolving");
+		card.style.height = "0px";
+		await new Promise((r) => setTimeout(r, 190));
+		await write();
+	}
+
 	private async pickOption(path: string, text: string): Promise<void> {
 		await this.setItemChecked(path, text, true);
 		await this.reloadAndRender();

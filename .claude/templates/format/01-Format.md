@@ -32,3 +32,5 @@ The visual shape of every note type the kit ships: the frontmatter block and bod
 - [[Format-Revision]] — the review skill's edited working copy.
 - [[Format-Log]] — the pipe-delimited operational run log.
 - [[Format-Gate]] — the decision-header shape every gate file carries at its top (Changes, User Review, Filing Target), so a group review is a decision, not a rubber stamp.
+- [[Format-User-Queue]] — the user-queue item shape: a `###` heading, one context line, option checkboxes; the only shape the UI's Decide bucket renders.
+- [[Format-Machine-Queue]] — the machine-queue checklist shape: one `- [ ]` action per line, checked by the agent only after completion.

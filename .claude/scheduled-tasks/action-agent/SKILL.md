@@ -31,7 +31,7 @@ The outbox-empty check excludes `<machine-queue>` itself; the queue file is neve
 
 Carry out each `[x]` item in `<user-queue>`, routed as §3 routes a drop; an approved item is never refused for failing to match the Actions table. On a multiple-choice item the single `[x]` option is the action; more than one checked, or an `[x]` body still holding an unedited placeholder, demotes to `[ ]` with a note rather than a guess.
 
-Remove each resolved item and append its outcome; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and do not retry this pass.
+Remove each resolved item and append its outcome **to this agent's ledger — never to the queue itself**; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and do not retry this pass.
 
 **`review-flag` verification — this agent owns it.** A `review-flag` clears only on a real resolution: confirm the user's answer is present (the resolved `<user-queue>` item or the note's own updated state), carry out the action, then retag the item `review-complete` so it is not re-picked. The janitor flags staleness; the action-agent verifies and clears. Group approval is the filing-agent's, not this agent's.
 
@@ -75,12 +75,13 @@ A run that changes nothing appends nothing. A standing hold logs once when it st
 
 ## Proposal shape
 
-A producer agent (filing, janitor, analyst) writing to `<user-queue>` follows this shape:
+**Every** writer to `<user-queue>` — filing, janitor, analyst, **this agent**, and any skill surfacing a clarification — follows this shape (canonical spec: `Format-User-Queue`):
 
+- **No checkbox, no item.** Every item is one `###` heading with at least one `- [ ]` option line beneath it — the UI surfaces only checkbox decisions; a prose-only item is invisible to the user. An ask whose options cannot be enumerated asks for the missing information *as* its option (`- [ ] <action>: REPLACE-WITH-<what>`); an advisory that needs eyes carries the dismissal option `- [ ] Acknowledged — clear this item`. Answers, outcomes, and FYIs never enter the queue — they go to the ledger or an inbox note. A compliant shape always exists (choices, a fill-in, or the dismissal line); when none seems to fit, the dismissal-option advisory is the fallback that still ships the item.
 - **Plain language.** Plain established vocabulary the user can answer cold — no internal shorthand (CONFIG § Queue protocol).
 - **Context first.** One line stating the file and the judgment call, enough to decide without opening anything; do not re-state context already in the header.
 - **One checkbox per choice.** Each option is a `[ ]` line; a multiple-choice item lists each option and the user checks exactly one.
-- **Every option fully specified.** Each option names its concrete outcome — the exact destination, name, or frontmatter value — so a checked box needs no further interpretation. No placeholder survives into an executable option.
+- **Every option fully specified.** Each option names its concrete outcome — the exact destination, name, or frontmatter value — so a checked box needs no further interpretation. No placeholder survives into an executable option (a `REPLACE-WITH-` placeholder must be edited by the user before its box counts as checked).
 - **Attribution.** Close the item with `_proposed: <date> by <agent>_`.
 
 Only a judgment call reaches `<user-queue>` — a structural change whose execution would alter how the user thinks of the file; a routine fixable violation goes to a script.

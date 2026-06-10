@@ -43,7 +43,7 @@ _proposed: YYYY-MM-DD by <agent>_
 
 ## Parse contract
 
-The note-kit-ui Now view (`plugin/note-kit-ui/src/nowView.ts`, `parseDecisions` / `isOpenDecision`) recognizes:
+The note-kit-ui Now view's decision parser (`parseDecisions` / `isOpenDecision`) recognizes:
 
 - option: `^(\s*[-*]\s+\[)(.)(\]\s+)(.*\S)(\s*)$` — a `-`/`*` bullet, one state char, non-empty text
 - heading: `^(#{2,})\s+(.*\S)\s*$`

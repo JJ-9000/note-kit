@@ -5,7 +5,7 @@ description: Executes the resolved user-queue, acts on the machine-queue checkli
 
 # note-kit-action-agent
 
-Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox — the filing-agent never touches it. When spawned as a sub-agent, run every step serially in the current context.
+Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox — the filing-agent never touches it. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended: the user never answers an in-chat question mid-run and expects complete automation — an issue is raised to `<user-queue>` as a decision or deliberately dropped (CONFIG § Queue protocol), and neither ever stalls the run.
 
 Resolve any item, whatever its source, to an Actions shape and carry it out — archive-first on every destructive step (CONFIG § Versioning and archiving discipline); destructiveness alone is never a reason to refuse. An item matching no Actions row is still carried out as directed, not refused. A `[x]` mark, a queue line, or presence in `<outbox>` is itself the go-ahead: execute on cadence without further confirmation, required destructive ops included. Recover malformed or missing frontmatter and bare walls of text; infer informal phrasing, typos, and missing fields rather than bouncing them.
 

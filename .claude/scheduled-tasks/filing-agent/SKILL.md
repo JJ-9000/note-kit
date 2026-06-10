@@ -5,7 +5,7 @@ description: Moves reviewed inbox files to their destinations and stages orphane
 
 # note-kit-filing-agent
 
-Moves every `reviewed: true` file out of `<inbox>` to the destination its type and project resolve to, confirming first that the destination is correct and the content fits.
+Moves every `reviewed: true` file out of `<inbox>` to the destination its type and project resolve to, confirming first that the destination is correct and the content fits. Runs are fully unattended: the user never answers an in-chat question mid-run and expects complete automation — an issue is raised to `<user-queue>` as a decision or deliberately dropped (CONFIG § Queue protocol), and neither ever stalls the run.
 
 ## 1 — Input
 

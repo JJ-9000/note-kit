@@ -16,10 +16,12 @@ jobs:
         python: ["3.9", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
+      - name: Install kit runtime dependencies
+        run: pip install pyyaml
       - name: Run smoke test
         run: python .claude/scripts/smoke_test.py
 
@@ -30,8 +32,8 @@ jobs:
       run:
         working-directory: plugin/note-kit-ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
       - name: Install dependencies
@@ -44,7 +46,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Assert VERSION file matches the pushed tag
         run: |
           tag="${GITHUB_REF_NAME#v}"

@@ -1,0 +1,47 @@
+vault_path: "<VAULT_ROOT>"
+inbox_folder: "00-Inbox"   # Update if your inbox is named differently. Also update INBOX_FOLDER in indexer.py and the exclude_paths below.
+host: "127.0.0.1"
+port: 8765
+
+embedding:
+  provider: "sentence-transformers"
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"
+  cache_dir: "<HOME>/.cache/sentence-transformers"
+  batch_size: 32
+
+index:
+  path: "<DATA_DIR>/index.db"
+  chunk_size_tokens: 500
+  chunk_overlap_tokens: 80
+  rebuild_on_schema_change: true
+
+watch:
+  debounce_seconds: 2.0
+  full_rescan_interval_hours: 6
+  exclude_paths:
+    - "99-Archive"
+    - "00-Inbox/Claude-Conversations"   # Replace "00-Inbox" to match inbox_folder above
+    - "00-Inbox/Sources"                # Replace "00-Inbox" to match inbox_folder above
+    - "03-Reference/99-Sources"
+    - ".obsidian"
+    - ".claude"
+    - ".smart-env"
+
+workflow_clustering:
+  enabled: true
+  algorithm: "louvain"
+  min_cluster_size: 2
+  jaccard_threshold: 0.15
+  recluster_interval_hours: 24
+  auto_label_with_haiku: false
+
+mcp:
+  transport: "http"
+
+lifecycle:
+  idle_shutdown_minutes: 120   # exit cleanly after this long without a request; 0 = run forever (the session-start hook relaunches it on demand)
+
+logging:
+  level: "INFO"
+  log_path: "<DATA_DIR>/daemon.log"

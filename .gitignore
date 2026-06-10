@@ -1,0 +1,18 @@
+# Machine-local — generated or rebuilt per install, never shared
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/vault-search/.venv/
+.claude/vault-search/data/
+
+# Build and cache artifacts
+__pycache__/
+*.pyc
+node_modules/
+package-lock.json
+
+# Per-user plugin settings (written by Obsidian at runtime)
+plugin/note-kit-ui/data.json
+
+# OS noise
+.DS_Store
+Thumbs.db

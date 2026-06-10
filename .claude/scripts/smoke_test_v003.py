@@ -1,0 +1,414 @@
+#!/usr/bin/env python3
+"""
+smoke_test_v003.py
+==================
+
+End-to-end smoke test for the assembled note-kit. Proves that the kit installs
+into a throwaway vault, that the deterministic layer runs against it without
+ImportError or any other exception, and that a FRESH install is clean — the
+audit proposes ~0 changes and never touches kit files under .claude/.
+
+What it does:
+  1. Scaffolds a disposable vault into a temp directory (NOT --clean, so the
+     install survives for the steps below). The scaffold installs the whole kit
+     to <tmp>/.claude/, writes settings.json + .mcp.json, creates the on-demand
+     inbox subfolders, and runs sync-config once.
+  2. Asserts the fresh install is correct, not just non-crashing:
+       - <tmp>/.mcp.json exists and registers the `vault` MCP server.
+       - <tmp>/<inbox>/00-Assets/ exists; retired surfaces are not scaffolded.
+  3. Runs, against that install, each deterministic entry point and asserts a
+     clean exit (returncode 0, no traceback on stderr):
+       - audit.py --dry-run                      (janitor deterministic layer)
+       - build_state_index_v003.py               (vault snapshot)
+       - sync_config_v003.py --vault-root <tmp>  (CONFIG -> CLAUDE/AGENTS sync)
+  4. Asserts the detect-only contract and a CLEAN fresh-install pass:
+       - audit.py --dry-run writes NOTHING — no state snapshot, no ledger
+         directory (the snapshot refresh is gated behind --apply);
+       - the snapshot written by the direct build_state_index run names zero
+         .claude/ paths (the kit must never propose moving its own files) and
+         carries ~0 open findings (a fresh scaffold is already compliant).
+     Fails loudly if the dry run wrote anything, or the snapshot names a kit
+     file or carries open findings.
+  5. Removes the temp vault.
+
+Each script is run as a fresh subprocess with the SAME interpreter, so an
+ImportError surfaces exactly as it would in production (sys.path is set up by
+each script from its own location inside the installed .claude/scripts/).
+
+Run:
+    python .claude/scripts/smoke_test_v003.py [--keep]
+
+Exit code 0 = PASS, 1 = FAIL. Prints a per-step table and a PASS/FAIL summary.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+_KIT_ROOT = _SCRIPTS_DIR.parent  # <vault>/.claude/ in an install, or the drop's .claude/
+
+# Resolve semantic folder names from the kit's own CONFIG.md so the snapshot
+# path below tracks CONFIG renames rather than hardcoding "99-Archive".
+sys.path.insert(0, str(_SCRIPTS_DIR))
+from config_variables_v002 import _folder_by_semantic  # noqa: E402
+
+_INBOX_FOLDER = _folder_by_semantic("inbox")
+_ARCHIVE_FOLDER = _folder_by_semantic("archive")
+
+
+# ---------------------------------------------------------------------------
+# Result tracking
+# ---------------------------------------------------------------------------
+
+class StepResult:
+    def __init__(self, name: str, ok: bool, detail: str = "") -> None:
+        self.name = name
+        self.ok = ok
+        self.detail = detail
+
+
+_RESULTS: list[StepResult] = []
+
+
+def _record(name: str, ok: bool, detail: str = "") -> bool:
+    _RESULTS.append(StepResult(name, ok, detail))
+    status = "PASS" if ok else "FAIL"
+    print(f"  [{status}] {name}" + (f" - {detail}" if detail else ""))
+    return ok
+
+
+# ---------------------------------------------------------------------------
+# Subprocess runner with exception/ImportError detection
+# ---------------------------------------------------------------------------
+
+_TRACEBACK_MARKERS = ("Traceback (most recent call last)", "ImportError", "ModuleNotFoundError")
+
+
+def _run(label: str, cmd: list[str], *, env: dict | None = None, cwd: str | None = None) -> bool:
+    """Run cmd; PASS iff returncode == 0 and stderr shows no traceback/ImportError."""
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=cwd,
+            timeout=300,
+        )
+    except Exception as exc:  # subprocess itself blew up (e.g. interpreter gone)
+        return _record(label, False, f"subprocess error: {exc}")
+
+    stderr = proc.stderr or ""
+    # A traceback/ImportError on stderr is a failure even if returncode is 0
+    # (e.g. a helper invoked by the script swallowed the non-zero exit).
+    has_trace = any(marker in stderr for marker in _TRACEBACK_MARKERS)
+
+    if proc.returncode != 0:
+        tail = stderr.strip().splitlines()[-3:] if stderr.strip() else ["(no stderr)"]
+        return _record(label, False, f"exit {proc.returncode}: " + " / ".join(tail))
+    if has_trace:
+        tail = stderr.strip().splitlines()[-3:]
+        return _record(label, False, "traceback/ImportError on stderr: " + " / ".join(tail))
+    return _record(label, True, "clean exit")
+
+
+# ---------------------------------------------------------------------------
+# Fresh-install assertions (fix 5): the scaffold must produce a clean,
+# self-consistent install — not merely a non-crashing one.
+# ---------------------------------------------------------------------------
+
+def _assert_mcp_json(tmp_vault: Path) -> None:
+    """<tmp>/.mcp.json exists and registers the `vault` HTTP MCP server."""
+    mcp = tmp_vault / ".mcp.json"
+    if not mcp.exists():
+        _record("fresh-install: .mcp.json present", False, f"MISSING: {mcp}")
+        return
+    try:
+        data = json.loads(mcp.read_text(encoding="utf-8"))
+        server = (data.get("mcpServers") or {}).get("vault") or {}
+        ok = server.get("type") == "http" and "8765" in str(server.get("url", ""))
+        detail = "vault HTTP server registered" if ok else f"unexpected block: {server!r}"
+        _record("fresh-install: .mcp.json registers vault server", ok, detail)
+    except Exception as exc:
+        _record("fresh-install: .mcp.json registers vault server", False, f"parse error: {exc}")
+
+
+def _assert_on_demand_dirs(tmp_vault: Path) -> None:
+    """The on-demand inbox subfolders skills write into must exist post-scaffold;
+    retired surfaces (00-Actions/, Checkpoints/) must NOT be scaffolded."""
+    inbox = tmp_vault / _INBOX_FOLDER
+    for label, p in [
+        ("fresh-install: <inbox>/00-Assets/", inbox / "00-Assets"),
+    ]:
+        _record(label, p.is_dir(), "present" if p.is_dir() else f"MISSING: {p}")
+    retired = inbox / "00-Actions"
+    _record(
+        "fresh-install: retired <inbox>/00-Actions/ not scaffolded",
+        not retired.exists(),
+        "absent" if not retired.exists() else f"PRESENT (retired surface): {retired}",
+    )
+
+
+def _snapshot_path(tmp_vault: Path) -> Path:
+    """The single shared state snapshot — <logs>/Vault-State-Index.md.
+
+    CONFIG-v005 § Log files: <logs> is <archive>/99-Logs/, and the snapshot
+    lives at its ROOT (not under an agent folder). build_state_index owns it;
+    audit.py refreshes it via build_state_index only under --apply — a
+    detect-only run writes nothing. There are no per-run log files in v005,
+    so this one file is the audit's whole proposed-work surface.
+    """
+    return tmp_vault / _ARCHIVE_FOLDER / "99-Logs" / "Vault-State-Index.md"
+
+
+def _assert_dry_run_wrote_nothing(tmp_vault: Path) -> None:
+    """audit.py --dry-run must write NOTHING: no state snapshot (its refresh is
+    gated behind --apply) and no janitor ledger directory."""
+    snap = _snapshot_path(tmp_vault)
+    _record(
+        "detect-only: no state snapshot written by --dry-run",
+        not snap.exists(),
+        "none" if not snap.exists() else f"UNEXPECTED: {snap}",
+    )
+    ledger_dir = tmp_vault / _ARCHIVE_FOLDER / "99-Logs" / "janitor-agent"
+    _record(
+        "detect-only: no ledger dir created by --dry-run",
+        not ledger_dir.exists(),
+        "none" if not ledger_dir.exists() else f"UNEXPECTED: {ledger_dir}",
+    )
+
+
+# Open-finding codes whose presence is inherent to a brand-new EMPTY scaffold
+# and therefore not a defect: every canonical type has zero members, so the
+# audit's drift pass emits one `type-unused` per type. These are analyst-macro
+# observations, not per-file fixes the scaffold should have prevented.
+_BENIGN_EMPTY_VAULT_CODES = frozenset({"type-unused"})
+
+
+def _open_findings(snapshot_text: str) -> list[tuple[str, str]]:
+    """Return (code, raw_row) for each state row in the ## Open findings section.
+
+    A clean section is the single sentinel '(no open findings)' and yields [].
+    A populated section carries pipe-delimited state rows
+    (`timestamp | actor | code | target | count`, CONFIG § Log files) — both
+    the count-rollup rows and the per-file detail rows. `code` is the third pipe
+    field. The HTML shape comment and blank separators are skipped.
+    """
+    rows: list[tuple[str, str]] = []
+    in_section = False
+    for ln in snapshot_text.splitlines():
+        s = ln.strip()
+        if s.startswith("## Open findings"):
+            in_section = True
+            continue
+        if in_section and s.startswith("## "):  # next section ends it
+            break
+        if not in_section or not s:
+            continue
+        if s.startswith("<!--") or s == "(no open findings)":
+            continue
+        if "|" not in s:
+            continue
+        parts = [p.strip() for p in s.split("|")]
+        code = parts[2] if len(parts) >= 3 else parts[0]
+        rows.append((code, s))
+    return rows
+
+
+def _assert_clean_audit(tmp_vault: Path) -> None:
+    """The shared state snapshot must have zero .claude/ paths and no actionable
+    open findings (a brand-new empty scaffold's `type-unused` macro excepted).
+
+    v005 logging model (CONFIG § Log files): two artifacts under <logs>, no
+    per-run files. The snapshot here comes from the DIRECT build_state_index
+    run (audit.py refreshes it only under --apply; a detect-only run writes
+    nothing). A fresh scaffold is already compliant, so the snapshot must:
+      - name no path under .claude/ (proposing to touch kit files is the
+        stale-install / dot-dir-scan failure this guards against), and
+      - carry no open finding except the inherent empty-vault `type-unused`
+        (every canonical type has zero members in a just-created vault). Any
+        other finding — a stray-folder on the scaffold's own subfolders, a
+        would-move, a missing-frontmatter — means the install is not pristine.
+    """
+    snap = _snapshot_path(tmp_vault)
+    if not snap.exists():
+        _record("fresh-install: state snapshot written", False, f"missing: {snap}")
+        return
+    _record("fresh-install: state snapshot written", True, snap.name)
+
+    text = snap.read_text(encoding="utf-8")
+
+    # (c1) Zero .claude/ paths anywhere in the snapshot. Match both slash styles.
+    claude_hits = [
+        ln.strip() for ln in text.splitlines()
+        if ".claude/" in ln or ".claude\\" in ln
+    ]
+    _record(
+        "fresh-install: snapshot has zero .claude/ paths",
+        not claude_hits,
+        "none" if not claude_hits else f"{len(claude_hits)} hit(s): {claude_hits[0][:80]}",
+    )
+
+    # (c2) No actionable open finding. `type-unused` is inherent to an empty
+    # scaffold and excepted; every other code is a real proposed change.
+    findings = _open_findings(text)
+    benign = [r for code, r in findings if code in _BENIGN_EMPTY_VAULT_CODES]
+    actionable = [(code, r) for code, r in findings if code not in _BENIGN_EMPTY_VAULT_CODES]
+    if benign:
+        # Informational, non-failing: the expected empty-vault macro rows.
+        _record(
+            f"fresh-install: {len(benign)} benign type-unused macro row(s) "
+            "(empty vault, expected)",
+            True,
+            "excepted",
+        )
+    distinct = sorted({code for code, _ in actionable})
+    _record(
+        "fresh-install: snapshot has no actionable open findings",
+        not actionable,
+        "none" if not actionable
+        else f"{len(actionable)} row(s); codes: {', '.join(distinct)}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Smoke-test the assembled note-kit.")
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Do not delete the scaffolded temp vault (for debugging).",
+    )
+    args = parser.parse_args()
+
+    print("note-kit smoke test")
+    print(f"  kit root: {_KIT_ROOT}")
+
+    scaffold_src = _SCRIPTS_DIR / "scaffold_vault_v003.py"
+    if not scaffold_src.exists():
+        _record("locate scaffold", False, f"not found: {scaffold_src}")
+        return _summary()
+
+    # 1. Scaffold a disposable vault into a temp dir. We create the temp dir
+    #    ourselves and pass it as --path WITHOUT --clean, so the install survives
+    #    for the steps below; we remove it at the end. (--path under the system
+    #    temp dir would also satisfy the scaffold's --clean guard, but we want
+    #    the tree to persist between steps.)
+    tmp_vault = Path(tempfile.mkdtemp(prefix="note-kit-smoke-"))
+    print(f"  temp vault: {tmp_vault}")
+
+    try:
+        ok = _run(
+            "scaffold install (.claude/ + settings.json + sync)",
+            [sys.executable, str(scaffold_src), "--path", str(tmp_vault)],
+        )
+
+        # Resolve the installed scripts dir — every later step must run the
+        # INSTALLED copy so its own sys.path bootstrap is exercised.
+        installed_scripts = tmp_vault / ".claude" / "scripts"
+        installed_audit = tmp_vault / ".claude" / "scheduled-tasks" / "janitor-agent" / "audit.py"
+
+        # Verify the install actually produced the pieces we are about to run.
+        for label, p in [
+            ("install: .claude/CONFIG.md", tmp_vault / ".claude" / "CONFIG.md"),
+            ("install: .claude/CLAUDE.md", tmp_vault / ".claude" / "CLAUDE.md"),
+            ("install: .claude/RULES.md", tmp_vault / ".claude" / "RULES.md"),
+            ("install: .claude/settings.json", tmp_vault / ".claude" / "settings.json"),
+            ("install: scripts/build_state_index_v003.py",
+             installed_scripts / "build_state_index_v003.py"),
+            ("install: janitor-agent/audit.py", installed_audit),
+        ]:
+            _record(label, p.exists(), "present" if p.exists() else f"MISSING: {p}")
+
+        # 1b. Fresh-install structural assertions — the scaffold must produce a
+        #     clean, self-consistent install: the retrieval-spine .mcp.json and
+        #     the on-demand inbox subfolders skills write into.
+        _assert_mcp_json(tmp_vault)
+        _assert_on_demand_dirs(tmp_vault)
+
+        # 2a. audit.py --dry-run — this is the import-blocker canary. It imports
+        #     the helper modules; a missing one is an ImportError here.
+        janitor_env = {**os.environ, "JANITOR_VAULT_ROOT": str(tmp_vault)}
+        if installed_audit.exists():
+            audit_ok = _run(
+                "audit.py --dry-run",
+                [sys.executable, str(installed_audit), "--dry-run"],
+                env=janitor_env,
+                cwd=str(tmp_vault),
+            )
+            # 2a'. Detect-only contract: a dry run writes NOTHING — no state
+            #      snapshot, no ledger directory.
+            if audit_ok:
+                _assert_dry_run_wrote_nothing(tmp_vault)
+        else:
+            _record("audit.py --dry-run", False, "audit.py not installed; cannot run")
+
+        # 2b. build_state_index_v003.py — vault snapshot.
+        bsi = installed_scripts / "build_state_index_v003.py"
+        if bsi.exists():
+            bsi_ok = _run(
+                "build_state_index_v003.py",
+                [sys.executable, str(bsi)],
+                env=janitor_env,
+                cwd=str(tmp_vault),
+            )
+            # 2b'. Clean fresh-install assertion: read the snapshot this direct
+            #      run wrote and fail loudly if it named a .claude/ path or
+            #      carried any open finding on a freshly scaffolded
+            #      (already-compliant) vault.
+            if bsi_ok:
+                _assert_clean_audit(tmp_vault)
+        else:
+            _record("build_state_index_v003.py", False, "not installed; cannot run")
+
+        # 2c. sync_config_v003.py --vault-root <tmp> — CONFIG -> CLAUDE/AGENTS.
+        sync = installed_scripts / "sync_config_v003.py"
+        if sync.exists():
+            _run(
+                "sync_config_v003.py --vault-root",
+                [sys.executable, str(sync), "--vault-root", str(tmp_vault)],
+                cwd=str(tmp_vault),
+            )
+        else:
+            _record("sync_config_v003.py --vault-root", False, "not installed; cannot run")
+
+    finally:
+        # 3. Clean up the temp vault unless --keep.
+        if args.keep:
+            print(f"  --keep set; leaving temp vault at {tmp_vault}")
+        else:
+            shutil.rmtree(tmp_vault, ignore_errors=True)
+            print(f"  cleaned up {tmp_vault}")
+
+    return _summary()
+
+
+def _summary() -> int:
+    total = len(_RESULTS)
+    passed = sum(1 for r in _RESULTS if r.ok)
+    failed = total - passed
+    print()
+    print("=" * 60)
+    if failed == 0 and total > 0:
+        print(f"SMOKE TEST: PASS ({passed}/{total} steps)")
+        return 0
+    print(f"SMOKE TEST: FAIL ({passed}/{total} passed, {failed} failed)")
+    for r in _RESULTS:
+        if not r.ok:
+            print(f"  - {r.name}: {r.detail}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

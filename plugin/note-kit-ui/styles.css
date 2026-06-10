@@ -1,0 +1,600 @@
+/* Note-Kit UI — static presentation.
+   Per-prefix weights and per-type colours are emitted at runtime (see css.ts);
+   this file holds the structural rules that reference them. Override any value
+   in a CSS snippet or Style Settings without touching the plugin. */
+
+:root {
+	--nkui-dot-size: 8px;
+	--nkui-dot-gap: 6px;
+	--nkui-draft-color: var(--color-orange, #e3742f);
+	--nkui-accent-width: 3px;
+}
+
+/* ── (c) per-type dot on explorer rows ─────────────────────────────────────── */
+.nav-file-title[data-nkui-type]::before {
+	content: "";
+	display: inline-block;
+	flex: 0 0 auto;
+	width: var(--nkui-dot-size);
+	height: var(--nkui-dot-size);
+	margin-right: var(--nkui-dot-gap);
+	border-radius: 50%;
+	background: var(--nkui-type-color, var(--text-faint));
+	align-self: center;
+}
+
+/* ── (c) accent the open note by type ──────────────────────────────────────── */
+.workspace-leaf-content[class*="nkui-type-"] .view-content {
+	box-shadow: inset var(--nkui-accent-width) 0 0 0 var(--nkui-type-color, transparent);
+}
+
+/* ── (d) per-row draft dot ─────────────────────────────────────────────────── */
+.nav-file-title[data-nkui-reviewed="false"]::after {
+	content: "";
+	flex: 0 0 auto;
+	width: var(--nkui-dot-size);
+	height: var(--nkui-dot-size);
+	margin-left: auto;
+	border-radius: 50%;
+	background: var(--nkui-draft-color);
+	align-self: center;
+}
+
+/* ── (d) live "N unreviewed" pill on the inbox folder row ───────────────────── */
+.nkui-inbox-count {
+	margin-left: auto;
+	flex: 0 0 auto;
+	/* The folder-title row is align-items:baseline; a fixed-height pill
+	   baseline-anchored hangs toward the baseline and rides ~2px low. Center
+	   the box on the line so the folder text stays vertically centred to it. */
+	align-self: center;
+	min-width: 1.1em;
+	padding: 0 6px;
+	border-radius: 9px;
+	background: var(--nkui-draft-color);
+	color: var(--text-on-accent, #fff);
+	font-size: var(--font-ui-smaller, 11px);
+	font-weight: var(--font-semibold, 600);
+	line-height: 1.45;
+	text-align: center;
+}
+
+/* ── "Now" front-page view ─────────────────────────────────────────────────── */
+/* Bottom safety zone — must outrank Obsidian's own `.workspace-leaf-content
+   .view-content` padding-bottom (max(safe-area, 32px)), which otherwise wins
+   on specificity and lets the floating status bar / sidedock vault profile
+   sit on the pane's last rows. */
+.workspace-leaf-content .view-content.nkui-now {
+	padding-bottom: calc(max(var(--safe-area-inset-bottom, 0px), 3em) + var(--mobile-navbar-height, 0px) + 44px);
+}
+
+.nkui-now {
+	padding: 1.5em 1.25em 3em;
+	overflow-y: auto;
+	/* Opaque hover colour so text never sits on a semi-transparent background
+	   (which disables Windows ClearType and looks like the text resizing). */
+	--nkui-hover: color-mix(in srgb, var(--background-primary), var(--text-normal) 6%);
+}
+/* ── Spacing standard ─────────────────────────────────────────────────────────
+   One four-step scale for ALL chrome spacing, in fixed px so a gap renders the
+   same size regardless of the local font size (em-based gaps shrink inside
+   smaller-type elements and the columns drift). Content-relative sizes (a pill
+   slot sized to its label) may stay in em; everything between elements uses
+   these steps. A hidden element is display:none — it contributes no gap. */
+:root {
+	--nkui-gap-2xs: 4px;  /* intra-chip: icon↔text, checkbox↔label, stacked strip rows */
+	--nkui-gap-s: 8px;    /* between elements in a row: columns, dot↔title, chips */
+	--nkui-gap-m: 16px;   /* between blocks: section heads, dividers, strip groups */
+	--nkui-gap-l: 24px;   /* between regions: page head ↔ first bucket */
+}
+.nkui-now > * {
+	max-width: 760px;
+	margin-inline: auto;
+}
+.nkui-now-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--nkui-gap-m);
+	margin-bottom: var(--nkui-gap-l);
+}
+.nkui-now-titleblock {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15em;
+	min-width: 0;
+}
+/* title formatting standard: bold primary line + quiet secondary line */
+.nkui-now-title {
+	font-size: 1.9em;
+	font-weight: 800;
+	line-height: 1.1;
+	letter-spacing: -0.02em;
+	/* track the theme's heading colour (green here) so theme settings drive it */
+	color: var(--h2-color, var(--text-normal));
+}
+.nkui-now-subtitle {
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+}
+.nkui-now-refresh {
+	flex: 0 0 auto;
+}
+/* each bucket is a foldable, type-coloured header with its items beneath */
+.nkui-now-group {
+	margin-bottom: var(--nkui-gap-s);
+}
+.nkui-now-group-head {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	padding: 0.25em 0.4em;
+	margin-inline: -0.4em;
+	border-radius: var(--radius-s, 6px);
+	cursor: pointer;
+	user-select: none;
+}
+.nkui-now-group-head:hover {
+	background: var(--nkui-hover);
+}
+
+/* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr */
+.nkui-now-foldwrap {
+	display: grid;
+	grid-template-rows: 1fr;
+	transition: grid-template-rows 170ms ease, opacity 170ms ease;
+}
+.nkui-now-group.is-collapsed .nkui-now-foldwrap {
+	grid-template-rows: 0fr;
+	opacity: 0;
+}
+.nkui-now-foldwrap > .nkui-now-list {
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* rule separating Active from the unread buckets above.
+   Only set vertical margins — horizontal stays `auto` (from .nkui-now > *) so the
+   divider centres with the rest instead of hugging the left. */
+.nkui-now-divider {
+	border-top: 1px solid var(--background-modifier-border);
+	margin-block: var(--nkui-gap-m);
+}
+.nkui-now-group-title {
+	font-size: 1.3em;
+	font-weight: 800;
+	text-transform: capitalize;
+	letter-spacing: -0.01em;
+	color: var(--text-normal);
+}
+/* count as a notification bubble; background colour is set inline to the type colour.
+   Fixed box (height + inline-flex centring + tabular digits) so a 1→2 digit count
+   never changes the bubble's height and the header doesn't jump on fold. */
+.nkui-now-count {
+	flex: 0 0 auto;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.7em;
+	height: 1.45em;
+	padding: 0 0.5em;
+	border-radius: 10px;
+	background: var(--text-faint);
+	color: var(--text-on-accent, #fff);
+	font-size: var(--font-ui-smaller, 12px);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+.nkui-now-count-neutral {
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+.nkui-now-empty {
+	color: var(--text-faint);
+	font-style: italic;
+	padding: 0.3em 0;
+}
+.nkui-now-row {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	min-height: 26px;
+	padding: 0.12em 0.5em;
+	margin: 0 -0.5em;
+	border-radius: var(--radius-s, 6px);
+	cursor: pointer;
+}
+.nkui-now-row:hover {
+	background: var(--nkui-hover);
+}
+/* indent rows beneath a group header so they read as members of it */
+.nkui-now-group .nkui-now-row {
+	padding-left: 1.55em;
+}
+.nkui-now-dot {
+	flex: 0 0 auto;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--text-faint);
+}
+.nkui-now-dot-empty {
+	box-shadow: inset 0 0 0 1px var(--text-faint);
+	background: transparent;
+}
+.nkui-now-rowtitle {
+	flex: 1 1 auto; /* grow so the meta sits right-aligned */
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--text-normal);
+}
+.nkui-now-rowmeta {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--nkui-gap-s); /* same step as the row gap — px-stable, immune to the smaller meta font */
+	margin-right: var(--nkui-gap-s); /* a little padding so meta isn't flush to the edge */
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--text-faint);
+	white-space: nowrap;
+}
+/* Meta columns: each column's width is set at render time to its widest member
+   (equalizeMetaColumns in nowView.ts — measured, not guessed), so the meta block
+   is the same width on every row and every internal gap is exactly the block's
+   8px step. When a column is uniform (every Active row says "project") the box
+   equals the text and there is zero slack. The type right-aligns (any slack hugs
+   the pill side of a rare short word); the age left-aligns so the gap before it
+   never varies — its slack trails into the row margin where nothing sits. */
+.nkui-now-metatype {
+	display: inline-block;
+	text-align: right;
+}
+.nkui-now-metaage {
+	display: inline-block;
+	text-align: left;
+	font-variant-numeric: tabular-nums;
+}
+/* The pill's slot is a fixed column inside the meta block: always rendered so
+   the block keeps one width across rows, right-aligned so the pill hugs the
+   type at exactly the block's gap — pill↔type spacing equals type↔age. */
+.nkui-now-pillslot {
+	display: inline-flex;
+	justify-content: flex-end;
+	min-width: 4.2em;
+}
+.nkui-now-draftpill {
+	flex: 0 0 auto;
+	padding: 0 7px;
+	border-radius: 9px;
+	font-size: var(--font-ui-smaller, 11px);
+	font-weight: var(--font-semibold, 600);
+	color: var(--text-on-accent, #fff);
+	background: var(--nkui-draft-color);
+}
+/* Container caption: a quiet line naming the working set its member rows
+   belong to, so peer/approval relationships read at a glance. */
+.nkui-now-containercap {
+	padding-left: 1.55em;
+	margin-top: var(--nkui-gap-2xs);
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--text-faint);
+}
+.nkui-now-row-contained {
+	padding-left: 2.4em !important;
+}
+/* The gate row outranks its children visually: the document to read is brighter
+   and slightly larger; non-gate peers recede to muted. */
+.nkui-now-row-gate .nkui-now-rowtitle {
+	font-weight: 650;
+	font-size: 1.06em;
+	color: var(--text-normal);
+}
+.nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-rowtitle {
+	color: var(--text-muted);
+	font-size: 0.95em;
+}
+/* Gate badge: marks the one document to read — approving it approves the set. */
+.nkui-now-gatepill {
+	flex: 0 0 auto;
+	padding: 0 6px;
+	border-radius: 8px;
+	border: 1px solid var(--interactive-accent);
+	color: var(--interactive-accent);
+	background: transparent;
+	font-size: var(--font-ui-smaller, 11px);
+	font-weight: var(--font-semibold, 600);
+	line-height: 1.4;
+}
+/* quiet "+N" marking a folded working-set behind its gate row */
+.nkui-now-setcount {
+	flex: 0 0 auto;
+	margin-left: var(--nkui-gap-2xs);
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--text-faint);
+}
+.nkui-now-more {
+	color: var(--text-faint);
+	font-size: var(--font-ui-small, 13px);
+	padding: 0.4em 0.6em;
+}
+
+/* queue items — Decide (checkbox) and Queue (click-to-strike) buckets */
+.nkui-now-qrow {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	padding: 0.18em 0.5em 0.18em 1.55em;
+	margin: 0 -0.5em;
+	border-radius: var(--radius-s, 6px);
+}
+.nkui-now-qrow:hover {
+	background: var(--nkui-hover);
+}
+.nkui-now-qrow-strike {
+	cursor: pointer;
+}
+.nkui-now-qcheck {
+	flex: 0 0 auto;
+	cursor: pointer;
+}
+.nkui-now-qtext {
+	flex: 1 1 auto;
+	min-width: 0;
+	cursor: pointer;
+	color: var(--text-normal);
+}
+.nkui-now-qtext.is-done {
+	text-decoration: line-through;
+	color: var(--text-faint);
+}
+.nkui-now-qadd {
+	padding: 0.25em 0.5em 0.1em 1.55em;
+}
+.nkui-now-qaddinput {
+	width: 100%;
+	box-sizing: border-box;
+	-webkit-appearance: none; /* strip iOS native input chrome that clips the text */
+	appearance: none;
+	background: transparent;
+	border: none;
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-radius: 0 !important; /* theme/mobile sets a pill radius that clips the text */
+	padding: 0.2em 0;
+	color: var(--text-normal);
+	font-size: var(--font-ui-small, 13px);
+}
+.nkui-now-qaddinput:focus {
+	border-bottom-color: var(--interactive-accent);
+	box-shadow: none;
+	outline: none;
+}
+
+/* ── Decide — one card per decision; its options are the picks within ────────── */
+.nkui-now-decision {
+	padding: 0.35em 0.5em 0.2em 1.55em;
+	margin: 0 -0.5em 0.2em;
+}
+.nkui-now-decision + .nkui-now-decision {
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: 0.55em;
+}
+.nkui-now-decision-title {
+	font-weight: var(--font-semibold, 600);
+	color: var(--text-normal);
+	cursor: pointer;
+	margin-bottom: 0.1em;
+}
+.nkui-now-decision-title:hover {
+	text-decoration: underline;
+}
+/* Context is supporting detail — quiet, and clamped so a long paragraph stays calm. */
+.nkui-now-decision-context {
+	font-size: var(--font-ui-smaller, 12px);
+	color: var(--text-muted);
+	margin-bottom: 0.35em;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+/* One option row — a checkbox you tick to pick it; text wraps so it stays readable. */
+.nkui-now-optrow {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--nkui-gap-s);
+	padding: 0.18em 0.5em;
+	margin: 0 -0.5em;
+	border-radius: var(--radius-s, 6px);
+}
+.nkui-now-optrow:hover {
+	background: var(--nkui-hover);
+}
+.nkui-now-optrow .nkui-now-qcheck {
+	flex: 0 0 auto;
+	margin-top: 0.2em;
+	cursor: pointer;
+}
+.nkui-now-opttext {
+	flex: 1 1 auto;
+	min-width: 0;
+	cursor: pointer;
+	color: var(--text-normal);
+}
+
+/* ── Calm reading — reading-mode overrides that reduce note noise (toggle) ──── */
+
+/* Properties: one compact, grouped, human-relevant line — not a 6-row table.
+   Drop the chrome (heading, icons, key labels, add button), curate out the
+   machine/filesystem fields, and show the values inline. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-properties-heading,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-add-button,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-key {
+	display: none !important;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-properties {
+	display: flex !important;
+	flex-direction: row !important;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: var(--nkui-gap-2xs) var(--nkui-gap-m);
+	margin: 0;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
+	flex: 0 0 auto;
+	width: auto !important;
+	min-height: 0;
+	padding: 0;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value {
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+}
+/* A long free-text value (e.g. `description` on skill/spec notes) must take its
+   own full-width row and wrap. As a `flex: 0 0 auto` item it otherwise sizes to
+   its content and pushes the Properties row wider than the screen, scrolling off
+   to the right on mobile. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="description"] {
+	order: 6 !important;
+	flex-basis: 100% !important;
+	width: 100% !important;
+	max-width: 100% !important;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="description"] .metadata-property-value {
+	white-space: normal;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+/* General guard: no property may exceed the row width, and any value wraps
+   rather than overflowing horizontally (covers other long fields, e.g. name). */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
+	max-width: 100%;
+	min-width: 0;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value {
+	overflow-wrap: anywhere;
+}
+/* Curate: hide only filesystem/filing. Keep type, date, status (draft) and the
+   reviewed toggle (actionable — you check it to clear a draft). */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="parent"] {
+	display: none !important;
+}
+/* Edit furniture stays out of reading mode: the date property's action icon is
+   an editing affordance, and in the calm strip it reads as a floating orphan
+   glyph with its own gap. Hidden = display:none, so it contributes no space.
+   Live edit keeps it. */
+.nkui-calm-reading .markdown-reading-view .metadata-property .clickable-icon {
+	display: none !important;
+}
+/* Group line 1: type · date · draft · reviewed; tags drop to their own line. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="type"] { order: 1 !important; }
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="date"] { order: 2 !important; }
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="status"] { order: 3 !important; }
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"] { order: 4 !important; }
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="tags"] {
+	order: 5 !important;
+	flex-basis: 100% !important;
+	justify-content: center;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="tags"] .metadata-property-value {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: var(--nkui-gap-2xs);
+	width: 100%;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="tags"] .multi-select-container {
+	justify-content: center;
+	width: 100%;
+}
+/* Drop the trailing "add tag" input in reading mode so the pills truly centre. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="tags"] .multi-select-input {
+	display: none !important;
+}
+/* Label the lone reviewed checkbox without showing the editable key field. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"] .metadata-property-value::before {
+	content: "reviewed ";
+	color: var(--text-muted);
+	margin-right: 0.25em;
+}
+/* No hover/focus outline or box on the metadata fields — a gentle opacity shift
+   instead. Background is only reset on the row itself, never on child controls,
+   so a checked reviewed checkbox keeps its checkmark. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
+	opacity: 0.8;
+	transition: opacity 120ms ease;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:hover,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:focus-within {
+	opacity: 1;
+	background: transparent !important;
+}
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:hover,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:focus,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:focus-within,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property *:hover,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property *:focus,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property *:focus-within {
+	outline: none !important;
+	box-shadow: none !important;
+}
+/* Kill the value container's hover/focus box (e.g. around the reviewed checkbox)
+   without touching the checkbox input itself, so the checkmark stays. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value:hover,
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value:focus-within {
+	background: transparent !important;
+	box-shadow: none !important;
+}
+
+/* Keep the theme's heading / emphasis / code colours — they are skimming
+   scaffolding, not noise. Only hide the edit-only × on tag pills while reading. */
+/* Reading mode only: drop the edit-only × and centre the pill text. Live
+   Preview keeps the × so tags stay removable while editing. */
+.nkui-calm-reading .markdown-reading-view .multi-select-pill-remove-button {
+	display: none !important;
+}
+.nkui-calm-reading .markdown-reading-view .multi-select-pill-content {
+	margin-inline: 0.55em !important;
+}
+
+/* J27 — reading mode follows live-edit. The reading-only body transforms
+   (capped 42rem measure, 1.7 leading, block-promoted bold lead-in labels,
+   custom heading spacing, slimmed inline code) were removed: they made the body
+   reflow every time you toggled reading ⇄ live-edit. Reading now inherits the
+   same theme defaults the editor uses, so the two modes read alike. calmReading
+   still quietens the properties block (both modes) and drops the edit-only tag ×.
+   To restore the reading-comfort styling, reinstate these rules under
+   `.nkui-calm-reading .markdown-reading-view`. */
+
+/* ── Mobile hardening — larger tap targets; never depend on hover ───────────── */
+body.is-mobile .nkui-now-group-head,
+body.is-mobile .nkui-now-row,
+body.is-mobile .nkui-now-qrow {
+	min-height: 40px;
+}
+body.is-mobile .nkui-now-row,
+body.is-mobile .nkui-now-qrow {
+	padding-top: 0.45em;
+	padding-bottom: 0.45em;
+}
+body.is-mobile .nkui-now-qcheck {
+	width: 20px;
+	height: 20px;
+}
+body.is-mobile .nkui-now-qaddinput {
+	font-size: 16px; /* ≥16px stops iOS zooming in on focus */
+	line-height: 1.5; /* explicit line box so iOS centres the text in the tap target */
+	padding: 0.55em 0.5em; /* breathing room so the placeholder/text never clips */
+	min-height: 40px;
+	text-overflow: ellipsis; /* a long typed value trails off cleanly, no hard cut */
+}
+/* Hover-only chrome is unreachable by touch — keep it visible on mobile. */
+body.is-mobile .nav-buttons-container .clickable-icon,
+body.is-mobile .workspace-tab-header:not(.is-active),
+body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
+	opacity: 1 !important;
+}

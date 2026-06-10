@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "python ./.claude/hooks/load-rules.py"
+      }
+    ],
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python ./.claude/hooks/session-start-context.py"
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python ./.claude/hooks/session-end-audit.py"
+      }
+    ]
+  }
+}

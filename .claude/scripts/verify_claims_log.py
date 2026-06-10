@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""verify_claims_log_v001.py — append one run-summary line to the verify-claims log.
+"""verify_claims_log.py — append one run-summary line to the verify-claims log.
 
 Trigger: end of each verify-claims run (Phase 5). Registered in
 CONFIG.md § Helper-script automation.
@@ -16,7 +16,7 @@ Line format (the kit's run-log format — parsed, not read):
 The analyst-agent reads this file on its weekly sweep.
 
 Usage:
-    python verify_claims_log_v001.py --source <rel-path> \
+    python verify_claims_log.py --source <rel-path> \
         --total N --verified A --disputed B --unresolved C [--vault-root PATH]
 """
 from __future__ import annotations
@@ -26,11 +26,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# --- Path bootstrap (same pattern as build_state_index_v001.py) -------------
+# --- Path bootstrap (same pattern as build_state_index.py) -------------
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables_v002 import _folder_by_semantic  # noqa: E402
+from config_variables import _folder_by_semantic  # noqa: E402
 
 
 def main() -> int:

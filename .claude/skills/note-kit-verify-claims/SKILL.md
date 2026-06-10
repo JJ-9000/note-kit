@@ -136,7 +136,7 @@ The admission states the limit in plain prose. It never narrates the run: no "au
 
 ## Phase 5 — Handoff
 
-**Log the run.** Call `python <kit-root>/scripts/verify_claims_log_v002.py --source <rel-path> --total N --verified A --disputed B --unresolved C`; it appends one pipe line to `<logs>/verify-claims/verify-claims-runs.md`. Verdict counts live there, not in the note.
+**Log the run.** Call `python <kit-root>/scripts/verify_claims_log.py --source <rel-path> --total N --verified A --disputed B --unresolved C`; it appends one pipe line to `<logs>/verify-claims/verify-claims-runs.md`. Verdict counts live there, not in the note.
 
 **Unattended runs — route the unknowns.** With no user to talk to, each UNRESOLVED claim becomes a `<user-queue>` item (CONFIG § Queue protocol) carrying its named resolution path. If unresolved work blocks completion entirely — a STRUCTURAL claim that guts the doc, or an undetermined merge target — write the open question to `<user-queue>` and keep run state in the working set; the action-agent re-invokes the skill on that set once the user answers.
 

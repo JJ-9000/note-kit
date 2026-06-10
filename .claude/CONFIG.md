@@ -352,15 +352,15 @@ A new script registers its trigger here in the same change.
 
 | script | trigger |
 |---|---|
-| `config_variables_v002.py` | imported by every kit script at startup |
-| `sync_config_v003.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables and stamps the § Pipeline protocol block into the pipeline skills |
-| `build_state_index_v003.py` | start of each janitor-agent run (apply mode — a detect-only audit refreshes nothing); consumed again by analyst-agent. Records a per-file body content hash in the snapshot; `reviewed-stale` fires only on a recorded content change newer than the review, with bulk-touch (≥10 shared mtimes) and reciprocal-pair findings suppressed; counts archived members for lifecycle types so a healthy lifecycle never reads `type-unused` |
+| `config_variables.py` | imported by every kit script at startup |
+| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables and stamps the § Pipeline protocol block into the pipeline skills |
+| `build_state_index.py` | start of each janitor-agent run (apply mode — a detect-only audit refreshes nothing); consumed again by analyst-agent. Records a per-file body content hash in the snapshot; `reviewed-stale` fires only on a recorded content change newer than the review, with bulk-touch (≥10 shared mtimes) and reciprocal-pair findings suppressed; counts archived members for lifecycle types so a healthy lifecycle never reads `type-unused` |
 | `audit.py` (at `<kit-root>/scheduled-tasks/janitor-agent/`) | each janitor-agent run; detect-only by default, writes only with `--apply`; invokes normalize_type, normalize_tag, rename_with_link_integrity, and subfolder_housekeeping inline; reverts an off-canon kit folder name; resolves missing dates deterministically (archive provenance → session date → import date, tagged `inferred`); flags a duplicate canonical plan per scope (`duplicate-canonical-plan`); never walks the vault root's loose files or an asset folder's interior |
-| `subfolder_housekeeping_v001.py` | inline by audit.py each janitor run; prunes empty subfolders and empty indexes (deterministic) |
-| `index_helpers_v002.py` | filing-agent and analyst-agent index inserts |
-| `rename_with_link_integrity_v002.py` | audit.py rename passes; manual invocation supported |
-| `normalize_type_v002.py` / `normalize_tag_v002.py` | inline by audit.py and filing-agent |
-| `scaffold_vault_v003.py` | manual; documented in README.md. Seeds `<machine-queue>` and `<user-queue>` with checkable example items; `--with-ui-plugin <dir>` installs the note-kit-ui Obsidian plugin and merges it into `community-plugins.json` |
+| `subfolder_housekeeping.py` | inline by audit.py each janitor run; prunes empty subfolders and empty indexes (deterministic) |
+| `index_helpers.py` | filing-agent and analyst-agent index inserts |
+| `rename_with_link_integrity.py` | audit.py rename passes; manual invocation supported |
+| `normalize_type.py` / `normalize_tag.py` | inline by audit.py and filing-agent |
+| `scaffold_vault.py` | manual; documented in README.md. Seeds `<machine-queue>` and `<user-queue>` with checkable example items; `--with-ui-plugin <dir>` installs the note-kit-ui Obsidian plugin and merges it into `community-plugins.json` |
 | `dedup_vtt.py` | invoked by the youtube-to-note skill |
-| `verify_claims_log_v002.py` | end of each verify-claims run |
-| `age_to_cold_storage_v001.py` | daily; logs `<archive>` item age past `archive-retention`; the analyst judges the move into `<history>` |
+| `verify_claims_log.py` | end of each verify-claims run |
+| `age_to_cold_storage.py` | daily; logs `<archive>` item age past `archive-retention`; the analyst judges the move into `<history>` |

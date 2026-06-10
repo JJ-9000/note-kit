@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bifurcate_plan_v002.py
+bifurcate_plan.py
 ======================
 
 Split a managed plan at session end. The deterministic half of the
@@ -49,9 +49,9 @@ Public API
         dot-directory.
 
 Run with no arguments to execute the self-tests against a temp fixture:
-    python scripts/bifurcate_plan_v002.py
+    python scripts/bifurcate_plan.py
 Run with a plan path to operate (dry-run unless --apply):
-    python scripts/bifurcate_plan_v002.py <plan.md> [--apply]
+    python scripts/bifurcate_plan.py <plan.md> [--apply]
 """
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables_v002 import (  # noqa: E402
+from config_variables import (  # noqa: E402
     FILE_HANDLING,
     _folder_by_semantic,
     folder_for_wildcard,
@@ -268,7 +268,7 @@ def _new_changelog_text(plan_stem: str, plan_fm: dict, date_str: str) -> str:
         f"The completed-items changelog for [[{plan_stem}]]. When that plan "
         f"bifurcates at session end, its checked items split out here under a "
         f"dated heading and the open remainder rises to the inbox for "
-        f"re-approval, done by `bifurcate_plan_v002.py`."
+        f"re-approval, done by `bifurcate_plan.py`."
     )
     return "\n".join(lines) + "\n"
 

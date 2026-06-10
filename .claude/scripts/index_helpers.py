@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-index_helpers_v001.py
+index_helpers.py
 =====================
 
 Structure-aware index insertion helpers for the filing agent.
@@ -16,7 +16,7 @@ Public API:
         structurally invalid for insertion.
 
     normalize_link_target(raw: str) -> str
-        Re-exported from wikilink_helpers_v001. Strips path prefix, alias,
+        Re-exported from wikilink_helpers. Strips path prefix, alias,
         heading anchor, and .md suffix from a wikilink interior.
 
     add_child_link_to_index(index_file: Path, child_link: str) -> bool
@@ -38,7 +38,7 @@ Public API:
         Best-effort entry insertion using find_best_section + insert_into_section.
 
 Usage from a filing script:
-    from index_helpers_v001 import add_child_link_to_index, MalformedIndexError
+    from index_helpers import add_child_link_to_index, MalformedIndexError
     added = add_child_link_to_index(Path('03-Reference/Houdini-Index.md'), 'New-Note')
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from wikilink_helpers_v001 import normalize_link_target, WIKILINK_RE
+from wikilink_helpers import normalize_link_target, WIKILINK_RE
 
 
 # ---- exceptions -------------------------------------------------------------

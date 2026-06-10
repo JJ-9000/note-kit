@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-rename_with_link_integrity_v002.py
+rename_with_link_integrity.py
 ===================================
 
 Rename a vault file while preserving every inbound wikilink. The original is
@@ -32,7 +32,7 @@ Public API:
         -> status, source, dest, wikilink_updates, error
 
 Run as a script to execute the integration tests against a temp fixture:
-    python scripts/rename_with_link_integrity_v002.py
+    python scripts/rename_with_link_integrity.py
 """
 from __future__ import annotations
 
@@ -47,8 +47,8 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables_v002 import _folder_by_semantic, is_excluded_dir  # noqa: E402
-from wikilink_helpers_v001 import (  # noqa: E402
+from config_variables import _folder_by_semantic, is_excluded_dir  # noqa: E402
+from wikilink_helpers import (  # noqa: E402
     WIKILINK_RE,
     normalize_link_target,
     extract_wikilinks,
@@ -143,7 +143,7 @@ def _append_log(
     if not log_path.exists():
         log_path.write_text(
             "# Rename Log\n\n"
-            "Every rename done via `rename_with_link_integrity_v002.py` lands here.\n",
+            "Every rename done via `rename_with_link_integrity.py` lands here.\n",
             encoding="utf-8",
         )
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

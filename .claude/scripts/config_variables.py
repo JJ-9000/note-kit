@@ -1,5 +1,5 @@
 """
-config_variables_v001.py
+config_variables.py
 ========================
 
 Parses CONFIG.md at import time and exposes typed Python constants for the

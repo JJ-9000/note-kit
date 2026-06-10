@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-smoke_test_v003.py
+smoke_test.py
 ==================
 
 End-to-end smoke test for the assembled note-kit. Proves that the kit installs
@@ -19,8 +19,8 @@ What it does:
   3. Runs, against that install, each deterministic entry point and asserts a
      clean exit (returncode 0, no traceback on stderr):
        - audit.py --dry-run                      (janitor deterministic layer)
-       - build_state_index_v003.py               (vault snapshot)
-       - sync_config_v003.py --vault-root <tmp>  (CONFIG -> CLAUDE/AGENTS sync)
+       - build_state_index.py               (vault snapshot)
+       - sync_config.py --vault-root <tmp>  (CONFIG -> CLAUDE/AGENTS sync)
   4. Asserts the detect-only contract and a CLEAN fresh-install pass:
        - audit.py --dry-run writes NOTHING — no state snapshot, no ledger
          directory (the snapshot refresh is gated behind --apply);
@@ -36,7 +36,7 @@ ImportError surfaces exactly as it would in production (sys.path is set up by
 each script from its own location inside the installed .claude/scripts/).
 
 Run:
-    python .claude/scripts/smoke_test_v003.py [--keep]
+    python .claude/scripts/smoke_test.py [--keep]
 
 Exit code 0 = PASS, 1 = FAIL. Prints a per-step table and a PASS/FAIL summary.
 """
@@ -58,7 +58,7 @@ _KIT_ROOT = _SCRIPTS_DIR.parent  # <vault>/.claude/ in an install, or the drop's
 # Resolve semantic folder names from the kit's own CONFIG.md so the snapshot
 # path below tracks CONFIG renames rather than hardcoding "99-Archive".
 sys.path.insert(0, str(_SCRIPTS_DIR))
-from config_variables_v002 import _folder_by_semantic  # noqa: E402
+from config_variables import _folder_by_semantic  # noqa: E402
 
 _INBOX_FOLDER = _folder_by_semantic("inbox")
 _ARCHIVE_FOLDER = _folder_by_semantic("archive")
@@ -295,7 +295,7 @@ def main() -> int:
     print("note-kit smoke test")
     print(f"  kit root: {_KIT_ROOT}")
 
-    scaffold_src = _SCRIPTS_DIR / "scaffold_vault_v003.py"
+    scaffold_src = _SCRIPTS_DIR / "scaffold_vault.py"
     if not scaffold_src.exists():
         _record("locate scaffold", False, f"not found: {scaffold_src}")
         return _summary()
@@ -325,8 +325,8 @@ def main() -> int:
             ("install: .claude/CLAUDE.md", tmp_vault / ".claude" / "CLAUDE.md"),
             ("install: .claude/RULES.md", tmp_vault / ".claude" / "RULES.md"),
             ("install: .claude/settings.json", tmp_vault / ".claude" / "settings.json"),
-            ("install: scripts/build_state_index_v003.py",
-             installed_scripts / "build_state_index_v003.py"),
+            ("install: scripts/build_state_index.py",
+             installed_scripts / "build_state_index.py"),
             ("install: janitor-agent/audit.py", installed_audit),
         ]:
             _record(label, p.exists(), "present" if p.exists() else f"MISSING: {p}")
@@ -354,11 +354,11 @@ def main() -> int:
         else:
             _record("audit.py --dry-run", False, "audit.py not installed; cannot run")
 
-        # 2b. build_state_index_v003.py — vault snapshot.
-        bsi = installed_scripts / "build_state_index_v003.py"
+        # 2b. build_state_index.py — vault snapshot.
+        bsi = installed_scripts / "build_state_index.py"
         if bsi.exists():
             bsi_ok = _run(
-                "build_state_index_v003.py",
+                "build_state_index.py",
                 [sys.executable, str(bsi)],
                 env=janitor_env,
                 cwd=str(tmp_vault),
@@ -370,18 +370,18 @@ def main() -> int:
             if bsi_ok:
                 _assert_clean_audit(tmp_vault)
         else:
-            _record("build_state_index_v003.py", False, "not installed; cannot run")
+            _record("build_state_index.py", False, "not installed; cannot run")
 
-        # 2c. sync_config_v003.py --vault-root <tmp> — CONFIG -> CLAUDE/AGENTS.
-        sync = installed_scripts / "sync_config_v003.py"
+        # 2c. sync_config.py --vault-root <tmp> — CONFIG -> CLAUDE/AGENTS.
+        sync = installed_scripts / "sync_config.py"
         if sync.exists():
             _run(
-                "sync_config_v003.py --vault-root",
+                "sync_config.py --vault-root",
                 [sys.executable, str(sync), "--vault-root", str(tmp_vault)],
                 cwd=str(tmp_vault),
             )
         else:
-            _record("sync_config_v003.py --vault-root", False, "not installed; cannot run")
+            _record("sync_config.py --vault-root", False, "not installed; cannot run")
 
     finally:
         # 3. Clean up the temp vault unless --keep.

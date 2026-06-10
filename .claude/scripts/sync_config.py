@@ -1,5 +1,5 @@
 """
-sync_config_v003.py
+sync_config.py
 ===================
 
 Distribution layer for the note-kit config.
@@ -31,11 +31,11 @@ archive. With no vault root supplied it falls back to the kit-source location
 
 Run:
     # installed layout (the common case): point it at the vault root.
-    python <vault>/.claude/scripts/sync_config_v001.py --vault-root <vault>
+    python <vault>/.claude/scripts/sync_config.py --vault-root <vault>
 
     # dev layout (editing the kit source in place): no --vault-root, targets the
     # CLAUDE.md / AGENTS.md beside this script's kit root.
-    python <kit>/.claude/scripts/sync_config_v001.py
+    python <kit>/.claude/scripts/sync_config.py
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ _KIT_ROOT = _SCRIPTS_DIR.parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
 # Import after sys.path is updated
-from config_variables_v002 import (  # noqa: E402
+from config_variables import (  # noqa: E402
     FILE_HANDLING,
     TYPES,
     FOLDER_ROUTING,
@@ -71,7 +71,7 @@ from config_variables_v002 import (  # noqa: E402
 # Use the SAME CONFIG.md config_variables resolved (honors the NOTE_KIT_CONFIG
 # override), not a second hardcoded kit-root path, so the hash and the parsed
 # tables come from one source.
-from config_variables_v002 import _CONFIG as _CONFIG  # noqa: E402
+from config_variables import _CONFIG as _CONFIG  # noqa: E402
 _ARCHIVE_FOLDER = _folder_by_semantic("archive")
 
 
@@ -576,7 +576,7 @@ def main() -> None:
     if no_changes:
         print(f"No changes since previous run (config-hash: {cfg_hash}).")
     else:
-        print(f"sync_config_v003 complete (config-hash: {cfg_hash})")
+        print(f"sync_config complete (config-hash: {cfg_hash})")
         print(f"  CLAUDE.md {'written' if claude_changed else 'unchanged'}: "
               f"{counts['claude_rows']} rows in `{_SESSION_ANCHOR}`")
         print(f"  AGENTS.md {'written' if agents_changed else 'unchanged'}: "

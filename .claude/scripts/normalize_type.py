@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config_variables_v002 import CANONICAL_TYPE_KEYS, levenshtein_le1
+from config_variables import CANONICAL_TYPE_KEYS, levenshtein_le1
 
 # Stable non-trivial substitutions (renames, deprecated terms).
 # Casing, plurals, and Levenshtein-1 typos are handled below.

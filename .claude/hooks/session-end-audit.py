@@ -3,7 +3,7 @@
 Two jobs, both driven by what the session actually edited (read from the
 transcript):
 
-1. If the session edited CONFIG.md, run `scripts/sync_config_v002.py` so the
+1. If the session edited CONFIG.md, run `scripts/sync_config.py` so the
    `## Session-start defaults` copies in CLAUDE.md and AGENTS.md stay in sync
    with the canon. (CONFIG.md § Helper-script automation: sync_config triggers
    at the end of any session that edited CONFIG.md.)
@@ -21,7 +21,7 @@ from pathlib import Path
 # root (<vault>/.claude/) and the vault root is one level above that.
 _KIT_ROOT = Path(__file__).resolve().parent.parent
 _VAULT_ROOT = _KIT_ROOT.parent
-_SYNC_CONFIG = _KIT_ROOT / "scripts" / "sync_config_v002.py"
+_SYNC_CONFIG = _KIT_ROOT / "scripts" / "sync_config.py"
 
 
 def _vault_root() -> Path:
@@ -98,7 +98,7 @@ def _touched_critical(edited: list[str]) -> bool:
 
 
 def _run_sync_config() -> str:
-    """Run sync_config_v002.py. Returns a one-line status for the reminder."""
+    """Run sync_config.py. Returns a one-line status for the reminder."""
     if not _SYNC_CONFIG.exists():
         return f"sync_config not found at {_SYNC_CONFIG}; skipped."
     try:

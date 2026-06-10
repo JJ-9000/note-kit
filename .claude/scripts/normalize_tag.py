@@ -1,6 +1,6 @@
 """Resolve a frontmatter `tags:` value to its canonical key.
 
-Thin wrapper — all logic lives in config_variables_v002.normalize_tag().
+Thin wrapper — all logic lives in config_variables.normalize_tag().
 
 Public API
 ----------
@@ -15,12 +15,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config_variables_v002 import normalize_tag, CANONICAL_TAG_KEYS  # noqa: F401
+from config_variables import normalize_tag, CANONICAL_TAG_KEYS  # noqa: F401
 
 __all__ = ["normalize_tag", "CANONICAL_TAG_KEYS"]
 
 if __name__ == "__main__":
-    from config_variables_v002 import TAGS
+    from config_variables import TAGS
     print(f"Canonical tags: {sorted(CANONICAL_TAG_KEYS)}")
     failures = 0
     for row in TAGS.values():

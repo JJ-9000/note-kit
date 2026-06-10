@@ -66,21 +66,21 @@ _KIT_ROOT = _VAULT_JANITOR_DIR.parent.parent
 sys.path.insert(0, str(_KIT_ROOT / "scripts"))
 sys.path.insert(0, str(_VAULT_JANITOR_DIR))
 
-from config_variables_v002 import (
+from config_variables import (
     FILE_HANDLING, TYPES, FOLDER_ROUTING, SUBFOLDERS, TAGS, ACTIONS, SKILL_SLUGS,
     CANONICAL_TYPE_KEYS, CANONICAL_TAG_KEYS, SCAN_EXCLUDE_DIRS,
     _folder_by_semantic, is_excluded_dir, is_asset_folder, ASSET_HOME_DIRS,
     HISTORY_DIRNAME,
 )
-from wikilink_helpers_v001 import (
+from wikilink_helpers import (
     normalize_link_target, extract_wikilinks, rewrite_wikilink_interior,
 )
-from normalize_type_v002 import normalize_type
-from normalize_tag_v002 import normalize_tag
-from rename_with_link_integrity_v002 import (
+from normalize_type import normalize_type
+from normalize_tag import normalize_tag
+from rename_with_link_integrity import (
     rename_with_links, _find_inbound, _rewrite_inbound,
 )
-from index_helpers_v002 import add_child_link_to_index
+from index_helpers import add_child_link_to_index
 from functools import lru_cache
 
 # ---------------------------------------------------------------------------
@@ -1941,10 +1941,10 @@ def _find_build_state_index() -> Path | None:
     """Locate build_state_index, preferring the newest draft beside this file,
     then the installed scripts dir."""
     for cand in (
-        _VAULT_JANITOR_DIR / "build_state_index_v003.py",
-        _KIT_ROOT / "scripts" / "build_state_index_v003.py",
-        _VAULT_JANITOR_DIR / "build_state_index_v002.py",
-        _KIT_ROOT / "scripts" / "build_state_index_v002.py",
+        _VAULT_JANITOR_DIR / "build_state_index.py",
+        _KIT_ROOT / "scripts" / "build_state_index.py",
+        _VAULT_JANITOR_DIR / "build_state_index.py",
+        _KIT_ROOT / "scripts" / "build_state_index.py",
     ):
         if cand.exists():
             return cand

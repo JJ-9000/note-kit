@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-age_to_cold_storage_v001.py
+age_to_cold_storage.py
 ===========================
 
 Move material out of `<archive>` and into `<history>` (cold storage) once it
@@ -34,7 +34,7 @@ Trigger: daily (CONFIG § Helper-script automation).
 
 Usage
 -----
-    JANITOR_VAULT_ROOT=/path/to/vault python age_to_cold_storage_v001.py [--apply]
+    JANITOR_VAULT_ROOT=/path/to/vault python age_to_cold_storage.py [--apply]
 
 Without --apply it is a dry run: it prints what it would move and writes nothing.
 Run with no JANITOR_VAULT_ROOT and no args to execute the self-tests.
@@ -54,7 +54,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables_v002 import (  # noqa: E402
+from config_variables import (  # noqa: E402
     _folder_by_semantic,
     is_excluded_dir,
     ARCHIVE_RETENTION_DAYS,

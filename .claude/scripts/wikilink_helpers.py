@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shared wikilink parsing utilities for the note-kit.
 
-Public API used by rename_with_link_integrity_v001.py and index_helpers_v001.py.
+Public API used by rename_with_link_integrity.py and index_helpers.py.
 Standard library only — no kit-internal imports.
 """
 from __future__ import annotations

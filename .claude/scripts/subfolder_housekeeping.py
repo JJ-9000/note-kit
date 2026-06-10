@@ -1,5 +1,5 @@
 """
-subfolder_housekeeping_v001.py
+subfolder_housekeeping.py
 ==============================
 
 Deterministic structural housekeeping the agents must not have to judge
@@ -9,8 +9,8 @@ on filing to canon; this script only removes what has gone empty, so the vault
 keeps no rigid pre-built tree and no stub folders.
 
 Run:
-    python subfolder_housekeeping_v001.py --vault-root <vault>   # apply
-    python subfolder_housekeeping_v001.py --vault-root <vault> --dry-run
+    python subfolder_housekeeping.py --vault-root <vault>   # apply
+    python subfolder_housekeeping.py --vault-root <vault> --dry-run
 
 Invoked inline by audit.py each janitor run; manual invocation supported. Prints
 one fixed-field line per action (CONFIG § Log files):
@@ -29,7 +29,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables_v002 import (  # noqa: E402
+from config_variables import (  # noqa: E402
     FOLDER_ROUTING,
     is_excluded_dir,
     _folder_by_semantic,

@@ -14,6 +14,8 @@ normalize_type(value: str) -> str | None
     Canonical type key, or None if unresolvable.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

@@ -11,6 +11,8 @@ CANONICAL_TAG_KEYS : frozenset[str]
     The full set of canonical tag keys from CONFIG.md ## Tags.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

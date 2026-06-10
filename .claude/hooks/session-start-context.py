@@ -7,6 +7,8 @@ back down (vault-search/config.yaml `lifecycle.idle_shutdown_minutes`).
 Also surfaces pending `needs-live-session` machine-queue items (CONFIG § Queue
 protocol) so an interactive session picks up work an unattended pass deferred.
 """
+from __future__ import annotations
+
 import json
 import os
 import subprocess

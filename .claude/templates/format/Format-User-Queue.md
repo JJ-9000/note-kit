@@ -12,7 +12,7 @@ status: complete
 
 # Format User Queue
 
-The shape of an item in `<user-queue>` (`00-Inbox/00-User-Queue.md`). Three readers share it: the user decides by checking boxes, the note-kit-ui Decide bucket renders items in this shape as decisions, and the action-agent executes checked options. The shape is load-bearing, not stylistic — an item outside it surfaces only as an unparseable "needs reading" row, with nothing the user can act on in place.
+The shape of an item in `<user-queue>` (`00-Inbox/00-User-Queue.md`). Three readers share it: the user decides by checking boxes, the note-kit-ui Decide bucket renders items in this shape as decisions, and the action-agent executes checked options. An item outside the shape surfaces only as a "needs reading" row, with nothing the user can act on in place.
 
 ## Skeleton
 

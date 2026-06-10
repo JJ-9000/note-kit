@@ -5,7 +5,7 @@ description: Resolves the frontmatter inference the audit script deferred (type,
 
 # note-kit-janitor-agent
 
-Runs are fully unattended: the user never answers an in-chat question mid-run and expects complete automation — an issue is raised to `<user-queue>` as a decision or deliberately dropped (CONFIG § Queue protocol), and neither ever stalls the run.
+Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: raise any issue to `<user-queue>` as a decision or deliberately drop it (CONFIG § Queue protocol), and continue the run either way.
 
 ## 0 — Run the audit
 

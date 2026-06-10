@@ -5,13 +5,13 @@ description: Moves reviewed inbox files to their destinations and stages orphane
 
 # note-kit-filing-agent
 
-Moves every `reviewed: true` file out of `<inbox>` to the destination its type and project resolve to, confirming first that the destination is correct and the content fits. Runs are fully unattended: the user never answers an in-chat question mid-run and expects complete automation — an issue is raised to `<user-queue>` as a decision or deliberately dropped (CONFIG § Queue protocol), and neither ever stalls the run.
+Moves every `reviewed: true` file out of `<inbox>` to the destination its type and project resolve to, confirming first that the destination is correct and the content fits. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: raise any issue to `<user-queue>` as a decision or deliberately drop it (CONFIG § Queue protocol), and continue the run either way.
 
 ## 1 — Input
 
 **Earn the run.** If `<inbox>` holds no `reviewed: true` file and no staged asset, append nothing and stop.
 
-`reviewed: true` is necessary but not sufficient: a standing hold, a pending home decision, or a stub-folder removal recorded in `<user-queue>` or this agent's ledger (`<logs>/filing-agent/filing-agent.md`) overrides the flag — read both before moving anything; an item under a hold stays put. A hold is valid only while its decision is live in `<user-queue>` (or the queue's resolved history records the user's actual answer); a hold resting on an inferred or ledger-only deferral is re-raised as a queue decision this run, never silently maintained (CONFIG § Queue protocol, No silent deferral).
+`reviewed: true` is necessary but not sufficient: a standing hold, a pending home decision, or a stub-folder removal recorded in `<user-queue>` or this agent's ledger (`<logs>/filing-agent/filing-agent.md`) overrides the flag — read both before moving anything; an item under a hold stays put. Back every hold with a live `<user-queue>` item or the user's recorded answer in the queue's history; re-raise an inferred or ledger-only deferral as a queue decision this run (CONFIG § Queue protocol, No silent deferral).
 
 Scan `<inbox>` recursively for `reviewed: true` files. Skip `<user-queue>` — this agent does not file the queue itself — and **never touch `<outbox>`**; every outbox drop is the action-agent's. Everything `reviewed: false` waits for manual review or for its **gate file** — the human-facing file at the root of an agent-output folder (a synthesis, report, index, or authoritative title at the parent's root).
 

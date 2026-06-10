@@ -35,7 +35,7 @@ _proposed: YYYY-MM-DD by <agent>_
 - An item is one `###` heading, one context line, and at least one `- [ ]` option. `##` headings are producer/date group headers and carry no options of their own.
 - The context line reads in plain established vocabulary, answerable cold; prose between the heading and the first option is the item's context, and prose after the options begins carries no meaning to the parser.
 - Every option names its concrete outcome — the exact destination, name, or frontmatter value — so a checked box executes with no further interpretation.
-- A fill-in option carries an explicit `REPLACE-WITH-<what>` placeholder; a checked option whose placeholder is unedited demotes to open rather than executing.
+- A fill-in option carries an explicit `REPLACE-WITH-<what>` placeholder; the Decide bucket renders the placeholder as a text input whose value replaces it as the box checks (0.4.12), and a checked option with an unedited placeholder demotes to open rather than executing. A derivable candidate appears as its own concrete option; the fill-in is the fallback.
 - An advisory — something that needs the user's eyes but no choice — is an item whose single option is `- [ ] Acknowledged — clear this item`. Between enumerable choices, the fill-in option, and the dismissal option, a compliant shape exists for any ask.
 - States are `[ ]` open, `[x]` approved, `[-]` rejected. An item is open while it holds a selectable `[ ]` and no `[x]`; one `[x]` on a multiple-choice item is the action.
 - A resolved item leaves the queue; its outcome lives in the executing agent's log in `<logs>/<agent>/`. Results, answers, and FYIs live under `<logs>` and in inbox notes — the queue holds open decisions only.

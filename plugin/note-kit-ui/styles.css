@@ -526,6 +526,9 @@
 	justify-content: center;
 	gap: var(--nkui-gap-2xs) var(--nkui-gap-m);
 	margin: 0;
+	/* A chip at max-width 100% (tags, description) otherwise runs flush to the
+	   text column's edges. */
+	padding: 0 var(--nkui-gap-s);
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
 	flex: 0 0 auto;

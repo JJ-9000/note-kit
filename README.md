@@ -93,7 +93,7 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 2. **Scaffold the vault.** Still in the kit folder, run:
 
    ```
-   python .claude/scripts/scaffold_vault_v003.py --path <path-to-your-vault>
+   python .claude/scripts/scaffold_vault.py --path <path-to-your-vault>
    ```
 
    This creates the folder structure (the real folders behind the tokens), copies the kit into `<vault>/.claude/`, seeds both queues with worked examples, and writes the config files:
@@ -147,7 +147,7 @@ Run one setup session before any real work. Open Claude Code and paste this:
 >
 > Close by proposing a tight set of changes to the default CONFIG. Suggest using the default tools and skills if existing methods are similar. Apply approved changes to CONFIG.md, then run the config sync script.
 
-**Set the folders and types to your preference.** The defaults are the tested path, keep whatever you don't already have a name for. When you make changes (resources living in a `Wiki`, a daily-notes folder, your own tag scheme), edit `CONFIG.md` § Folders and § Types in `<vault>/.claude/`, then run the sync script (`python .claude/scripts/sync_config_v003.py --vault-root <vault>`). That single file is the source of truth; agents, skills, scripts, and the plugin all follow it. Other agents and skills sync wildcard tokens from the config, so in-line edits will be replaced by the definitions in this document.
+**Set the folders and types to your preference.** The defaults are the tested path, keep whatever you don't already have a name for. When you make changes (resources living in a `Wiki`, a daily-notes folder, your own tag scheme), edit `CONFIG.md` § Folders and § Types in `<vault>/.claude/`, then run the sync script (`python .claude/scripts/sync_config.py --vault-root <vault>`). That single file is the source of truth; agents, skills, scripts, and the plugin all follow it. Other agents and skills sync wildcard tokens from the config, so in-line edits will be replaced by the definitions in this document.
 
 **Check the skills, agents, and hooks you already have.** A working Claude Code setup accumulates personal slash commands, sub-agents, and hooks, and most coexist with the kit untouched — the kit only asks that AI output land in `<inbox>` as a draft. Three patterns are worth catching before they bite:
 
@@ -279,7 +279,7 @@ To move an installed vault to a newer kit version, download the new kit and run 
 
 ```
 cd <path-to-new>\note-kit
-python .claude/scripts/scaffold_vault_v003.py --upgrade <your-vault>
+python .claude/scripts/scaffold_vault.py --upgrade <your-vault>
 ```
 
 This refreshes the kit's *code* — `scripts/`, `skills/`, `scheduled-tasks/`, `hooks/` — and never touches your notes. Two limits: files you own (`CLAUDE.md`, `RULES.md`, your edited `CONFIG.md`) are preserved rather than overwritten, so new config information in the kit's versions are not merged automatically — compare by hand if the release notes flag them. The Desktop app keeps its own copy of each registered agent, so after an upgrade, delete and re-register any agent whose `SKILL.md` changed.

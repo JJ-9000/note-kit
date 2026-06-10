@@ -71,6 +71,11 @@
 .nkui-now {
 	padding: 1.5em 1.25em 3em;
 	overflow-y: auto;
+	/* Reserve the scrollbar gutter on both edges: unfolding a bucket makes the
+	   content taller, the scrollbar appears, the viewport narrows, and the
+	   centered 760px column re-centers — a visible jump left. A stable
+	   symmetric gutter keeps the column fixed whether or not the bar shows. */
+	scrollbar-gutter: stable both-edges;
 	/* Opaque hover colour so text never sits on a semi-transparent background
 	   (which disables Windows ClearType and looks like the text resizing). */
 	--nkui-hover: color-mix(in srgb, var(--background-primary), var(--text-normal) 6%);

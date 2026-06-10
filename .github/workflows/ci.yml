@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-test:
+    name: Kit smoke test (scaffold + deterministic layer)
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run smoke test
+        run: python .claude/scripts/smoke_test.py
+
+  plugin-build:
+    name: Build note-kit-ui plugin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/note-kit-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install
+      - name: Type-check and build
+        run: npm run build
+
+  version-consistency:
+    name: VERSION matches tag (release pushes only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert VERSION file matches the pushed tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(tr -d '[:space:]' < VERSION)"
+          if [ "$tag" != "$file" ]; then
+            echo "Tag v$tag does not match VERSION file ($file)." >&2
+            exit 1
+          fi
+          echo "VERSION $file matches tag."

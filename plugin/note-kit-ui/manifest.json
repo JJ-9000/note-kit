@@ -1,7 +1,7 @@
 {
   "id": "note-kit-ui",
   "name": "Note-Kit UI",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "minAppVersion": "1.5.0",
   "description": "Surfaces the note-kit's structure in Obsidian: a For You front page with the kit's queues, drafts, and active work, plus folder-prefix weighting, hidden numeric prefixes, per-type styling, and unreviewed-draft flags. Works on desktop and mobile.",
   "author": "Note-Kit",

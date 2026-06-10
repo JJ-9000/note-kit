@@ -51,7 +51,9 @@ interface DecisionOption {
  * it. A single-choice item carries one option; a multiple-choice item lists
  * several, of which the user picks exactly one (action-agent SKILL § Proposal
  * shape). The "Decide" bucket counts decisions, not options — picking one
- * approves it and the whole decision clears from the pane.
+ * approves it and the whole decision clears from the pane. An empty `options`
+ * means the item drifted off the queue format (heading with prose, no checkbox
+ * lines) — it renders as a "needs reading" row instead of options.
  */
 interface Decision {
 	title: string | null;
@@ -301,11 +303,32 @@ export class NowView extends ItemView {
 	private renderDecision(list: HTMLElement, d: Decision): void {
 		const path = this.plugin.settings.userQueuePath;
 		const card = list.createDiv("nkui-now-decision");
+		// Open the queue at this decision's heading, so a long queue lands you on
+		// the item itself rather than the top of the file.
+		const openQueue = () =>
+			this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false);
 		if (d.title) {
 			const title = card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
-			title.addEventListener("click", () => this.app.workspace.openLinkText(path, "", false));
+			title.addEventListener("click", openQueue);
 		}
 		if (d.context) card.createDiv({ cls: "nkui-now-decision-context", text: plainText(d.context) });
+
+		// Drifted item — a heading with prose but no option checkboxes
+		// (Format-User-Queue § No checkbox, no item). Nothing to pick, so render a
+		// "needs reading" row that opens the queue at the heading; visible drift
+		// beats an invisible drop.
+		if (!d.options.length) {
+			const row = card.createDiv("nkui-now-needsread");
+			row.setAttr("role", "button");
+			row.setAttr("tabindex", "0");
+			setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
+			row.createSpan({ cls: "nkui-now-needsread-text", text: "Needs reading — no options to pick" });
+			row.addEventListener("click", openQueue);
+			row.addEventListener("keydown", (ev) => {
+				if (ev.key === "Enter") openQueue();
+			});
+			return;
+		}
 
 		const selectable = d.options.filter((o) => o.state !== "-");
 		const single = selectable.length <= 1;
@@ -731,12 +754,17 @@ function under(path: string, root: string): boolean {
  * the checkbox lines beneath it are its options, and the first prose line between
  * the heading and the options is its context. Checkboxes before any heading each
  * stand alone as a single-option decision.
+ *
+ * A heading with prose but NO checkboxes is format drift (Format-User-Queue
+ * § No checkbox, no item) — kept as an option-less decision so the Decide bucket
+ * can surface it as "needs reading" instead of silently dropping it. A bare
+ * heading with no body at all is a producer/date group header, not an item.
  */
 function parseDecisions(content: string): Decision[] {
 	const out: Decision[] = [];
 	let cur: { title: string | null; context: string[]; options: DecisionOption[] } | null = null;
 	const flush = () => {
-		if (cur && cur.options.length)
+		if (cur && (cur.options.length || cur.context.length))
 			out.push({ title: cur.title, context: cur.context.join(" "), options: cur.options });
 	};
 	for (const ln of content.split("\n")) {
@@ -763,8 +791,10 @@ function parseDecisions(content: string): Decision[] {
 	return out;
 }
 
-/** A decision still needs you when it has a selectable option and none approved yet. */
+/** A decision still needs you when it has a selectable option and none approved yet.
+ * An option-less (drifted) decision always needs you — there is nothing to check off. */
 function isOpenDecision(d: Decision): boolean {
+	if (!d.options.length) return true;
 	const approved = d.options.some((o) => o.state === "x" || o.state === "X");
 	const selectable = d.options.some((o) => o.state === " ");
 	return selectable && !approved;

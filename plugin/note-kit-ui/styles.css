@@ -425,6 +425,34 @@
 	color: var(--text-normal);
 }
 
+/* Drifted item — no options to pick; the row sends you to the queue to read it. */
+.nkui-now-needsread {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	padding: 0.18em 0.5em;
+	margin: 0 -0.5em;
+	border-radius: var(--radius-s, 6px);
+	cursor: pointer;
+	color: var(--text-muted);
+}
+.nkui-now-needsread:hover {
+	background: var(--nkui-hover);
+}
+.nkui-now-needsread-icon {
+	display: flex;
+	flex: 0 0 auto;
+}
+.nkui-now-needsread-icon svg {
+	width: var(--icon-s, 16px);
+	height: var(--icon-s, 16px);
+}
+.nkui-now-needsread-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-style: italic;
+}
+
 /* ── Calm reading — reading-mode overrides that reduce note noise (toggle) ──── */
 
 /* Properties: one compact, grouped, human-relevant line — not a 6-row table.

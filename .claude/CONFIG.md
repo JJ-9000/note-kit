@@ -9,7 +9,7 @@ The kit's only user-editable definitions, and the one source of truth its script
 - A parser finds a table by its H2 heading and column header, never by line number; columns are fixed, and changing one updates `scripts/config_variables` and every consuming SKILL in the same change.
 - **A table is the transposition signal.** Everything user-configurable in this file sits in a table; a table — or a `note-kit:sync` marker block — is the sign that the content is machine-parsed or stamped verbatim into the related skills and agents by `sync_config`. Prose outside tables and markers is read in place, never transposed.
 - A token sits left, its literal right: a top-level folder is its `<wildcard>` everywhere but `## Folders`, a subfolder is named by the type-role `## Subfolders` resolves, and a machine-specific absolute path is a token too (`<user-home>/…`) — so no literal path or bare numeric prefix appears outside this file.
-- After any edit, run `python scripts/sync_config`.
+- After any edit, run `python scripts/sync_config.py`.
 
 ## Folders
 

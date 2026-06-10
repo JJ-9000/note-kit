@@ -23,19 +23,21 @@ a marked block), then re-run this script.
 
 Target resolution. The installed CLAUDE.md and AGENTS.md live at
 `<vault-root>/.claude/CLAUDE.md` and `<vault-root>/.claude/AGENTS.md` (Claude
-Code auto-loads `CLAUDE.md` from `.claude/` vault-wide). When a vault root is
-supplied — via ``--vault-root`` or the ``NOTE_KIT_VAULT_ROOT`` env var — this
-script targets that installed `.claude/` pair and logs under the vault's
-archive. With no vault root supplied it falls back to the kit-source location
-(CLAUDE.md / AGENTS.md beside this script's kit root).
+Code auto-loads `CLAUDE.md` from `.claude/` vault-wide). The vault root is
+resolved in order: ``--vault-root``, then the ``NOTE_KIT_VAULT_ROOT`` env var,
+then the installed layout detected from this script's own location (kit root
+named `.claude` whose parent holds the vault archive → that parent is the
+vault root). When none of the three resolves, the script exits with an error —
+it never guesses a path that could land outside a vault.
 
 Run:
-    # installed layout (the common case): point it at the vault root.
-    python <vault>/.claude/scripts/sync_config.py --vault-root <vault>
+    # installed layout: a bare run detects the vault root from the script's
+    # own location; --vault-root / NOTE_KIT_VAULT_ROOT override the detection.
+    python <vault>/.claude/scripts/sync_config.py
 
-    # dev layout (editing the kit source in place): no --vault-root, targets the
-    # CLAUDE.md / AGENTS.md beside this script's kit root.
-    python <kit>/.claude/scripts/sync_config.py
+    # kit-source checkout (editing the kit in place): detection refuses the
+    # repo (its kit-root parent is not a vault), so name the target explicitly.
+    python <repo>/.claude/scripts/sync_config.py --vault-root <repo>
 """
 
 from __future__ import annotations
@@ -75,33 +77,21 @@ from config_variables import _CONFIG as _CONFIG  # noqa: E402
 _ARCHIVE_FOLDER = _folder_by_semantic("archive")
 
 
-def _resolve_targets(vault_root: Path | None) -> tuple[Path, Path, Path]:
-    """Resolve (CLAUDE.md, AGENTS.md, Sync-Log.md) for the active layout.
+def _detect_installed_vault_root() -> Path | None:
+    """Detect the installed layout from this script's own location.
 
-    When ``vault_root`` is given (installed layout), the orientation pair lives
-    at ``<vault-root>/.claude/`` and the sync log under the vault's archive.
-    When it is None (dev layout), the pair is the editable source beside the
-    kit root and the log sits two levels up (scripts/ -> kit/ -> projects/ ->
-    vault root), preserving the prior dev path.
+    Installed, the kit root IS a vault's `.claude/` directory, so the vault
+    root is its parent — recognized by the vault archive sitting there (the
+    sync log's destination root). The kit-source checkout shares the `.claude`
+    name but its parent is a repo with no archive, so it is deliberately not
+    detected; bare runs there must name a target via --vault-root or
+    NOTE_KIT_VAULT_ROOT.
     """
-    if vault_root is not None:
-        vault_root = vault_root.resolve()
-        claude_md = vault_root / ".claude" / "CLAUDE.md"
-        agents_md = vault_root / ".claude" / "AGENTS.md"
-        sync_log = vault_root / _ARCHIVE_FOLDER / "99-Logs" / "Sync-Log.md"
-        return claude_md, agents_md, sync_log
-    # Dev fallback: CLAUDE.md / AGENTS.md are the editable source BESIDE the
-    # resolved CONFIG.md (a staging layout keeps them in a docs dir, not at the
-    # kit root) — falling back to the kit root only when a pair already sits
-    # there. Never create a stray pair at a root that doesn't hold one.
-    docs_dir = Path(_CONFIG).resolve().parent
-    claude_md = docs_dir / "CLAUDE.md"
-    agents_md = docs_dir / "AGENTS.md"
-    if not claude_md.exists() and (_KIT_ROOT / "CLAUDE.md").exists():
-        claude_md = _KIT_ROOT / "CLAUDE.md"
-        agents_md = _KIT_ROOT / "AGENTS.md"
-    sync_log = _KIT_ROOT.parent.parent / _ARCHIVE_FOLDER / "99-Logs" / "Sync-Log.md"
-    return claude_md, agents_md, sync_log
+    if _KIT_ROOT.name == ".claude":
+        candidate = _KIT_ROOT.parent
+        if (candidate / _ARCHIVE_FOLDER).is_dir():
+            return candidate
+    return None
 
 
 def _vault_root_from_env() -> Path | None:
@@ -109,10 +99,47 @@ def _vault_root_from_env() -> Path | None:
     return Path(raw) if raw else None
 
 
-# Default (import-time) targets honor the env var so importers and the
-# session-end hook pick up an installed layout without extra wiring. A
-# ``--vault-root`` CLI arg overrides this in main().
-_CLAUDE_MD, _AGENTS_MD, _SYNC_LOG = _resolve_targets(_vault_root_from_env())
+def _resolve_vault_root(cli_root: Path | None) -> Path | None:
+    """Vault root, in priority order: --vault-root, env var, installed layout."""
+    if cli_root is not None:
+        return cli_root
+    env_root = _vault_root_from_env()
+    if env_root is not None:
+        return env_root
+    return _detect_installed_vault_root()
+
+
+def _resolve_targets(vault_root: Path) -> tuple[Path, Path, Path]:
+    """Resolve (CLAUDE.md, AGENTS.md, Sync-Log.md) under the vault root.
+
+    The orientation pair lives at ``<vault-root>/.claude/`` and the sync log
+    under the vault's archive. There is no pathless fallback: callers must
+    resolve a vault root first (see ``_resolve_vault_root``) so the log can
+    never land outside a vault.
+    """
+    vault_root = vault_root.resolve()
+    claude_md = vault_root / ".claude" / "CLAUDE.md"
+    agents_md = vault_root / ".claude" / "AGENTS.md"
+    sync_log = vault_root / _ARCHIVE_FOLDER / "99-Logs" / "Sync-Log.md"
+    return claude_md, agents_md, sync_log
+
+
+_NO_VAULT_ROOT_ERROR = (
+    "No vault root resolved. Pass --vault-root, set NOTE_KIT_VAULT_ROOT, or run "
+    "the copy installed at <vault>/.claude/scripts/ (detected by the vault "
+    f"archive folder beside the kit root). Kit root: {_KIT_ROOT}. "
+    "Refusing to write a sync log outside a vault."
+)
+
+# Default (import-time) targets honor the env var and the installed-layout
+# detection so importers and the session-end hook pick up an installed layout
+# without extra wiring. Left as None when unresolvable — main() re-resolves
+# with the CLI arg and errors out cleanly if a vault root still can't be found.
+_IMPORT_VAULT_ROOT = _resolve_vault_root(None)
+if _IMPORT_VAULT_ROOT is not None:
+    _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG = _resolve_targets(_IMPORT_VAULT_ROOT)
+else:
+    _CLAUDE_MD = _AGENTS_MD = _SYNC_LOG = None
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -436,18 +463,12 @@ def _extract_pipeline_block() -> str:
     return _CONFIG_TEXT[start + len(_PIPE_SYNC_START):end].strip("\n")
 
 
-def _pipeline_skill_paths(vault_root: Path | None) -> list[Path]:
-    if vault_root is not None:
-        skills_root = vault_root.resolve() / ".claude" / "skills"
-    else:
-        skills_root = _KIT_ROOT / "skills"
-        if not skills_root.is_dir():
-            # Staging layout: scripts/ and skills/ are siblings of the docs dir.
-            skills_root = _KIT_ROOT.parent / "skills"
+def _pipeline_skill_paths(vault_root: Path) -> list[Path]:
+    skills_root = vault_root.resolve() / ".claude" / "skills"
     return [skills_root / name / "SKILL.md" for name in _PIPELINE_SKILLS]
 
 
-def _sync_pipeline_skills(vault_root: Path | None) -> list[tuple[str, str]]:
+def _sync_pipeline_skills(vault_root: Path) -> list[tuple[str, str]]:
     """Stamp the CONFIG master block between each pipeline skill's markers.
 
     Replaces ONLY between existing markers — a skill without markers is reported,
@@ -486,13 +507,17 @@ def main() -> None:
         type=Path,
         default=None,
         help="Vault root whose `.claude/CLAUDE.md` and `.claude/AGENTS.md` to target. "
-             "Falls back to NOTE_KIT_VAULT_ROOT, then to the kit-source location.",
+             "Falls back to NOTE_KIT_VAULT_ROOT, then to detecting the installed "
+             "layout from this script's location; errors out if none resolves.",
     )
     args = parser.parse_args()
 
-    # CLI overrides env; env was already applied at import time. Re-resolve so
-    # every downstream helper (which reads these globals) sees the chosen layout.
-    vault_root = args.vault_root if args.vault_root is not None else _vault_root_from_env()
+    # CLI overrides env overrides detection; re-resolve so every downstream
+    # helper (which reads these globals) sees the chosen layout.
+    vault_root = _resolve_vault_root(args.vault_root)
+    if vault_root is None:
+        print(f"ERROR: {_NO_VAULT_ROOT_ERROR}", file=sys.stderr)
+        sys.exit(1)
     global _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG
     _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG = _resolve_targets(vault_root)
 

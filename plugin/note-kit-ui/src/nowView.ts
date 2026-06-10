@@ -338,6 +338,39 @@ export class NowView extends ItemView {
 			// the action-agent clears the whole block when it acts.
 			const row = card.createDiv("nkui-now-optrow");
 			const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+			// Fill-in option (Format-User-Queue): a REPLACE-WITH-<WHAT> placeholder
+			// renders as a text input. The typed value replaces the placeholder in
+			// the queue file as the box checks; checking with it empty focuses the
+			// input instead — the action-agent demotes an unedited placeholder, so
+			// a bare checkbox here would only bounce.
+			const fm = o.text.match(/REPLACE-WITH-([A-Z0-9-]+)/);
+			if (fm) {
+				const [pre, post] = o.text.split(fm[0], 2);
+				if (pre.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
+				const fill = row.createEl("input", {
+					cls: "nkui-now-fillin",
+					attr: { type: "text", placeholder: fm[1].toLowerCase().replace(/-/g, " ") },
+				});
+				if (post && post.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
+				const submit = () => {
+					const v = fill.value.trim();
+					if (!v) {
+						cb.checked = false;
+						fill.focus();
+						return;
+					}
+					void this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v));
+				};
+				cb.addEventListener("change", submit);
+				fill.addEventListener("keydown", (ev) => {
+					if (ev.key === "Enter" && fill.value.trim()) {
+						ev.preventDefault();
+						cb.checked = true;
+						submit();
+					}
+				});
+				continue;
+			}
 			cb.addEventListener("change", () => void this.pickOption(path, o.text));
 			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
 		}
@@ -552,6 +585,22 @@ export class NowView extends ItemView {
 	/** Approve one option of a decision — writes [x] to its line, resolving the decision. */
 	private async pickOption(path: string, text: string): Promise<void> {
 		await this.setItemChecked(path, text, true);
+		await this.reloadAndRender();
+	}
+
+	/** Approve a fill-in option: replace its placeholder text and check it in one write. */
+	private async pickOptionFilled(path: string, rawText: string, filledText: string): Promise<void> {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (!(f instanceof TFile)) return;
+		const lines = (await this.app.vault.read(f)).split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const m = lines[i].match(CHECKBOX_RE);
+			if (m && m[4] === rawText) {
+				lines[i] = `${m[1]}x${m[3]}${filledText}${m[5]}`;
+				await this.app.vault.modify(f, lines.join("\n"));
+				break;
+			}
+		}
 		await this.reloadAndRender();
 	}
 

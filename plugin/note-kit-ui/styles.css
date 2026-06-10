@@ -413,6 +413,15 @@
 	overflow: hidden;
 }
 /* One option row — a checkbox you tick to pick it; text wraps so it stays readable. */
+/* Fill-in option input: replaces a REPLACE-WITH-<WHAT> placeholder inline.
+   Sized to sit in the option row at the kit's 8px gap step. */
+.nkui-now-fillin {
+	flex: 1 1 auto;
+	min-width: 8em;
+	font-size: var(--font-ui-small);
+	padding: 0.1em 0.4em;
+}
+
 .nkui-now-optrow {
 	display: flex;
 	align-items: flex-start;

@@ -6,7 +6,7 @@
 
 # Note Kit
 
-Note-kit can help organize your notes and keep track of information while working with an AI assistant on larger projects. It installs into an Obsidian vault and pairs with Claude Code. Based around a tight user response loop, the kit helps you focus on what's important, keeping details in place without re-treading the same ground. Everything it touches is plain markdown in folders you own, portable, and useful in any other LLM memory ecosystem.
+Note-kit helps organize your notes and keep track of information while working with an AI assistant on larger projects. It installs into an Obsidian vault and pairs with Claude Code. Based around a tight user response loop, the kit helps you focus on what's important, keeping details in place without re-treading the same ground. Everything it touches is plain markdown in folders you own, portable, and useful in any other LLM memory ecosystem.
 
 Throughout this document, tokens like `<inbox>` and `<projects>` appear — these are defined in `CONFIG.md` along with all user-facing configurations. 
 

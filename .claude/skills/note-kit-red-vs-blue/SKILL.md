@@ -5,7 +5,7 @@ description: Adversarial hardening loop for any instrument that reads or judges 
 
 # red-vs-blue
 
-Instrument and fixture in, hardened instrument and a scored blind-spot ledger out. The loop plants faults the orchestrator alone knows, lets fresh manifest-blind solvers diagnose through the instrument's output and nothing else, scores each match against the hidden truth, hardens the instrument where the signal failed, and then **escalates the fault battery** so the test always attacks the instrument's current weakest element. Both sides improve every round: the instrument grows detectors; the battery grows fault classes the instrument has not beaten. Use when an instrument's worth depends on what it *fails to surface* — and a quality review can only find what the reviewer imagines. Not for revising prose against commentary (`/review`), verifying factual claims (`/verify-claims`), or one-off debugging of a known fault.
+Instrument and fixture in, hardened instrument and a scored blind-spot log out. The loop plants faults the orchestrator alone knows, lets fresh manifest-blind solvers diagnose through the instrument's output and nothing else, scores each match against the hidden truth, hardens the instrument where the signal failed, and then **escalates the fault battery** so the test always attacks the instrument's current weakest element. Both sides improve every round: the instrument grows detectors; the battery grows fault classes the instrument has not beaten. Use when an instrument's worth depends on what it *fails to surface* — and a quality review can only find what the reviewer imagines. Not for revising prose against commentary (`/review`), verifying factual claims (`/verify-claims`), or one-off debugging of a known fault.
 
 Running inside a sub-agent (no nested spawn): run matches serially in this context, holding the manifest in a closed file the solving pass never opens; identical scoring, no parallelism (CONFIG § Sub-agent execution).
 
@@ -23,7 +23,7 @@ Running inside a sub-agent (no nested spawn): run matches serially in this conte
 | Match | one variant (or decoy) → instrument run → blind solve → reveal → score. The unit of the loop. |
 | Blind solver | a fresh sub-agent that receives only the instrument's output and neutral framing. No manifest, no control, no memory of prior matches, no knowledge of whether a fault exists. |
 | Layer attribution | every miss is charged to a layer: **raw** (the signal is absent from the instrument's full output), **lens** (present in raw, lost in the digest), or **solver** (present in what the solver read, not acted on). Hardening targets the charged layer. |
-| Provenance | the documented origin of a fault, one of three admissible classes: **user-reported** (the user hit it, reported it, or surfaced it in live confirmation), **ledger** (a recorded blind spot or documented-hard of this instrument or a kindred one), or **community** (a user-submitted issue on a forum, tracker, or practitioner thread about similar tools or scripts, cited). A fault with no provenance is inadmissible — invented faults produce easily-solved matches that flatter both sides. |
+| Provenance | the documented origin of a fault, one of three admissible classes: **user-reported** (the user hit it, reported it, or surfaced it in live confirmation), **log** (a recorded blind spot or documented-hard of this instrument or a kindred one), or **community** (a user-submitted issue on a forum, tracker, or practitioner thread about similar tools or scripts, cited). A fault with no provenance is inadmissible — invented faults produce easily-solved matches that flatter both sides. |
 | Softball | a match the current instrument was already expected to win: the expected signal lands in a well-covered channel and the solver one-shots it with high confidence. Softballs score as regression checks only — they advance nothing and cap at one per batch. |
 | Documented-hard | a blind spot judged out of reach of the current architecture, logged with a named resolution path (a specific reader, API, or data source). Never a silent drop. |
 | Quiet-on-healthy gate | a new or changed detector ships only if it emits nothing on every control in the corpus. A detector that lights on healthy subjects is a regression, whatever it catches. |
@@ -37,11 +37,11 @@ Run only when all four hold; otherwise say which fails and stop:
 3. **Breaking is safe** — variants are prepared on copies in a sandbox; the live fixture, and anything it depends on, is never touched (CONFIG § Versioning and archiving discipline).
 4. **Re-running is cheap enough to loop** — one match's cost permits dozens of matches; if not, shrink the fixture first.
 
-Self-authored fixtures make this a **smoke-tier** oracle: the same intelligence plants and scores. State that tier honestly in the ledger. Faults sourced from real-world failure reports, and fixtures the user holds private truth for, graduate matches toward ground truth.
+Self-authored fixtures make this a **smoke-tier** oracle: the same intelligence plants and scores. State that tier honestly in the log. Faults sourced from real-world failure reports, and fixtures the user holds private truth for, graduate matches toward ground truth.
 
 ## Output
 
-One container, `<inbox>/<instrument>-red-vs-blue/` (CONFIG § Inbox output convention). The **Round Index** — ledger plus resume point — is the only file at the container root and the gate file (CONFIG § Group approval). Everything else sits in `<notes>/`: the fault catalogue, the seed manifest (orchestrator-only, named `_manifest-*`), per-match records, baselines, and scoring tables. Instrument versions live in the container's `instrument/` subfolder, one file per version, never edited in place. Bulk variant data (big binaries, scene copies) lives in the parent project's assets folder; the container links to it. All notes carry `type: note` (`type: index` for the Round Index), `parent`, `reviewed: false`.
+One container, `<inbox>/<instrument>-red-vs-blue/` (CONFIG § Inbox output convention). The **Round Index** — log plus resume point — is the only file at the container root and the gate file (CONFIG § Group approval). Everything else sits in `<notes>/`: the fault catalogue, the seed manifest (orchestrator-only, named `_manifest-*`), per-match records, baselines, and scoring tables. Instrument versions live in the container's `instrument/` subfolder, one file per version, never edited in place. Bulk variant data (big binaries, scene copies) lives in the parent project's assets folder; the container links to it. All notes carry `type: note` (`type: index` for the Round Index), `parent`, `reviewed: false`.
 
 ## Invocation
 
@@ -67,7 +67,7 @@ One container, `<inbox>/<instrument>-red-vs-blue/` (CONFIG § Inbox output conve
 
 Every fault must carry **provenance** (see Definitions) — a real failure someone actually hit, not one the red team finds convenient to plant. The catalogue is what stops the red team from authoring easily-solved blue-team tasks. Build it before authoring anything:
 
-1. Mine the three admissible classes in order. **User-reported:** the user's own corrections, live-confirmation findings, and complaints in session logs (`mcp__vault__vault_search`). **Ledger:** this instrument's blind-spot ledgers and documented-hard lists, plus those of kindred instruments in the vault. **Community:** official issue trackers, forum threads with confirmed resolutions, practitioner threads about similar tools or scripts — each entry cites the post or report it came from.
+1. Mine the three admissible classes in order. **User-reported:** the user's own corrections, live-confirmation findings, and complaints in session logs (`mcp__vault__vault_search`). **Log:** this instrument's blind-spot logs and documented-hard lists, plus those of kindred instruments in the vault. **Community:** official issue trackers, forum threads with confirmed resolutions, practitioner threads about similar tools or scripts — each entry cites the post or report it came from.
 2. Per entry: the cited source, the mechanism, the **symptom as the reporter described it** (a competent human's words, not the red team's), what the instrument *should* surface, and a difficulty guess (visible / subtle / architectural).
 3. **Expected-catch pre-screen:** per entry, record whether the *current* instrument should already surface it, judged against its channel list. `expected-catch` entries are regression material, not blind-spot probes; a batch is drawn majority from `expected-blind` and `unknown` entries.
 4. Mark entries the current instrument architecture plausibly cannot reach — candidate documented-hards, kept in the battery anyway: the point is to find the wall, not to avoid it.
@@ -105,7 +105,7 @@ Orchestrator only, manifest in hand, noise floor subtracted:
 2. **Softball check:** a one-pass, high-confidence solver win on an `expected-catch` fault is recorded `softball` — it counts as a regression check, never toward coverage, hardening pressure, or escalation-rung progress. A batch that comes back mostly softballs is a red-team failure: re-author from `expected-blind` entries before playing on.
 3. Per decoy: **clean-pass** (solver said healthy) or **false-alarm** (named a fault) — and when a false alarm traces to an instrument channel lighting on healthy input, that channel fails the quiet-on-healthy gate and is itself a finding.
 4. Per proposed fix, when applied: **fix-verified** (re-run matches the control) or **fix-reasoned** (applied, effect argued not observed). Never report fix-reasoned as verified (the calibrated-confidence rule).
-5. Write one match record per variant to `<notes>/matches/`; update the Round Index ledger row.
+5. Write one match record per variant to `<notes>/matches/`; update the Round Index log row.
 
 ## Phase 5 — Harden
 
@@ -114,7 +114,7 @@ For each blind spot, charged layer by charged layer:
 1. **Raw-layer miss** → a new or extended detector in the instrument. **Lens-layer miss** → a lens fix; the instrument is innocent, do not touch it. **Solver-layer miss** → a framing or report-ordering fix, or accept as solver variance.
 2. Version the instrument — copy to the next `vNNN` in `instrument/`, never edit the prior version (CONFIG § Numbering).
 3. Gates, all three before the version is used in play: **quiet-on-healthy** (nothing new on any control in the corpus) · **catch** (the motivating variant now surfaces) · **budget** (control-output size within the Phase-0 budget; a detector that buys one catch with a flood of new tokens is rejected as written).
-4. **Regression sweep:** re-run the new version over every prior variant and diff verdicts against the ledger. A formerly-caught fault now missed blocks the version.
+4. **Regression sweep:** re-run the new version over every prior variant and diff verdicts against the log. A formerly-caught fault now missed blocks the version.
 5. A blind spot the architecture cannot reach → **documented-hard**, with its named resolution path, in the Round Index. After 2 hardening attempts on one blind spot, stop and classify (CONFIG § Loop budget); raise genuine judgment calls to the `<user-queue>`.
 
 ## Phase 6 — Escalate (the test fights back)
@@ -130,9 +130,9 @@ Climb one rung per quiet batch, and aim each rung at the instrument's **best-per
 2. **Stacked variants** — two to five faults per variant, including pairs chosen to mask each other and pairs co-located on one site. Score completeness: every planted fault must surface, not just one.
 3. **Found faults** — break the fixture the way a *different* authority describes (a fresh catalogue pass), or import a genuinely broken subject nobody prepared and let the user hold the truth.
 4. **New fixture** — a different healthy subject of the same kind (new noise floor, Phase 0 re-run). Detectors tuned to one fixture's floor get exposed here.
-5. **Battery mutation** — programmatic perturbation of the fixture (random parameter, wiring, or reference damage) with an automatic external oracle where one exists (output diff against control). Mutation output never enters scored matches directly — it is a blind-spot *scout*, exempt from provenance because no solver plays it. A miss it finds becomes a catalogue lead; it joins the battery only once sourced to a real reported failure, or explicitly ledgered as `mutation-found` with the user's sign-off.
+5. **Battery mutation** — programmatic perturbation of the fixture (random parameter, wiring, or reference damage) with an automatic external oracle where one exists (output diff against control). Mutation output never enters scored matches directly — it is a blind-spot *scout*, exempt from provenance because no solver plays it. A miss it finds becomes a catalogue lead; it joins the battery only once sourced to a real reported failure, or explicitly logged as `mutation-found` with the user's sign-off.
 
-Exit the loop when a full batch at the highest reached rung yields no raw- or lens-layer blind spot, or the user calls time. The instrument's tip version, the ledger, and the documented-hard list are the round's payload.
+Exit the loop when a full batch at the highest reached rung yields no raw- or lens-layer blind spot, or the user calls time. The instrument's tip version, the log, and the documented-hard list are the round's payload.
 
 ## Round Index (gate file)
 
@@ -142,7 +142,7 @@ Maintained continuously; the resume point and the user's one read:
 # Round Index — <instrument> vs <fixture>
 [oracle tier: smoke / sourced / user-held]   [instrument: vNNN → vNNN]
 ## Noise floor        [from calibration, verbatim]
-## Ledger             | variant | fault (manifest) | provenance | pre-screen | raw | lens | solver | decoy/softball | fix | instrument bump |
+## Log             | variant | fault (manifest) | provenance | pre-screen | raw | lens | solver | decoy/softball | fix | instrument bump |
 ## Blind spots found  [numbered; each → the detector or lens fix that closed it, or documented-hard + resolution path]
 ## Documented-hard    [the honest wall: what the instrument cannot see and what would change that]
 ## Escalation rung    [current rung, batches quiet at it]
@@ -151,4 +151,4 @@ Maintained continuously; the resume point and the user's one read:
 
 ## Honesty rules
 
-The round's value is calibration, and calibration dies of optimism first: report `fix-reasoned` as reasoned, never verified · a leak of manifest content into any blind context voids those matches in the ledger, played again fresh · the nudged re-read never changes a score · a harness artifact discovered mid-round invalidates affected matches explicitly — rescore, do not paper over · the oracle tier (smoke / sourced / user-held) is stated in the Round Index header and never silently upgraded.
+The round's value is calibration, and calibration dies of optimism first: report `fix-reasoned` as reasoned, never verified · a leak of manifest content into any blind context voids those matches in the log, played again fresh · the nudged re-read never changes a score · a harness artifact discovered mid-round invalidates affected matches explicitly — rescore, do not paper over · the oracle tier (smoke / sourced / user-held) is stated in the Round Index header and never silently upgraded.

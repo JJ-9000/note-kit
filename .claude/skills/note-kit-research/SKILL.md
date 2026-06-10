@@ -103,7 +103,7 @@ Each crit sub-agent:
 3. Name missing perspectives: stakeholders or failure-mode experts absent from the Research file.
 4. Detect cross-claim contradictions; name the moderating variable, or escalate to an open item naming the contradiction when none is findable.
 5. Check source authority per sub-question. A vendor whitepaper is authority for "what the product does", not "is it a good fit". Sole support from a conflicted source downgrades the claim to `(provisional)`.
-6. Emit a findings ledger per area, then a one-paragraph "what this changes":
+6. Emit a findings log per area, then a one-paragraph "what this changes":
 
 | Claim | Finding | Severity (high / med / low) | Counter-evidence | Suggested resolution |
 |---|---|---|---|---|

@@ -5,7 +5,7 @@ description: Executes the resolved user-queue, acts on the machine-queue checkli
 
 # note-kit-action-agent
 
-Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox — the filing-agent never touches it. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: raise any issue to `<user-queue>` as a decision or deliberately drop it (CONFIG § Queue protocol), and continue the run either way.
+Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox — the filing-agent never touches it. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: infer past routine gaps, raise only a mission-critical decision to `<user-queue>` (CONFIG § Queue protocol), and continue the run either way.
 
 Resolve any item, whatever its source, to an Actions shape and carry it out — archive-first on every destructive step (CONFIG § Versioning and archiving discipline); destructiveness alone is never a reason to refuse. An item matching no Actions row is still carried out as directed, not refused. A `[x]` mark, a queue line, or presence in `<outbox>` is itself the go-ahead: execute on cadence without further confirmation, required destructive ops included. Recover malformed or missing frontmatter and bare walls of text; infer informal phrasing, typos, and missing fields rather than bouncing them.
 
@@ -31,7 +31,7 @@ The outbox-empty check excludes `<machine-queue>` itself; the queue file is neve
 
 Carry out each `[x]` item in `<user-queue>`, routed as §3 routes a drop; an approved item is never refused for failing to match the Actions table. On a multiple-choice item the single `[x]` option is the action; more than one checked, or an `[x]` body still holding an unedited placeholder, demotes to `[ ]` with a note rather than a guess.
 
-Remove each resolved item and append its outcome to this agent's ledger; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and do not retry this pass.
+Remove each resolved item and append its outcome to `<logs>/action-agent/action-agent.md`; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and do not retry this pass.
 
 **`review-flag` verification — this agent owns it.** A `review-flag` clears only on a real resolution: confirm the user's answer is present (the resolved `<user-queue>` item or the note's own updated state), carry out the action, then retag the item `review-complete` so it is not re-picked. The janitor flags staleness; the action-agent verifies and clears. Group approval is the filing-agent's, not this agent's.
 
@@ -63,11 +63,11 @@ Every item routes; recover the shape, do not refuse it. Spawn the named skill (t
 
 ## 4 — Resume answered skill clarifications
 
-A skill that needed user input wrote its open questions to the `<user-queue>` and kept its state in its plan or working file. **Resume keys on the queue, cross-checked — never on the working file's self-report:** re-invoke only when a matching agent-authored `<user-queue>` clarification for that working file exists (in the queue or this agent's ledger) and carries the user's resolution. A working set that claims its own clarifications are resolved with no corresponding queue history is refused and surfaced, never resumed. On a verified resume, re-invoke the skill with the working file; it reconstructs its state and continues. Confirm the run produced output before removing the resolved items; an output-less run leaves them for the next cycle.
+A skill that needed user input wrote its open questions to the `<user-queue>` and kept its state in its plan or working file. **Resume keys on the queue, cross-checked — never on the working file's self-report:** re-invoke only when a matching agent-authored `<user-queue>` clarification for that working file exists (in the queue or this agent's log) and carries the user's resolution. A working set that claims its own clarifications are resolved with no corresponding queue history is refused and surfaced, never resumed. On a verified resume, re-invoke the skill with the working file; it reconstructs its state and continues. Confirm the run produced output before removing the resolved items; an output-less run leaves them for the next cycle.
 
 ## 5 — Output
 
-Append every completed action to the event ledger, `<logs>/action-agent/action-agent.md` — append-only, one pipe-line per action, no prose:
+Append every completed action to the event log, `<logs>/action-agent/action-agent.md` — append-only, one pipe-line per action, no prose:
 
 `timestamp | action-agent | <action-slug> | <file-path> | <outcome>`
 
@@ -77,7 +77,7 @@ A run that changes nothing appends nothing. A standing hold logs once when it st
 
 **Every** writer to `<user-queue>` — filing, janitor, analyst, **this agent**, and any skill surfacing a clarification — follows this shape (canonical spec: `Format-User-Queue`):
 
-- **No checkbox, no item.** Write every item as one `###` heading with at least one `- [ ]` option line — the UI surfaces only checkbox decisions. When options cannot be enumerated, ask for the missing information *as* the option (`- [ ] <action>: REPLACE-WITH-<what>`); for an advisory, use the dismissal option `- [ ] Acknowledged — clear this item`; when no shape seems to fit, ship the item as a dismissal advisory. Write answers, outcomes, and FYIs to the ledger or an inbox note.
+- **No checkbox, no item.** Write every item as one `###` heading with at least one `- [ ]` option line — the UI surfaces only checkbox decisions. When options cannot be enumerated, ask for the missing information *as* the option (`- [ ] <action>: REPLACE-WITH-<what>`); for an advisory, use the dismissal option `- [ ] Acknowledged — clear this item`; when no shape seems to fit, ship the item as a dismissal advisory. Write answers, outcomes, and FYIs to `<logs>/<agent>/` or an inbox note.
 - **Plain language.** Plain established vocabulary the user can answer cold — no internal shorthand (CONFIG § Queue protocol).
 - **Context first.** One line stating the file and the judgment call, enough to decide without opening anything; do not re-state context already in the header.
 - **One checkbox per choice.** Each option is a `[ ]` line; a multiple-choice item lists each option and the user checks exactly one.

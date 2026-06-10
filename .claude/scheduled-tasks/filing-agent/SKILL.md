@@ -5,13 +5,13 @@ description: Moves reviewed inbox files to their destinations and stages orphane
 
 # note-kit-filing-agent
 
-Moves every `reviewed: true` file out of `<inbox>` to the destination its type and project resolve to, confirming first that the destination is correct and the content fits. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: raise any issue to `<user-queue>` as a decision or deliberately drop it (CONFIG § Queue protocol), and continue the run either way.
+Moves every `reviewed: true` file out of `<inbox>` to the destination its type and project resolve to, confirming first that the destination is correct and the content fits. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: infer past routine gaps, raise only a mission-critical decision to `<user-queue>` (CONFIG § Queue protocol), and continue the run either way.
 
 ## 1 — Input
 
 **Earn the run.** If `<inbox>` holds no `reviewed: true` file and no staged asset, append nothing and stop.
 
-`reviewed: true` is necessary but not sufficient: a standing hold, a pending home decision, or a stub-folder removal recorded in `<user-queue>` or this agent's ledger (`<logs>/filing-agent/filing-agent.md`) overrides the flag — read both before moving anything; an item under a hold stays put. Back every hold with a live `<user-queue>` item or the user's recorded answer in the queue's history; re-raise an inferred or ledger-only deferral as a queue decision this run (CONFIG § Queue protocol, No silent deferral).
+`reviewed: true` is necessary but not sufficient: a standing hold, a pending home decision, or a stub-folder removal recorded in `<user-queue>` or this agent's log (`<logs>/filing-agent/filing-agent.md`) overrides the flag — read both before moving anything; an item under a hold stays put. Back every hold with a live `<user-queue>` item or the user's recorded answer in the queue's history; re-raise a deferral that is inferred or recorded only in `<logs>/filing-agent/` as a queue decision this run (CONFIG § Queue protocol, No silent deferral).
 
 Scan `<inbox>` recursively for `reviewed: true` files. Skip `<user-queue>` — this agent does not file the queue itself — and **never touch `<outbox>`**; every outbox drop is the action-agent's. Everything `reviewed: false` waits for manual review or for its **gate file** — the human-facing file at the root of an agent-output folder (a synthesis, report, index, or authoritative title at the parent's root).
 
@@ -36,7 +36,7 @@ Resolve each file to one folder, by reference to CONFIG.md, never by a baked-in 
 
 Resolve every subfolder by its type-role through CONFIG § Subfolders. Create a missing destination subfolder under an existing root. If `type` is missing or the destination will not resolve, leave the file in place and raise it for the user. Never stamp a placeholder classification to force a move.
 
-**A `project:` or `parent:` that resolves nowhere** is re-inferred with the same ladder as a missing one: enclosing folder → body wikilinks → vault search → sibling consensus. One confident answer → repoint it, tag `inferred`, file, one ledger line, **no queue**. Queue only when no existing home fits or two existing homes genuinely compete. Never invent new structure to satisfy a stamp — creating an area or project is always the user's call.
+**A `project:` or `parent:` that resolves nowhere** is re-inferred with the same ladder as a missing one: enclosing folder → body wikilinks → vault search → sibling consensus. One confident answer → repoint it, tag `inferred`, file, one log line, **no queue**. Queue only when no existing home fits or two existing homes genuinely compete. Never invent new structure to satisfy a stamp — creating an area or project is always the user's call.
 
 **Asset folders move whole** (CONFIG § Asset folders, `is_asset_folder`): one opaque object, to a referencing project's asset subfolder (CONFIG § Subfolders), else `<catchall>` — never walked, typed, stamped, scattered, or touched destructively, in the inbox and after filing alike. Mining a folder *into* notes is the deliberate note-kit-processor path, not this default.
 
@@ -46,7 +46,7 @@ Resolve every subfolder by its type-role through CONFIG § Subfolders. Create a 
 
 A working-set container (a skill CONFIG § Skill slugs marks `inbox-container: yes`) holds one skill run's members. **File it as a unit, not scattered:** resolve the destination from the root of the members' `parent`/`project`/`target` chain and the container's type, then move the whole folder — gate file and `<notes>` subfolder together — merging into a matching-named subfolder when one exists (CONFIG § Inbox output convention).
 
-Filing is **gated on the gate file** — the filing-agent owns group approval (CONFIG § Group approval): when the gate file is approved, stamp each un-read member `reviewed: true` and `auto-reviewed`, then file the container. Until then, no member files. Member timing follows the gate both directions: a member reviewed ahead of its gate **waits with its set** — an individual approval never files it early; a member that turns reviewed after its gate already filed is a **straggler** — auto-review it and file it to the set's filed home, resolved from the gate's new location or this agent's ledger. The emptied inbox container is removed; no empty inbox folder remains.
+Filing is **gated on the gate file** — the filing-agent owns group approval (CONFIG § Group approval): when the gate file is approved, stamp each un-read member `reviewed: true` and `auto-reviewed`, then file the container. Until then, no member files. Member timing follows the gate both directions: a member reviewed ahead of its gate **waits with its set** — an individual approval never files it early; a member that turns reviewed after its gate already filed is a **straggler** — auto-review it and file it to the set's filed home, resolved from the gate's new location or this agent's log. The emptied inbox container is removed; no empty inbox folder remains.
 
 **Husk cleanup.** An inbox folder with no markdown members, no gate file, and no asset classification is pruned after one grace pass, logged in one line. A questionable folder — non-empty or unclear — is queued, never auto-pruned.
 
@@ -85,4 +85,4 @@ For each file that passes the check:
 
   `timestamp | filing-agent | <code> | <target> | <value>`
 
-  A run that moves nothing appends nothing. A standing hold logs once at start and re-logs only on a state change; the inbox-wait summary logs only when inbox membership changes; never an inventory dump in a ledger line (CONFIG § Log files).
+  A run that moves nothing appends nothing. A standing hold logs once at start and re-logs only on a state change; the inbox-wait summary logs only when inbox membership changes; never an inventory dump in a log line (CONFIG § Log files).

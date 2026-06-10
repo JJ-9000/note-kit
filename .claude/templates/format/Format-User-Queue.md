@@ -12,7 +12,7 @@ status: complete
 
 # Format User Queue
 
-The shape of an item in `<user-queue>` (`00-Inbox/00-User-Queue.md`). Three readers share it: the user decides by checking boxes, the note-kit-ui Decide bucket renders items in this shape as decisions, and the action-agent executes checked options. An item outside the shape surfaces only as a "needs reading" row, with nothing the user can act on in place.
+The shape of an item in `<user-queue>`. Three readers share it: the user decides by checking boxes, the note-kit-ui Decide bucket renders items in this shape as decisions, and the action-agent executes checked options. An item outside the shape surfaces only as a "needs reading" row, with nothing the user can act on in place.
 
 ## Skeleton
 
@@ -38,7 +38,7 @@ _proposed: YYYY-MM-DD by <agent>_
 - A fill-in option carries an explicit `REPLACE-WITH-<what>` placeholder; a checked option whose placeholder is unedited demotes to open rather than executing.
 - An advisory — something that needs the user's eyes but no choice — is an item whose single option is `- [ ] Acknowledged — clear this item`. Between enumerable choices, the fill-in option, and the dismissal option, a compliant shape exists for any ask.
 - States are `[ ]` open, `[x]` approved, `[-]` rejected. An item is open while it holds a selectable `[ ]` and no `[x]`; one `[x]` on a multiple-choice item is the action.
-- A resolved item leaves the queue; its outcome lives in the executing agent's ledger. Results, answers, and FYIs live in ledgers and inbox notes — the queue holds open decisions only.
+- A resolved item leaves the queue; its outcome lives in the executing agent's log in `<logs>/<agent>/`. Results, answers, and FYIs live under `<logs>` and in inbox notes — the queue holds open decisions only.
 - `_proposed: <date> by <agent>_` closes the item; the parser skips `_`-prefixed lines as context.
 
 ## Parse contract

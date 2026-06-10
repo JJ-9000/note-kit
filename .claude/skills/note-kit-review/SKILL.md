@@ -54,7 +54,7 @@ Stages run in order, each writing its own file and reading only the prior stage'
 
 ## Stage 1 — Parse
 
-**Input:** the target document(s) + the review commentary. Author the plan through the note-kit-plan skill at `<notes>/<target>-plan-v<NNN>.md` (`type: plan`) **before** any sub-agent spawns — the plan is the resume ledger and every sub-agent reads it.
+**Input:** the target document(s) + the review commentary. Author the plan through the note-kit-plan skill at `<notes>/<target>-plan-v<NNN>.md` (`type: plan`) **before** any sub-agent spawns — the plan is the resume log and every sub-agent reads it.
 
 1. Resolve the review target (§ Review Target): copy it into the container's `<notes>/` subfolder as the working copy and edit the copy, never the source. Note the target and version in the plan.
 2. Read the target and the commentary. Identify every comment — ALL-CAPS notes, bracket annotations, marked passages, marginal notes, or a separate review file.
@@ -89,7 +89,7 @@ Pass the versioned-up plan back to Stage 2. 2 attempts per finding, then **open 
 2. Look at the project as a whole, all files together in context — top-level changes affecting interoperability, consistency, format and standardization.
 3. Make final edits in the working copy, reinforcing earlier sub-agent changes where needed, especially global notes.
 4. Re-check patterns one last time against the user's voice, design, and format standards filed in their notes. Voice governs phrasing; design governs structure and methodology; format governs visual conventions. Pay special attention to guidance in that project's project folder, if present.
-5. Confirm the plan ledger is honest: every box is verified-checked, and every unresolved item carries an open entry naming the files and the fix. No box is checked on a producer's claim alone, and no noticed defect is left as a silent scope cut.
+5. Confirm the plan log is honest: every box is verified-checked, and every unresolved item carries an open entry naming the files and the fix. No box is checked on a producer's claim alone, and no noticed defect is left as a silent scope cut.
 6. Write the Review Summary to the container root — the only file at root, the **gate** file. State the chosen target and version method (source version → new container version) here:
 
 ```

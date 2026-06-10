@@ -41,7 +41,7 @@ Some plans need neither. Bring research in when a decision cannot be made withou
 
 ## Keep the plan current
 
-The plan is a live ledger of run state, not a one-time draft.
+The plan is a live log of run state, not a one-time draft.
 
 - **Check an item the moment its work lands** — after the work completes, never when the plan is first written. When possible, an agent not executing the plan verifies the work before checking it off.
 - **Add items as they surface**, in the section they belong to.

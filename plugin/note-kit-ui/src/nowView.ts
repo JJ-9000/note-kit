@@ -51,7 +51,9 @@ interface DecisionOption {
  * it. A single-choice item carries one option; a multiple-choice item lists
  * several, of which the user picks exactly one (action-agent SKILL § Proposal
  * shape). The "Decide" bucket counts decisions, not options — picking one
- * approves it and the whole decision clears from the pane. An empty `options`
+ * approves it ([x]); the decision stays rendered as resolved until the
+ * action-agent's next pass clears it from the file, and unchecking re-opens
+ * it. An empty `options`
  * means the item drifted off the queue format (heading with prose, no checkbox
  * lines) — it renders as a "needs reading" row instead of options.
  */
@@ -138,6 +140,7 @@ export class NowView extends ItemView {
 
 		const { needs, active } = this.collect();
 		const openDecisions = this.decisions.filter(isOpenDecision);
+		const resolvedDecisions = this.decisions.filter(isResolvedDecision);
 
 		const head = c.createDiv("nkui-now-head");
 		const tb = head.createDiv("nkui-now-titleblock");
@@ -157,7 +160,8 @@ export class NowView extends ItemView {
 		// Both queues take precedence over the inbox drafts.
 		// Decide — open user-queue decisions (AI → you); one entry per decision,
 		// picking an option resolves it and clears the whole decision.
-		if (openDecisions.length) this.renderDecideBucket(c, openDecisions);
+		if (openDecisions.length || resolvedDecisions.length)
+			this.renderDecideBucket(c, openDecisions, resolvedDecisions);
 		// Queue — you → AI checklist. Click an item's text to cross it off.
 		if (machineFile instanceof TFile) {
 			this.renderQueueBucket(c, "Queue/machine", "Queue", null, {
@@ -167,7 +171,8 @@ export class NowView extends ItemView {
 			});
 		}
 
-		const queuesShown = openDecisions.length > 0 || machineFile instanceof TFile;
+		const queuesShown =
+			openDecisions.length > 0 || resolvedDecisions.length > 0 || machineFile instanceof TFile;
 
 		// Inbox drafts, grouped by type — below the queues.
 		if (queuesShown && groups.size) c.createDiv("nkui-now-divider");
@@ -288,8 +293,10 @@ export class NowView extends ItemView {
 		}
 	}
 
-	/** Decide bucket — each open decision is one entry; the count is decisions, not options. */
-	private renderDecideBucket(parent: HTMLElement, decisions: Decision[]): void {
+	/** Decide bucket — each open decision is one entry; the count is OPEN decisions.
+	 * Resolved decisions ([x], awaiting the action-agent's clearing pass) render
+	 * beneath the open ones, dimmed, uncheckable to re-open. */
+	private renderDecideBucket(parent: HTMLElement, decisions: Decision[], resolved: Decision[]): void {
 		const id = "Queue/decide";
 		const b = parent.createDiv("nkui-now-group");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, true));
@@ -298,6 +305,37 @@ export class NowView extends ItemView {
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
 		for (const d of decisions) this.renderDecision(list, d);
+		for (const d of resolved) this.renderResolvedDecision(list, d);
+	}
+
+	/** A resolved decision: approved in the file, not yet executed. It stays
+	 * visible so the approval is reversible until the agent acts — unchecking
+	 * returns the option to open. */
+	private renderResolvedDecision(list: HTMLElement, d: Decision): void {
+		const path = this.plugin.settings.userQueuePath;
+		const card = list.createDiv("nkui-now-decision is-resolved");
+		const openQueue = () =>
+			this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false);
+		if (d.title) {
+			const title = card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
+			title.addEventListener("click", openQueue);
+		}
+		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
+		if (!picked) return;
+		const row = card.createDiv("nkui-now-optrow");
+		const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+		cb.checked = true;
+		row.createSpan({ cls: "nkui-now-opttext", text: plainText(picked.text) });
+		row.createSpan({ cls: "nkui-now-qclear", text: "runs next agent pass" });
+		row.setAttr(
+			"aria-label",
+			"Approved — the agent executes and clears this on its next pass. Uncheck to re-open."
+		);
+		row.setAttr("title", row.getAttr("aria-label") ?? "");
+		cb.addEventListener("change", async () => {
+			await this.setItemChecked(path, picked.text, false);
+			await this.reloadAndRender();
+		});
 	}
 
 	private renderDecision(list: HTMLElement, d: Decision): void {
@@ -359,9 +397,7 @@ export class NowView extends ItemView {
 						fill.focus();
 						return;
 					}
-					void this.resolveCard(card, () =>
-					this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v))
-				);
+					void this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v));
 				};
 				cb.addEventListener("change", submit);
 				fill.addEventListener("keydown", (ev) => {
@@ -373,9 +409,7 @@ export class NowView extends ItemView {
 				});
 				continue;
 			}
-			cb.addEventListener("change", () =>
-				void this.resolveCard(card, () => this.pickOption(path, o.text))
-			);
+			cb.addEventListener("change", () => void this.pickOption(path, o.text));
 			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
 		}
 
@@ -587,17 +621,6 @@ export class NowView extends ItemView {
 	}
 
 	/** Approve one option of a decision — writes [x] to its line, resolving the decision. */
-	/** Collapse a resolved decision card (measured height -> 0) before the write
-	 * re-renders the list, so the item leaves rather than blinks out. */
-	private async resolveCard(card: HTMLElement, write: () => Promise<void>): Promise<void> {
-		card.style.height = `${card.getBoundingClientRect().height}px`;
-		void card.offsetHeight; // commit the measured height before transitioning
-		card.addClass("is-resolving");
-		card.style.height = "0px";
-		await new Promise((r) => setTimeout(r, 190));
-		await write();
-	}
-
 	private async pickOption(path: string, text: string): Promise<void> {
 		await this.setItemChecked(path, text, true);
 		await this.reloadAndRender();
@@ -867,6 +890,11 @@ function parseDecisions(content: string): Decision[] {
 
 /** A decision still needs you when it has a selectable option and none approved yet.
  * An option-less (drifted) decision always needs you — there is nothing to check off. */
+/** Approved in the file ([x]) and awaiting the action-agent's clearing pass. */
+function isResolvedDecision(d: Decision): boolean {
+	return d.options.some((o) => o.state === "x" || o.state === "X");
+}
+
 function isOpenDecision(d: Decision): boolean {
 	if (!d.options.length) return true;
 	const approved = d.options.some((o) => o.state === "x" || o.state === "X");

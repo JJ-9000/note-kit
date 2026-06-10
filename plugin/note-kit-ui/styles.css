@@ -398,18 +398,16 @@
 	border-top: 1px solid var(--background-modifier-border);
 	padding-top: 0.55em;
 }
-/* Resolving a decision collapses the card — height measured at click, then
-   transitioned to 0 with the fold animation's 170ms step — so a picked item
-   leaves the pane instead of blinking out on the re-render. */
-.nkui-now-decision {
-	transition: height 170ms ease, opacity 170ms ease, margin 170ms ease, padding 170ms ease;
+/* A resolved decision ([x] in the file, awaiting the action-agent's clearing
+   pass) stays in the pane dimmed and struck, with its fate labelled — the
+   approval is reversible by unchecking until the agent acts. */
+.nkui-now-decision.is-resolved .nkui-now-decision-title,
+.nkui-now-decision.is-resolved .nkui-now-decision-context {
+	color: var(--text-faint);
 }
-.nkui-now-decision.is-resolving {
-	overflow: hidden;
-	opacity: 0;
-	margin-block: 0;
-	padding-block: 0;
-	border-top-color: transparent;
+.nkui-now-decision.is-resolved .nkui-now-opttext {
+	text-decoration: line-through;
+	color: var(--text-faint);
 }
 .nkui-now-decision-title {
 	font-weight: var(--font-semibold, 600);

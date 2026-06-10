@@ -37,7 +37,7 @@ _proposed: YYYY-MM-DD by <agent>_
 - Every option names its concrete outcome — the exact destination, name, or frontmatter value — so a checked box executes with no further interpretation.
 - A fill-in option carries an explicit `REPLACE-WITH-<what>` placeholder; the Decide bucket renders the placeholder as a text input whose value replaces it as the box checks (0.4.12), and a checked option with an unedited placeholder demotes to open rather than executing. A derivable candidate appears as its own concrete option; the fill-in is the fallback.
 - An advisory — something that needs the user's eyes but no choice — is an item whose single option is `- [ ] Acknowledged — clear this item`. Between enumerable choices, the fill-in option, and the dismissal option, a compliant shape exists for any ask.
-- States are `[ ]` open, `[x]` approved, `[-]` rejected. An item is open while it holds a selectable `[ ]` and no `[x]`; one `[x]` on a multiple-choice item is the action.
+- States are `[ ]` open, `[x]` approved, `[-]` rejected. An item is open while it holds a selectable `[ ]` and no `[x]`; one `[x]` on a multiple-choice item is the action. An approved item stays in the Decide bucket dimmed, its fate labelled, until the action-agent's pass clears it from the file (0.4.15) — unchecking re-opens it.
 - A resolved item leaves the queue; its outcome lives in the executing agent's log in `<logs>/<agent>/`. Results, answers, and FYIs live under `<logs>` and in inbox notes — the queue holds open decisions only.
 - `_proposed: <date> by <agent>_` closes the item; the parser skips `_`-prefixed lines as context.
 

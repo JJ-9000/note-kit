@@ -87,25 +87,30 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	],
 
 	typeField: "type",
+	// Vibrant palette drawn from Dracula + Tokyo Night (popular dark-theme palettes),
+	// tuned for a near-black background. Hue follows the semantic role (palette.ts
+	// ROLES): primary content types get a saturated full hue, their satellites the
+	// same family lightened, operational types a muted blue-gray (chrome, not content)
+	// so the bright primaries read brighter still. Used when Theme palette is off.
 	typeStyles: [
-		{ type: "project", color: "#e5534b" },
-		{ type: "area", color: "#d29922" },
-		{ type: "reference", color: "#3fb950" },
-		{ type: "research", color: "#58a6ff" },
-		{ type: "plan", color: "#bc8cff" },
-		{ type: "session", color: "#8b949e" },
-		{ type: "journal", color: "#db61a2" },
-		{ type: "idea", color: "#f0883e" },
-		{ type: "snippet", color: "#39c5cf" },
-		{ type: "source", color: "#a5a5a5" },
-		{ type: "index", color: "#ffd33d" },
-		{ type: "note", color: "#768390" },
-		{ type: "voice", color: "#e275ad" },
-		{ type: "design", color: "#9e86ff" },
-		{ type: "format", color: "#4cc9c0" },
-		{ type: "addendum", color: "#c69026" },
-		{ type: "log", color: "#6e7681" },
-		{ type: "revision", color: "#7a8dd8" },
+		{ type: "project", color: "#ff5555" }, // red — Dracula
+		{ type: "area", color: "#ff9e64" }, // orange — Tokyo Night
+		{ type: "reference", color: "#50fa7b" }, // green — Dracula
+		{ type: "research", color: "#82aaff" }, // blue — Tokyo Night
+		{ type: "plan", color: "#bd93f9" }, // purple — Dracula
+		{ type: "session", color: "#6272a4" }, // blue-gray — operational
+		{ type: "journal", color: "#ff79c6" }, // pink — Dracula
+		{ type: "idea", color: "#ffd75f" }, // yellow
+		{ type: "snippet", color: "#8be9fd" }, // cyan — Dracula
+		{ type: "source", color: "#7d8bc4" }, // blue-gray — operational, light
+		{ type: "index", color: "#ffe7a3" }, // yellow — soft (satellite of idea)
+		{ type: "note", color: "#565f8c" }, // blue-gray — operational
+		{ type: "voice", color: "#ffa6da" }, // pink — soft (satellite of journal)
+		{ type: "design", color: "#d7b8ff" }, // purple — soft (satellite of plan)
+		{ type: "format", color: "#aaf4ff" }, // cyan — soft (satellite of snippet)
+		{ type: "addendum", color: "#ffc499" }, // orange — soft (satellite of area)
+		{ type: "log", color: "#474d70" }, // blue-gray — operational, faint
+		{ type: "revision", color: "#aac4ff" }, // blue — soft (satellite of research)
 	],
 	applyTypeBodyClass: true,
 	themePalette: true,

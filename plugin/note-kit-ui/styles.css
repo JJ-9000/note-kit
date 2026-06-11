@@ -357,7 +357,14 @@
 	line-height: 1.4;
 }
 /* Approved gate still waiting on the filing-agent: visibly not an open ask —
-   the row recedes to muted and an italic note says why it lingers. */
+   the whole row recedes (it no longer counts toward the section bubble), brightening
+   on hover so it stays reachable, with an italic note saying why it lingers. */
+.nkui-now-row-waiting {
+	opacity: 0.5;
+}
+.nkui-now-row-waiting:hover {
+	opacity: 0.85;
+}
 .nkui-now-row-waiting .nkui-now-rowtitle {
 	color: var(--text-muted);
 	font-weight: var(--font-normal, 400);
@@ -591,6 +598,27 @@
 	flex: 1 1 auto;
 	min-width: 0;
 	font-style: italic;
+}
+/* Acknowledge — the default action for a non-choice notification: a quiet
+   right-aligned button that crosses the item off (the row stays clickable to
+   open and read; the button stops that click). */
+.nkui-now-ackbtn {
+	flex: 0 0 auto;
+	padding: 0.12em 0.7em;
+	border-radius: var(--radius-s, 6px);
+	border: 1px solid var(--background-modifier-border);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller, 12px);
+	font-weight: var(--font-semibold, 600);
+	font-style: normal;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.nkui-now-ackbtn:hover {
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+	background: var(--nkui-hover);
 }
 
 /* ── Calm reading — reading-mode overrides that reduce note noise (toggle) ──── */

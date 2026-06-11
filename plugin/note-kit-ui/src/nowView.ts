@@ -154,7 +154,13 @@ export class NowView extends ItemView {
 		tb.createDiv({ cls: "nkui-now-title", text: formatToday() });
 		tb.createDiv({
 			cls: "nkui-now-subtitle",
-			text: summary(needs.length, active.length, openDecisions.length),
+			// "Waiting" counts only what still needs you — approved gates awaiting
+			// filing are excluded, matching the section bubbles.
+			text: summary(
+				needs.filter((e) => !e.awaitingFiling).length,
+				active.length,
+				openDecisions.length
+			),
 		});
 		const refresh = head.createEl("button", { cls: "clickable-icon nkui-now-refresh" });
 		setIcon(refresh, "refresh-cw");
@@ -240,7 +246,11 @@ export class NowView extends ItemView {
 	): void {
 		const b = parent.createDiv("nkui-now-group");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, defaultOpen));
-		const head = this.bucketHead(b, id, label, color, entries.length, defaultOpen);
+		// The count is what actually needs the user — an approved gate awaiting
+		// filing is done, so it drops out of the bubble (a section of only approved
+		// gates reads 0).
+		const needsUser = entries.filter((e) => !e.awaitingFiling).length;
+		const head = this.bucketHead(b, id, label, color, needsUser, defaultOpen);
 		// A draft section gets a per-section "approve all" — one armed-then-commit
 		// control that stamps reviewed: true on every draft row here (a folded set's
 		// gate included, which cascades to its peers via group approval). Drafts
@@ -422,11 +432,23 @@ export class NowView extends ItemView {
 			row.setAttr("role", "button");
 			row.setAttr("tabindex", "0");
 			setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
-			row.createSpan({ cls: "nkui-now-needsread-text", text: "Needs reading — no options to pick" });
+			row.createSpan({ cls: "nkui-now-needsread-text", text: "Read-only — open to read" });
 			row.addEventListener("click", openQueue);
 			row.addEventListener("keydown", (ev) => {
 				if (ev.key === "Enter") openQueue();
 			});
+			// A non-choice notification has nothing to pick — the default action is to
+			// acknowledge it: a checked line is written under its heading so it
+			// resolves like a picked decision (dims, then the action-agent clears it
+			// next pass). Needs a heading to locate the write target.
+			if (d.title) {
+				const ack = row.createEl("button", { cls: "nkui-now-ackbtn", text: "Acknowledge" });
+				ack.setAttr("aria-label", "Acknowledge — cross this off; the agent clears it on its next pass");
+				ack.addEventListener("click", (ev) => {
+					ev.stopPropagation();
+					void this.fadeThen(card, () => this.acknowledge(path, d));
+				});
+			}
 			return;
 		}
 
@@ -804,6 +826,38 @@ export class NowView extends ItemView {
 		await this.reloadAndRender();
 	}
 
+	/** Acknowledge a non-choice notification — append a checked line at the end of
+	 * its heading block so it parses as a resolved decision (a [x] option), which
+	 * renders as the dimmed, struck "runs next agent pass" row and is cleared by
+	 * the action-agent's next pass. The marker mirrors the machine queue's
+	 * "*(item skipped)*" convention so a human reading the file sees it was a
+	 * receipt, not a chosen action. */
+	private async acknowledge(path: string, d: Decision): Promise<void> {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (!(f instanceof TFile) || !d.title) return;
+		const lines = (await this.app.vault.read(f)).split("\n");
+		let i = 0;
+		let found = false;
+		for (; i < lines.length; i++) {
+			const hm = lines[i].match(HEADING_RE);
+			if (hm && hm[2] === d.title) {
+				found = true;
+				i++;
+				break;
+			}
+		}
+		if (!found) return;
+		// Insert after the heading's prose block, before the next heading or EOF.
+		let at = i;
+		for (; i < lines.length; i++) {
+			if (lines[i].match(HEADING_RE)) break;
+			if (lines[i].trim()) at = i + 1;
+		}
+		lines.splice(at, 0, "- [x] *(acknowledged)*");
+		await this.app.vault.modify(f, lines.join("\n"));
+		await this.reloadAndRender();
+	}
+
 	/** Append a new option line beneath a decision's heading. */
 	private async addOption(path: string, d: Decision, text: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
@@ -966,12 +1020,13 @@ export class NowView extends ItemView {
 				// the set waits on the filing-agent's next pass. One quiet row says
 				// so; the leftover members never wear the gate badge. Copied so a
 				// gate that also surfaces elsewhere (e.g. Active) keeps its own row.
+				// Approved — nothing here needs the user, so it carries no "+N"; the
+				// count it would have shown drops to zero (the badge is omitted).
 				needs.push({
 					...gate,
 					container: cname,
 					isGate: true,
 					awaitingFiling: true,
-					setCount: ds.length,
 				});
 				continue;
 			}

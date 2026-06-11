@@ -196,8 +196,14 @@ export class ExplorerDecorator {
 			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", sinkHit);
 		}
 
-		// (c) type + (d) reviewed — files only
+		// (c) type + (d) reviewed + (e) queue surface — files only
 		if (!isFolder) {
+			// The configured queues (user/machine) are interaction surfaces, not
+			// content: tag them so the stylesheet floats them to the top of their
+			// folder and gives them the same accent as their For You buckets.
+			const isQueue = path === s.userQueuePath || path === s.machineQueuePath;
+			this.setAttr(el, "data-nkui-queue", isQueue ? "true" : null);
+
 			const fm = this.plugin.app.metadataCache.getCache(path)?.frontmatter;
 			let typeHit: string | null = null;
 			if (s.enableTypeStyling && fm) {
@@ -323,6 +329,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-prefix");
 				el.removeAttribute("data-nkui-type");
 				el.removeAttribute("data-nkui-reviewed");
+				el.removeAttribute("data-nkui-queue");
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"
 				);

@@ -855,3 +855,122 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Waiting section · shared reduced item · queue surfaces · open emphasis
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shared reduced item ─────────────────────────────────────────────────────
+   One treatment for every settled, non-actionable item — crossed-off queue
+   lines, resolved decisions, awaiting-filing gates — so they read with the same
+   weight. Compact and faded, with the fate note stacked BELOW the title so a
+   long title is never smushed sideways to make room for a couple of words. */
+.nkui-now-reducedrow {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--nkui-gap-s);
+	padding: 0.08em calc(0.5em + var(--nkui-gap-s)) 0.08em 1.55em;
+	margin: 0 -0.5em;
+	border-radius: var(--radius-s, 6px);
+	opacity: 0.5;
+	transition: opacity 120ms ease, background 120ms ease;
+}
+.nkui-now-reducedrow:hover {
+	opacity: 0.9;
+	background: var(--nkui-hover);
+}
+.nkui-now-reducedrow .nkui-now-qcheck {
+	flex: 0 0 auto;
+	margin-top: 0.15em;
+	cursor: pointer;
+}
+.nkui-now-reducedmain {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+.nkui-now-reducedtitle {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+}
+.nkui-now-reducedrow-click {
+	cursor: pointer;
+}
+.nkui-now-reducedtitle.is-struck {
+	text-decoration: line-through;
+	color: var(--text-faint);
+}
+.nkui-now-fatenote {
+	font-size: var(--font-ui-smaller, 11px);
+	font-style: italic;
+	color: var(--text-faint);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* ── Waiting section — neutral and low-key; it holds nothing that needs you. ── */
+.nkui-now-group-waiting > .nkui-now-group-head .nkui-now-group-title {
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+/* ── Configured queue surfaces (Decide / Queue) — marked as live interaction
+   surfaces with a quiet left accent; they already render at the top. An empty
+   queue still recedes via .nkui-now-group-empty. ────────────────────────────── */
+.nkui-now-group-queue > .nkui-now-group-head {
+	box-shadow: inset 2px 0 0 0 var(--interactive-accent);
+}
+.nkui-now-group-queue:not(.nkui-now-group-empty) > .nkui-now-group-head .nkui-now-group-title {
+	color: var(--text-accent, var(--interactive-accent));
+}
+
+/* ── Open-section emphasis — an unfolded, non-empty section takes its section
+   colour (the pill colour, or the theme heading colour when the theme palette is
+   on; set inline as --nkui-section-color). Collapsed sections stay neutral, so
+   unfolding is visible feedback. Queue surfaces keep their own accent. ───────── */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head {
+	box-shadow: inset 2px 0 0 0 var(--nkui-section-color, transparent);
+}
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head .nkui-now-group-title {
+	color: var(--nkui-section-color, var(--text-normal));
+}
+
+/* ── File explorer: queue files float to the top of their folder and wear the
+   same interaction accent as their For You buckets. ─────────────────────────── */
+.nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]) {
+	display: flex;
+	flex-direction: column;
+}
+.tree-item:has(> .nav-file-title[data-nkui-queue]) {
+	order: -1;
+}
+.nav-file-title[data-nkui-queue] {
+	box-shadow: inset 2px 0 0 0 var(--interactive-accent);
+}
+.nav-file-title[data-nkui-queue] .nav-file-title-content {
+	font-weight: var(--font-semibold, 600);
+	color: var(--text-accent, var(--interactive-accent));
+}
+
+/* ── File explorer: an open (expanded) folder gets a quiet accent so the active
+   branch stands out from its collapsed siblings (the explorer's "dropdowns"). ── */
+.nav-folder:not(.is-collapsed):not(.mod-root) > .nav-folder-title {
+	box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+}
+.nav-folder:not(.is-collapsed):not(.mod-root) > .nav-folder-title .nav-folder-title-content {
+	color: var(--text-normal);
+}
+
+/* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */
+body.is-mobile .nkui-now-reducedrow {
+	min-height: 40px;
+	padding-top: 0.4em;
+	padding-bottom: 0.4em;
+}

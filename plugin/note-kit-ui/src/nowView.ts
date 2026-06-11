@@ -145,7 +145,7 @@ export class NowView extends ItemView {
 		c.empty();
 		c.addClass("nkui-now");
 
-		const { needs, active } = this.collect();
+		const { needs, active, waiting } = this.collect();
 		const openDecisions = this.decisions.filter(isOpenDecision);
 		const resolvedDecisions = this.decisions.filter(isResolvedDecision);
 
@@ -156,11 +156,7 @@ export class NowView extends ItemView {
 			cls: "nkui-now-subtitle",
 			// "Waiting" counts only what still needs you — approved gates awaiting
 			// filing are excluded, matching the section bubbles.
-			text: summary(
-				needs.filter((e) => !e.awaitingFiling).length,
-				active.length,
-				openDecisions.length
-			),
+			text: summary(needs.length, active.length, openDecisions.length),
 		});
 		const refresh = head.createEl("button", { cls: "clickable-icon nkui-now-refresh" });
 		setIcon(refresh, "refresh-cw");
@@ -170,11 +166,9 @@ export class NowView extends ItemView {
 		const groups = this.groupEntries(needs);
 		const machineFile = this.app.vault.getAbstractFileByPath(s.machineQueuePath);
 
-		// Both queues take precedence over the inbox drafts.
-		// Decide — open user-queue decisions (AI → you); one entry per decision,
-		// picking an option resolves it and clears the whole decision.
-		if (openDecisions.length || resolvedDecisions.length)
-			this.renderDecideBucket(c, openDecisions, resolvedDecisions);
+		// Queues first — the configured user-interaction surfaces. Decide shows
+		// only OPEN decisions; resolved ones drop to the Waiting section below.
+		if (openDecisions.length) this.renderDecideBucket(c, openDecisions);
 		// Queue — you → AI checklist. Click an item's text to cross it off.
 		if (machineFile instanceof TFile) {
 			this.renderQueueBucket(c, "Queue/machine", "Queue", null, {
@@ -184,10 +178,9 @@ export class NowView extends ItemView {
 			});
 		}
 
-		const queuesShown =
-			openDecisions.length > 0 || resolvedDecisions.length > 0 || machineFile instanceof TFile;
+		const queuesShown = openDecisions.length > 0 || machineFile instanceof TFile;
 
-		// Inbox drafts, grouped by type — below the queues.
+		// Inbox drafts that still need you, grouped by type — below the queues.
 		if (queuesShown && groups.size) c.createDiv("nkui-now-divider");
 		for (const key of this.groupOrder([...groups.keys()])) {
 			const items = groups.get(key);
@@ -202,6 +195,14 @@ export class NowView extends ItemView {
 				false,
 				true
 			);
+		}
+
+		// Waiting — approved gates awaiting the filing-agent and resolved
+		// decisions awaiting the action-agent: settled by you, pending an agent.
+		// One quiet neutral-grey section gathered right above Active.
+		if (waiting.length || resolvedDecisions.length) {
+			c.createDiv("nkui-now-divider");
+			this.renderWaitingSection(c, waiting, resolvedDecisions);
 		}
 
 		// Active projects / areas.
@@ -369,44 +370,39 @@ export class NowView extends ItemView {
 	}
 
 	/** Decide bucket — each open decision is one entry; the count is OPEN decisions.
-	 * Resolved decisions ([x], awaiting the action-agent's clearing pass) render
-	 * beneath the open ones, dimmed, uncheckable to re-open. */
-	private renderDecideBucket(parent: HTMLElement, decisions: Decision[], resolved: Decision[]): void {
+	 * It is a configured user-interaction surface, so it carries the queue styling
+	 * and sits at the top. Resolved decisions move to the Waiting section. */
+	private renderDecideBucket(parent: HTMLElement, decisions: Decision[]): void {
 		const id = "Queue/decide";
-		const b = parent.createDiv("nkui-now-group");
+		const b = parent.createDiv("nkui-now-group nkui-now-group-queue");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, true));
 		this.bucketHead(b, id, "Decide", "var(--interactive-accent)", decisions.length, true);
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
 		for (const d of decisions) this.renderDecision(list, d);
-		for (const d of resolved) this.renderResolvedDecision(list, d);
 	}
 
-	/** A resolved decision: approved in the file, not yet executed. It lingers
-	 * as ONE diminished, truncated row — visibly not an active decision — until
-	 * the agent's pass clears it; unchecking re-opens it. */
+	/** A resolved decision: approved in the file, not yet executed. Renders in the
+	 * shared reduced shape inside the Waiting section; unchecking re-opens it. */
 	private renderResolvedDecision(list: HTMLElement, d: Decision): void {
 		const path = this.plugin.settings.userQueuePath;
 		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
 		if (!picked) return;
-		const row = list.createDiv("nkui-now-resolvedrow");
-		const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
-		cb.checked = true;
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
-		const txt = row.createSpan({ cls: "nkui-now-restext", text: label });
-		txt.addEventListener("click", () =>
-			this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false)
-		);
-		row.createSpan({ cls: "nkui-now-qclear", text: "runs next agent pass" });
-		row.setAttr(
-			"aria-label",
-			"Approved — the agent executes and clears this on its next pass. Uncheck to re-open."
-		);
-		row.setAttr("title", row.getAttr("aria-label") ?? "");
-		cb.addEventListener("change", async () => {
-			await this.setItemChecked(path, picked.text, false);
-			await this.reloadAndRender();
+		this.renderReducedRow(list, {
+			title: label,
+			note: "runs next agent pass",
+			struck: true,
+			checkbox: {
+				checked: true,
+				onChange: async () => {
+					await this.setItemChecked(path, picked.text, false);
+					await this.reloadAndRender();
+				},
+			},
+			onOpen: () => this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false),
+			ariaLabel: "Approved — the agent executes and clears this on its next pass. Uncheck to re-open.",
 		});
 	}
 
@@ -524,50 +520,43 @@ export class NowView extends ItemView {
 		opts: { items: QueueItem[]; path: string; defaultOpen: boolean }
 	): void {
 		const openCount = opts.items.filter((i) => !i.done).length;
-		const b = parent.createDiv("nkui-now-group");
+		const b = parent.createDiv("nkui-now-group nkui-now-group-queue");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, opts.defaultOpen));
 		this.bucketHead(b, id, label, color, openCount, opts.defaultOpen);
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
 		for (const item of opts.items) {
-			// Machine queue: click the text to cross it off. A user cross-off is a
-			// SKIP, not a completion — the line gains the literal "*(item skipped)*"
-			// marker with its [x] so the file and the agent's sweep can tell it from
-			// the agent's own completion receipts. The sweep deletes [x] lines next
-			// run, so the fate is labelled inline (tooltips don't exist on mobile).
-			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
-			const txt = row.createSpan({
-				cls: "nkui-now-qtext",
-				text: item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, ""),
-			});
+			// A crossed-off item (skipped by the user or executed by the agent) is a
+			// receipt, not a live ask — it renders in the shared reduced shape (small,
+			// faded, fate note beneath the text) so it never crowds the open items.
 			if (item.done) {
-				txt.addClass("is-done");
 				const skipped = SKIP_MARK_RE.test(item.text);
 				const executed = EXEC_MARK_RE.test(item.text);
-				// Long fate label on desktop; a one-word twin on mobile so the label
-				// never pushes the struck text — the text truncates, the fate stays.
-				row.createSpan({
-					cls: "nkui-now-qclear nkui-now-qclear-long",
-					text: skipped
+				this.renderReducedRow(list, {
+					title: item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, ""),
+					note: skipped
 						? "skipped — clears next agent run"
 						: executed
-							? "executed by action agent — clears next run"
+							? "executed — clears next run"
 							: "done — clears next agent run",
-				});
-				row.createSpan({
-					cls: "nkui-now-qclear nkui-now-qclear-short",
-					text: skipped ? "skipped" : executed ? "executed" : "done",
-				});
-				row.setAttr(
-					"aria-label",
-					executed
+					struck: true,
+					onOpen: () => void this.skipMachineItem(item),
+					ariaLabel: executed
 						? "Executed by the action agent; clears on its next run. Click to restore — it will run again."
-						: "Crossed off — marked \"(item skipped)\" in the queue; the agent clears it next run without executing. Click to restore."
-				);
-			} else {
-				row.setAttr("aria-label", "Click to skip — the item is marked \"(item skipped)\" and the agent clears it next run without executing.");
+						: "Crossed off — the agent clears it next run without executing. Click to restore.",
+				});
+				continue;
 			}
+			// Open item: click the text to cross it off. A user cross-off is a SKIP,
+			// not a completion — the line gains the literal "*(item skipped)*" marker
+			// with its [x] so the agent's sweep tells it from a real completion.
+			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
+			row.createSpan({ cls: "nkui-now-qtext", text: item.text });
+			row.setAttr(
+				"aria-label",
+				"Click to skip — the item is marked \"(item skipped)\" and the agent clears it next run without executing."
+			);
 			row.setAttr("title", row.getAttr("aria-label") ?? "");
 			row.addEventListener("click", () => void this.skipMachineItem(item));
 		}
@@ -602,6 +591,15 @@ export class NowView extends ItemView {
 		// on. Tag it so the stylesheet recedes it (smaller, faded): a quiet "0" that
 		// never competes with a live count for attention.
 		bucket.toggleClass("nkui-now-group-empty", count <= 0);
+		// Open-section emphasis colour: the section's own pill colour, or the theme
+		// heading colour when the theme palette ("match theme") is on. The
+		// stylesheet applies it only while the section is unfolded.
+		bucket.style.setProperty(
+			"--nkui-section-color",
+			this.plugin.settings.themePalette
+				? "var(--h2-color, var(--interactive-accent))"
+				: color ?? "var(--interactive-accent)"
+		);
 		const gh = bucket.createDiv("nkui-now-group-head");
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");
@@ -675,6 +673,109 @@ export class NowView extends ItemView {
 		await this.reloadAndRender();
 	}
 
+	/** Waiting — settled-by-you items pending an agent: approved gates awaiting the
+	 * filing-agent and resolved decisions awaiting the action-agent. One quiet
+	 * neutral-grey section, default collapsed, gathered right above Active. */
+	private renderWaitingSection(parent: HTMLElement, waiting: Entry[], resolved: Decision[]): void {
+		const id = "Waiting";
+		const b = parent.createDiv("nkui-now-group nkui-now-group-waiting");
+		b.toggleClass("is-collapsed", this.isCollapsed(id, false));
+		this.bucketHead(b, id, "Waiting", null, waiting.length + resolved.length, false);
+		const wrap = b.createDiv("nkui-now-foldwrap");
+		const list = wrap.createDiv("nkui-now-list");
+		for (const e of waiting) {
+			this.renderReducedRow(list, {
+				title: this.displayName(e.file),
+				note: "approved — awaiting filing",
+				struck: false,
+				onOpen: (newLeaf) => this.app.workspace.openLinkText(e.file.path, "", newLeaf),
+				previewFile: e.file,
+				ariaLabel: "Approved — the filing-agent files this set on its next pass.",
+			});
+		}
+		for (const d of resolved) this.renderResolvedDecision(list, d);
+	}
+
+	/** The one shared "reduced" row — a compact, faded two-line block (title, then
+	 * a small fate note beneath) used for every settled item: crossed-off queue
+	 * lines, resolved decisions, awaiting-filing gates. The note sits BELOW the
+	 * title so a long title is never smushed to make room for it. */
+	private renderReducedRow(
+		list: HTMLElement,
+		o: {
+			title: string;
+			note: string;
+			struck: boolean;
+			onOpen?: (newLeaf: boolean) => void;
+			checkbox?: { checked: boolean; onChange: () => void | Promise<void> };
+			previewFile?: TFile;
+			ariaLabel?: string;
+		}
+	): void {
+		const row = list.createDiv("nkui-now-reducedrow");
+		if (o.ariaLabel) {
+			row.setAttr("aria-label", o.ariaLabel);
+			row.setAttr("title", o.ariaLabel);
+		}
+		if (o.checkbox) {
+			const box = o.checkbox;
+			const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+			cb.checked = box.checked;
+			cb.addEventListener("change", () => void box.onChange());
+		}
+		const main = row.createDiv("nkui-now-reducedmain");
+		const title = main.createSpan({ cls: "nkui-now-reducedtitle", text: o.title });
+		if (o.struck) title.addClass("is-struck");
+		main.createSpan({ cls: "nkui-now-fatenote", text: o.note });
+		if (o.onOpen) {
+			const open = o.onOpen;
+			// With a checkbox the title opens its source; without one the whole row is
+			// the affordance (e.g. click a crossed-off queue line to restore it).
+			const target = o.checkbox ? title : row;
+			target.addClass("nkui-now-reducedrow-click");
+			target.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
+		}
+		if (o.previewFile) this.attachPreview(row, o.previewFile);
+	}
+
+	/** Native page-preview on demand: right-click (desktop) or long-press (mobile)
+	 * fires Obsidian's own hover-link, so the core Page Preview plugin shows its
+	 * popover — no bespoke window to manage. A no-op when that plugin is off. */
+	private attachPreview(el: HTMLElement, file: TFile): void {
+		const fire = (event: Event): void => {
+			this.app.workspace.trigger("hover-link", {
+				event,
+				source: NOW_VIEW_TYPE,
+				hoverParent: this,
+				targetEl: el,
+				linktext: file.path,
+				sourcePath: file.path,
+			});
+		};
+		el.addEventListener("contextmenu", (ev) => {
+			ev.preventDefault();
+			fire(ev);
+		});
+		let timer: number | undefined;
+		const clear = (): void => {
+			if (timer) {
+				window.clearTimeout(timer);
+				timer = undefined;
+			}
+		};
+		el.addEventListener(
+			"touchstart",
+			(ev) => {
+				clear();
+				timer = window.setTimeout(() => fire(ev), 500);
+			},
+			{ passive: true }
+		);
+		el.addEventListener("touchmove", clear, { passive: true });
+		el.addEventListener("touchend", clear);
+		el.addEventListener("touchcancel", clear);
+	}
+
 	private renderRow(list: HTMLElement, e: Entry, opts: RowOpts, contained = false): void {
 		const row = list.createDiv("nkui-now-row");
 		if (contained) row.addClass("nkui-now-row-contained");
@@ -687,6 +788,7 @@ export class NowView extends ItemView {
 		row.addEventListener("keydown", (ev) => {
 			if (ev.key === "Enter") open(false);
 		});
+		this.attachPreview(row, e.file);
 
 		if (opts.showRowDot) {
 			const dot = row.createSpan("nkui-now-dot");
@@ -964,13 +1066,17 @@ export class NowView extends ItemView {
 
 	// ── data ─────────────────────────────────────────────────────────────────
 
-	private collect(): { needs: Entry[]; active: Entry[] } {
+	private collect(): { needs: Entry[]; active: Entry[]; waiting: Entry[] } {
 		const s = this.plugin.settings;
 		const activeTypes = new Set(s.nowActiveTypes);
 		const queueFiles = new Set([s.userQueuePath, s.machineQueuePath]);
 
 		const needs: Entry[] = [];
 		const active: Entry[] = [];
+		// Approved gates awaiting the filing-agent (settled by the user, pending an
+		// agent) are collected apart from `needs` and surfaced in their own quiet
+		// Waiting section above Active — never scattered as 0-count type groups.
+		const waiting: Entry[] = [];
 		// Inbox working-sets: a container holding a nested working subfolder (a draft
 		// two or more folders below the inbox) collapses to a single head row — the
 		// shallowest draft, i.e. the gate the user reads — carrying a "+N" for the
@@ -1036,7 +1142,7 @@ export class NowView extends ItemView {
 				// gate that also surfaces elsewhere (e.g. Active) keeps its own row.
 				// Approved — nothing here needs the user, so it carries no "+N"; the
 				// count it would have shown drops to zero (the badge is omitted).
-				needs.push({
+				waiting.push({
 					...gate,
 					container: cname,
 					isGate: true,
@@ -1101,8 +1207,9 @@ export class NowView extends ItemView {
 		const byActivity = (a: Entry, b: Entry) =>
 			(b.activity ?? b.file.stat.mtime) - (a.activity ?? a.file.stat.mtime);
 		needs.sort(byMtime);
+		waiting.sort(byMtime);
 		active.sort(byActivity);
-		return { needs, active };
+		return { needs, active, waiting };
 	}
 
 	private isUnreviewed(fm: Record<string, unknown>): boolean {

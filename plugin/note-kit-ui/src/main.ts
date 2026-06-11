@@ -41,6 +41,11 @@ export default class NoteKitUiPlugin extends Plugin {
 
 		this.addSettingTab(new NoteKitUiSettingTab(this.app, this));
 
+		// Register the For You view as a hover-link source so a right-click (desktop)
+		// or long-press (mobile) on a row can summon the core Page Preview popover
+		// (see nowView.attachPreview). No-op if Page Preview is disabled.
+		this.registerHoverLinkSource(NOW_VIEW_TYPE, { display: "For You", defaultMod: false });
+
 		// Turn a new empty main-area tab into the For You page (a Home button).
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => this.maybeReplaceEmpty(leaf))

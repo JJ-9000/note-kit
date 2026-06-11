@@ -1,6 +1,6 @@
 {
   "name": "note-kit-ui",
-  "version": "0.4.28",
+  "version": "0.4.29",
   "description": "Obsidian plugin that surfaces the note-kit's structure in the UI.",
   "main": "main.js",
   "type": "module",

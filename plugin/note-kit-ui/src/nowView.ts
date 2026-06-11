@@ -20,6 +20,9 @@ interface Entry {
 	/** True for the container's gate file — the one document to actually read;
 	 * approving it auto-approves the peers (CONFIG § Group approval). */
 	isGate?: boolean;
+	/** The gate is already approved while members are still drafts: the set is
+	 * done deciding and waits on the filing-agent, not the user. */
+	awaitingFiling?: boolean;
 }
 
 interface RowOpts {
@@ -213,6 +216,12 @@ export class NowView extends ItemView {
 				true
 			);
 		}
+
+		// Column widths come from live boxes; a render that raced the injected
+		// stylesheet or webfont measured the fallback font and locked stale
+		// widths in. Re-measure once fonts settle (Format-UI-Spacing:
+		// "first-render metrics can predate the stylesheet").
+		void document.fonts?.ready.then(() => this.onResize());
 	}
 
 	private renderBucket(
@@ -265,14 +274,34 @@ export class NowView extends ItemView {
 	}
 
 	/**
-	 * Size each meta column (type, age) to its widest member, measured — not
-	 * guessed in CSS. When a column's values are uniform (every Active row says
-	 * "project") the box equals the text exactly and every gap in the block is
-	 * exactly one spacing step; when they differ, the slack is the true minimum.
-	 * The spacing standard's "no magic numbers": the content defines the column.
+	 * Size each column to its widest member, measured — not guessed in CSS.
+	 * When a column's values are uniform (every Active row says "project") the
+	 * box equals the text exactly and every gap in the block is exactly one
+	 * spacing step; when they differ, the slack is the true minimum. The
+	 * spacing standard's "no magic numbers": the content defines the column.
+	 *
+	 * Scope is the SECTION (one bucket's list), deliberately: columns align
+	 * within their section and sections stay independent, each sized to its
+	 * own content. A view-wide pass was tried and reverted — reserving another
+	 * section's wide column (the wait note) tore this section's pills apart
+	 * (Format-UI-Columns-Are-Section-Scoped).
 	 */
 	private equalizeMetaColumns(scope: HTMLElement): void {
-		for (const cls of ["nkui-now-metatype", "nkui-now-metaage"]) {
+		// A slot column nobody in this list fills disappears entirely — left in
+		// place it would read as a double gap between its neighbours.
+		for (const cls of ["nkui-now-gateslot", "nkui-now-waitslot", "nkui-now-countslot", "nkui-now-pillslot"]) {
+			const els = Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`));
+			const empty = els.length > 0 && els.every((el) => el.childElementCount === 0);
+			for (const el of els) el.toggleClass("nkui-now-slot-void", empty);
+		}
+		for (const cls of [
+			"nkui-now-gateslot",
+			"nkui-now-waitslot",
+			"nkui-now-countslot",
+			"nkui-now-pillslot",
+			"nkui-now-metatype",
+			"nkui-now-metaage",
+		]) {
 			const els = Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`));
 			if (els.length < 2) continue;
 			let max = 0;
@@ -289,8 +318,9 @@ export class NowView extends ItemView {
 		}
 	}
 
-	/** Re-measure the meta columns when the view's geometry changes — covers a
-	 * render that happened while the tab was hidden (all widths measure 0 then). */
+	/** Re-measure each section's columns when the view's geometry changes —
+	 * covers a render that happened while the tab was hidden (all widths
+	 * measure 0 then). Per-list, matching the section scope of the columns. */
 	onResize(): void {
 		for (const list of Array.from(this.contentEl.querySelectorAll<HTMLElement>(".nkui-now-list"))) {
 			this.equalizeMetaColumns(list);
@@ -533,6 +563,7 @@ export class NowView extends ItemView {
 		const row = list.createDiv("nkui-now-row");
 		if (contained) row.addClass("nkui-now-row-contained");
 		if (e.isGate) row.addClass("nkui-now-row-gate");
+		if (e.awaitingFiling) row.addClass("nkui-now-row-waiting");
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
 		const open = (newLeaf: boolean) => this.app.workspace.openLinkText(e.file.path, "", newLeaf);
@@ -559,39 +590,58 @@ export class NowView extends ItemView {
 
 		row.createSpan({ cls: "nkui-now-rowtitle", text: this.displayName(e.file) });
 
-		// The gate file is the one document to actually read — approving it
-		// auto-approves its peers. The badge makes that dependency visible.
-		if (e.isGate) {
-			const gate = row.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
-			gate.setAttr(
-				"aria-label",
-				"The document to read — approving it approves this set's other files"
-			);
-			gate.setAttr("title", "Approving this approves the rest of the set");
-		}
+		// The gate trio renders as slot columns sized per section, packed against
+		// the right edge with the constant-width gate pill OUTERMOST: the pill is
+		// the same thing in every section, so it anchors the same x everywhere,
+		// while the variable-width extras (wait note, +N) stack inward — no
+		// section ever reserves a column another section's content created.
+		if (e.isGate || e.awaitingFiling || e.setCount) {
+			const set = row.createSpan("nkui-now-rowset");
 
-		// A gate stands in for a folded working-set: a quiet "+N" marks how many
-		// working notes sit behind it, without listing them.
-		if (e.setCount) {
-			const set = row.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
-			set.setAttr("aria-label", `${e.setCount} more in this set`);
+			// An approved gate whose set hasn't moved yet: the decision is made —
+			// the row only reports that the files still wait on the filing-agent.
+			const wslot = set.createSpan("nkui-now-waitslot");
+			if (e.awaitingFiling) {
+				wslot.createSpan({ cls: "nkui-now-waitnote", text: "approved — awaiting filing" });
+			}
+
+			// A gate stands in for a folded working-set: a quiet "+N" marks how
+			// many working notes sit behind it, without listing them.
+			const cslot = set.createSpan("nkui-now-countslot");
+			if (e.setCount) {
+				const n = cslot.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
+				n.setAttr("aria-label", `${e.setCount} more in this set`);
+			}
+
+			// The gate file is the one document to actually read — approving it
+			// auto-approves its peers. The badge makes that dependency visible.
+			const gslot = set.createSpan("nkui-now-gateslot");
+			if (e.isGate) {
+				const gate = gslot.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
+				const hint = e.awaitingFiling
+					? "Approved — the filing-agent stamps and files this set on its next pass"
+					: "Approving this approves the rest of the set";
+				gate.setAttr("aria-label", hint);
+				gate.setAttr("title", hint);
+			}
 		}
 
 		const showType = opts.showType && !!e.type;
 		if (showType || opts.showAge || (opts.showDraft && e.draft)) {
-			// One meta block of columns — pill slot, type, age — sized to their
-			// widest member by equalizeMetaColumns after the bucket renders, so the
-			// block is the same width on every row and every internal gap is the
-			// same spacing step. The pill slot always renders (empty when not a
-			// draft); it right-aligns its pill so the slack sits invisibly on the left.
+			// One meta block of columns — type, age, pill slot — sized to their
+			// widest member by equalizeMetaColumns after the section renders, so
+			// the block is the same width on every row and every internal gap is
+			// the same spacing step. The constant-width pill anchors the outer
+			// edge (Format-UI-Columns-Are-Section-Scoped); its slot always renders
+			// (empty when not a draft) and collapses only section-wide-empty.
 			const meta = row.createSpan("nkui-now-rowmeta");
-			if (opts.showDraft) {
-				const slot = meta.createSpan("nkui-now-pillslot");
-				if (e.draft) slot.createSpan({ cls: "nkui-now-draftpill", text: "draft" });
-			}
 			if (showType) meta.createSpan({ cls: "nkui-now-metatype", text: e.type as string });
 			if (opts.showAge) {
 				meta.createSpan({ cls: "nkui-now-metaage", text: relAge(e.activity ?? e.file.stat.mtime) });
+			}
+			if (opts.showDraft) {
+				const slot = meta.createSpan("nkui-now-pillslot");
+				if (e.draft) slot.createSpan({ cls: "nkui-now-draftpill", text: "draft" });
 			}
 		}
 	}
@@ -778,6 +828,9 @@ export class NowView extends ItemView {
 		// e.g. session logs) stays expanded; loose drafts at the inbox root show as
 		// themselves.
 		const containers = new Map<string, { entry: Entry; depth: number }[]>();
+		// Root members already stamped reviewed: true, per container — an approved
+		// gate among them means the set waits on the filing-agent, not the user.
+		const approvedRoots = new Map<string, Entry[]>();
 
 		for (const f of this.app.vault.getMarkdownFiles()) {
 			if (under(f.path, ARCHIVE)) continue;
@@ -789,6 +842,16 @@ export class NowView extends ItemView {
 			const inbox = s.inboxFolders.find((p) => under(f.path, p));
 			const inQueue = s.nowQueueFolders.some((p) => under(f.path, p));
 			const entry: Entry = { file: f, type, draft, queued: inQueue };
+
+			if (inbox && !draft && fm && this.isApproved(fm)) {
+				const segs = f.path.slice(inbox.length + 1).split("/");
+				if (segs.length === 2) {
+					const container = `${inbox}/${segs[0]}`;
+					const arr = approvedRoots.get(container);
+					if (arr) arr.push(entry);
+					else approvedRoots.set(container, [entry]);
+				}
+			}
 
 			if (draft && inbox) {
 				const segs = f.path.slice(inbox.length + 1).split("/");
@@ -809,23 +872,44 @@ export class NowView extends ItemView {
 
 		for (const [cpath, ds] of containers.entries()) {
 			const cname = cpath.split("/").pop() ?? cpath;
+			// The set's gate, resolved by name across ALL root members — drafts and
+			// approved alike, so an already-approved gate still anchors its set.
+			const roots = ds.filter((d) => d.depth === 2).map((d) => d.entry);
+			roots.push(...(approvedRoots.get(cpath) ?? []));
+			const gate = pickGate(roots);
+
+			if (gate && !gate.draft) {
+				// Approved gate, members still drafts: nothing here needs the user —
+				// the set waits on the filing-agent's next pass. One quiet row says
+				// so; the leftover members never wear the gate badge. Copied so a
+				// gate that also surfaces elsewhere (e.g. Active) keeps its own row.
+				needs.push({
+					...gate,
+					container: cname,
+					isGate: true,
+					awaitingFiling: true,
+					setCount: ds.length,
+				});
+				continue;
+			}
 			if (!ds.some((d) => d.depth >= 3)) {
 				// flat peer folder — show each, grouped under its container caption,
-				// with the gate file (a single 00-prefixed root member) badged so the
-				// read-this-one / approves-the-rest relationship is visible.
-				const gates = ds.filter((d) => d.depth === 1 && /^00[-_ ]/.test(d.entry.file.name));
+				// with the gate file badged so the read-this-one / approves-the-rest
+				// relationship is visible.
 				for (const d of ds) {
 					d.entry.container = cname;
 					needs.push(d.entry);
 				}
-				if (gates.length === 1) gates[0].entry.isGate = true;
+				if (gate) gate.isGate = true;
 				continue;
 			}
-			// nested working tree — collapse to its shallowest draft, fold the rest
+			// nested working tree — collapse to one head row, fold the rest. The
+			// head is the gate when one resolves (the document to read); otherwise
+			// the shallowest draft, unbadged — a non-gate never claims approval power.
 			ds.sort((a, b) => a.depth - b.depth || a.entry.file.path.localeCompare(b.entry.file.path));
-			const head = ds[0].entry;
+			const head = gate ?? ds[0].entry;
 			head.container = cname;
-			head.isGate = true;
+			if (gate) gate.isGate = true;
 			if (ds.length > 1) head.setCount = ds.length - 1;
 			needs.push(head);
 		}
@@ -874,6 +958,13 @@ export class NowView extends ItemView {
 		return v === false || v === "false";
 	}
 
+	/** Explicitly stamped reviewed: true — distinct from merely not-a-draft
+	 * (a file with no reviewed field is neither). */
+	private isApproved(fm: Record<string, unknown>): boolean {
+		const v = fm[this.plugin.settings.reviewedField];
+		return v === true || v === "true";
+	}
+
 	private colorFor(type: string): string | null {
 		const t = this.plugin.typeStyles().find((x) => x.type === type);
 		return t?.color || null;
@@ -895,6 +986,23 @@ export class NowView extends ItemView {
 /** True if `path` is the folder `root` or sits anywhere beneath it. */
 function under(path: string, root: string): boolean {
 	return path === root || path.startsWith(root + "/");
+}
+
+/**
+ * Resolve a working set's gate among its root members. A lone root file over
+ * supporting subfolders IS the gate — "a folder with one human facing file"
+ * (CONFIG § Group approval). Among several roots, naming decides: a single
+ * 00-prefixed cover/manifest, else a single date-named file (a handoff set's
+ * gate is its session log, not a 00- cover). Two candidates of the same rank
+ * resolve to none — no guessing.
+ */
+function pickGate(roots: Entry[]): Entry | null {
+	const one = (xs: Entry[]) => (xs.length === 1 ? xs[0] : null);
+	return (
+		one(roots) ??
+		one(roots.filter((e) => /^00[-_ ]/.test(e.file.name))) ??
+		one(roots.filter((e) => /^\d{4}-\d{2}-\d{2}/.test(e.file.name)))
+	);
 }
 
 /**

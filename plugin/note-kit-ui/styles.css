@@ -263,13 +263,14 @@
 	text-align: left;
 	font-variant-numeric: tabular-nums;
 }
-/* The pill's slot is a fixed column inside the meta block: always rendered so
-   the block keeps one width across rows, right-aligned so the pill hugs the
-   type at exactly the block's gap — pill↔type spacing equals type↔age. */
+/* The pill's slot is the meta block's outermost column — the constant-width
+   anchor at the shared edge (Format-UI-Columns-Are-Section-Scoped). Always
+   rendered so the block keeps one width across rows; sized to its widest
+   member by equalizeMetaColumns like every other column; collapses only when
+   no row in the section fills it. */
 .nkui-now-pillslot {
 	display: inline-flex;
 	justify-content: flex-end;
-	min-width: 4.2em;
 }
 .nkui-now-draftpill {
 	flex: 0 0 auto;
@@ -314,12 +315,55 @@
 	font-weight: var(--font-semibold, 600);
 	line-height: 1.4;
 }
+/* Approved gate still waiting on the filing-agent: visibly not an open ask —
+   the row recedes to muted and an italic note says why it lingers. */
+.nkui-now-row-waiting .nkui-now-rowtitle {
+	color: var(--text-muted);
+	font-weight: var(--font-normal, 400);
+	font-size: 1em;
+}
+.nkui-now-row-waiting .nkui-now-gatepill {
+	border-color: var(--text-faint);
+	color: var(--text-faint);
+}
+.nkui-now-waitnote {
+	font-size: var(--font-ui-smaller, 11px);
+	font-style: italic;
+	color: var(--text-faint);
+	white-space: nowrap;
+}
 /* quiet "+N" marking a folded working-set behind its gate row */
 .nkui-now-setcount {
-	flex: 0 0 auto;
-	margin-left: var(--nkui-gap-2xs);
 	font-size: var(--font-ui-smaller, 11px);
 	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+/* The gate trio — wait note, +N, pill — in measured slot columns, packed to the
+   right edge with the constant-width gate pill OUTERMOST: the pill anchors the
+   same x in every section, the variable-width extras stack inward. Each column
+   is sized at render time to its section's widest member (equalizeMetaColumns),
+   so the pieces align across rows and every internal gap is exactly one step.
+   The +N right-aligns so counts end flush against the pill. */
+.nkui-now-rowset {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--nkui-gap-s);
+	margin-right: var(--nkui-gap-s);
+	white-space: nowrap;
+}
+.nkui-now-gateslot,
+.nkui-now-countslot {
+	display: inline-flex;
+	justify-content: flex-end;
+}
+.nkui-now-waitslot {
+	display: inline-flex;
+	justify-content: flex-start;
+}
+/* a slot column with no member anywhere in its list */
+.nkui-now-slot-void {
+	display: none;
 }
 .nkui-now-more {
 	color: var(--text-faint);

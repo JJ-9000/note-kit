@@ -142,6 +142,47 @@
 .nkui-now-group-head:hover {
 	background: var(--nkui-hover);
 }
+/* Per-section "approve all" — a quiet text affordance at the section head's
+   right edge that stamps every draft reviewed. Faint and small at rest so it
+   recedes; only the armed state colours up (accent text), so the second,
+   committing tap is unmistakable without a loud pill. Shown ONLY while the
+   section is expanded (rule below) — a collapsed section is just count + title.
+   margin-left:auto floats it past the count + title. */
+/* Selectors carry the .nkui-now-group-head parent to outrank Obsidian's default
+   `button` styling (a `.theme-dark button` chip background would otherwise bleed
+   through `background: transparent`). */
+.nkui-now-group-head .nkui-now-approveall {
+	margin-left: auto;
+	flex: 0 0 auto;
+	padding: 0 0.3em;
+	border: none;
+	border-radius: var(--radius-s, 6px);
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller, 11px);
+	font-weight: var(--font-normal, 400);
+	line-height: 1.4;
+	opacity: 0.7;
+	cursor: pointer;
+	transition: color 120ms ease, opacity 120ms ease;
+}
+.nkui-now-group-head .nkui-now-approveall:hover {
+	color: var(--text-muted);
+	background: transparent;
+	opacity: 1;
+}
+.nkui-now-group-head .nkui-now-approveall.is-armed {
+	color: var(--interactive-accent);
+	background: transparent;
+	font-weight: var(--font-semibold, 600);
+	opacity: 1;
+}
+/* Only while the section is open — a collapsed section shows just its count and
+   title, never the approve-all (it appears when you unfold the section). */
+.nkui-now-group.is-collapsed .nkui-now-approveall {
+	display: none;
+}
 
 /* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr */
 .nkui-now-foldwrap {
@@ -727,4 +768,31 @@ body.is-mobile .nav-buttons-container .clickable-icon,
 body.is-mobile .workspace-tab-header:not(.is-active),
 body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
 	opacity: 1 !important;
+}
+/* A touch-reachable tap area on mobile without bloating the quiet text — only
+   shown when the section is open, so it never crowds a collapsed header. */
+body.is-mobile .nkui-now-approveall {
+	padding: 0.2em 0.45em;
+}
+/* "approved — awaiting filing" must reach mobile. On desktop the wait note rides
+   in a measured slot column packed to the right edge; on a phone (where
+   equalizeMetaColumns deliberately bails, so columns aren't width-locked) that
+   slot would otherwise be squeezed off the right edge by the title. Stack the
+   awaiting row — title on its own line, the gate trio (wait note · +N · pill)
+   wrapping full-width beneath it — and let the note wrap rather than clip. */
+body.is-mobile .nkui-now-row-waiting {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--nkui-gap-2xs);
+}
+body.is-mobile .nkui-now-row-waiting .nkui-now-rowtitle {
+	width: 100%;
+}
+body.is-mobile .nkui-now-row-waiting .nkui-now-rowset {
+	margin-left: 0;
+	flex-wrap: wrap;
+	white-space: normal;
+}
+body.is-mobile .nkui-now-row-waiting .nkui-now-waitnote {
+	white-space: normal;
 }

@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, setIcon, debounce } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, setIcon, debounce, Platform } from "obsidian";
 import type NoteKitUiPlugin from "./main";
 
 export const NOW_VIEW_TYPE = "note-kit-now";
@@ -186,12 +186,16 @@ export class NowView extends ItemView {
 		for (const key of this.groupOrder([...groups.keys()])) {
 			const items = groups.get(key);
 			if (!items) continue;
-			this.renderBucket(c, `Needs you/${key}`, key, this.colorFor(key), items, {
-				showAge: false,
-				showType: false,
-				showDraft: false,
-				showRowDot: false,
-			});
+			this.renderBucket(
+				c,
+				`Needs you/${key}`,
+				key,
+				this.colorFor(key),
+				items,
+				{ showAge: false, showType: false, showDraft: false, showRowDot: false },
+				false,
+				true
+			);
 		}
 
 		// Active projects / areas.
@@ -231,11 +235,20 @@ export class NowView extends ItemView {
 		color: string | null,
 		entries: Entry[],
 		rowOpts: RowOpts,
-		defaultOpen = false
+		defaultOpen = false,
+		approvable = false
 	): void {
 		const b = parent.createDiv("nkui-now-group");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, defaultOpen));
-		this.bucketHead(b, id, label, color, entries.length, defaultOpen);
+		const head = this.bucketHead(b, id, label, color, entries.length, defaultOpen);
+		// A draft section gets a per-section "approve all" — one armed-then-commit
+		// control that stamps reviewed: true on every draft row here (a folded set's
+		// gate included, which cascades to its peers via group approval). Drafts
+		// only: an awaiting-filing gate is already approved and is left alone.
+		if (approvable) {
+			const drafts = entries.filter((e) => e.draft);
+			if (drafts.length) this.addApproveAll(head, drafts);
+		}
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
@@ -293,6 +306,24 @@ export class NowView extends ItemView {
 			const els = Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`));
 			const empty = els.length > 0 && els.every((el) => el.childElementCount === 0);
 			for (const el of els) el.toggleClass("nkui-now-slot-void", empty);
+		}
+		// Mobile: don't lock columns to measured widths. A narrow viewport needs the
+		// meta to flow and wrap (the CSS stacks an awaiting-filing row so its
+		// "approved — awaiting filing" note lands on its own line rather than being
+		// pushed off the right edge). Clear any width a prior desktop-width render
+		// left behind and bail before the measuring pass.
+		if (Platform.isMobile) {
+			for (const cls of [
+				"nkui-now-gateslot",
+				"nkui-now-waitslot",
+				"nkui-now-countslot",
+				"nkui-now-pillslot",
+				"nkui-now-metatype",
+				"nkui-now-metaage",
+			]) {
+				for (const el of Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`))) el.style.width = "";
+			}
+			return;
 		}
 		for (const cls of [
 			"nkui-now-gateslot",
@@ -537,7 +568,7 @@ export class NowView extends ItemView {
 		color: string | null,
 		count: number,
 		defaultOpen: boolean
-	): void {
+	): HTMLElement {
 		const gh = bucket.createDiv("nkui-now-group-head");
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");
@@ -557,6 +588,58 @@ export class NowView extends ItemView {
 				toggle();
 			}
 		});
+		return gh;
+	}
+
+	/**
+	 * Per-section "approve all": a quiet right-aligned button in the section head
+	 * that stamps reviewed: true on every draft in the section. Two-step — the
+	 * first tap arms it ("approve N?") and a second within 3.5s commits, so one
+	 * mis-tap can't clear a whole section; the armed state lapses on its own.
+	 * Always visible (never hover-gated) so it works under touch. setAttr clicks
+	 * stop propagation so the surrounding fold header doesn't toggle.
+	 */
+	private addApproveAll(head: HTMLElement, drafts: Entry[]): void {
+		const btn = head.createEl("button", { cls: "nkui-now-approveall", text: "approve all" });
+		const noun = drafts.length === 1 ? "draft" : "drafts";
+		btn.setAttr("aria-label", `Mark all ${drafts.length} ${noun} in this section reviewed`);
+		btn.setAttr("title", btn.getAttr("aria-label") ?? "");
+		let armed = false;
+		let timer: number | undefined;
+		const disarm = (): void => {
+			armed = false;
+			btn.removeClass("is-armed");
+			btn.setText("approve all");
+			if (timer) window.clearTimeout(timer);
+		};
+		btn.addEventListener("click", async (ev) => {
+			ev.stopPropagation(); // don't fold the section
+			if (!armed) {
+				armed = true;
+				btn.addClass("is-armed");
+				btn.setText(`approve ${drafts.length}?`);
+				timer = window.setTimeout(disarm, 3500);
+				return;
+			}
+			disarm();
+			await this.approveAll(drafts);
+		});
+		// A keyboard activation on the button fires click natively; keep the keydown
+		// from bubbling to the header's Enter/Space fold toggle.
+		btn.addEventListener("keydown", (ev) => {
+			if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation();
+		});
+	}
+
+	/** Stamp reviewed: true on each draft via the frontmatter-safe API, then repaint. */
+	private async approveAll(drafts: Entry[]): Promise<void> {
+		const field = this.plugin.settings.reviewedField;
+		for (const e of drafts) {
+			await this.app.fileManager.processFrontMatter(e.file, (fm) => {
+				fm[field] = true;
+			});
+		}
+		await this.reloadAndRender();
 	}
 
 	private renderRow(list: HTMLElement, e: Entry, opts: RowOpts, contained = false): void {

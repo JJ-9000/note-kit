@@ -22,6 +22,14 @@
 	background: var(--nkui-type-color, var(--text-faint));
 	align-self: center;
 }
+/* (c) the file's name carries its type colour too, so a row reads as its type at
+   a glance — not only the dot — and the open note's inline title matches. */
+.nav-file-title[data-nkui-type] .nav-file-title-content {
+	color: var(--nkui-type-color);
+}
+.workspace-leaf-content[class*="nkui-type-"] .inline-title {
+	color: var(--nkui-type-color);
+}
 
 /* ── (c) accent the open note by type ──────────────────────────────────────── */
 .workspace-leaf-content[class*="nkui-type-"] .view-content {
@@ -151,19 +159,13 @@
 /* Selectors carry the .nkui-now-group-head parent to outrank Obsidian's default
    `button` styling (a `.theme-dark button` chip background would otherwise bleed
    through `background: transparent`). */
-/* "Approve all" sits in a right-aligned strip at the TOP of the expanded list —
-   away from the fold-toggle header and from the left edge where rows are scrolled
-   and tapped, so it can't be pressed by accident. It hides with the list when the
-   section collapses (the foldwrap handles that). Readable at rest (text-muted,
-   full opacity), not the old near-invisible faint. */
-.nkui-now-approveall-strip {
-	display: flex;
-	justify-content: flex-end;
-	padding: 0.1em 0.5em 0.25em;
-}
-.nkui-now-approveall {
+/* "Approve all" — a quiet text affordance at the right edge of the section header
+   (margin-left:auto floats it past count + title), shown only while the section is
+   open. Readable at rest (text-muted, full opacity), not a button block. */
+.nkui-now-group-head .nkui-now-approveall {
+	margin-left: auto;
 	flex: 0 0 auto;
-	padding: 0.1em 0.5em;
+	padding: 0 0.3em;
 	border: none;
 	border-radius: var(--radius-s, 6px);
 	background: transparent;
@@ -173,15 +175,20 @@
 	font-weight: var(--font-normal, 400);
 	line-height: 1.4;
 	cursor: pointer;
-	transition: color 120ms ease, background 120ms ease;
+	transition: color 120ms ease;
 }
-.nkui-now-approveall:hover {
+.nkui-now-group-head .nkui-now-approveall:hover {
 	color: var(--text-normal);
-	background: var(--nkui-hover);
+	background: transparent;
 }
-.nkui-now-approveall.is-armed {
+.nkui-now-group-head .nkui-now-approveall.is-armed {
 	color: var(--interactive-accent);
+	background: transparent;
 	font-weight: var(--font-semibold, 600);
+}
+/* Only while the section is open — a collapsed section is just count + title. */
+.nkui-now-group.is-collapsed .nkui-now-approveall {
+	display: none;
 }
 
 /* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr */
@@ -872,11 +879,14 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	padding: 0.08em calc(0.5em + var(--nkui-gap-s)) 0.08em 1.55em;
 	margin: 0 -0.5em;
 	border-radius: var(--radius-s, 6px);
-	opacity: 0.5;
+	/* Recessed but legible — a lower opacity here multiplies against the already
+	   muted title/note and made them hard to read; the struck title and muted note
+	   carry the "settled" read on their own. */
+	opacity: 0.78;
 	transition: opacity 120ms ease, background 120ms ease;
 }
 .nkui-now-reducedrow:hover {
-	opacity: 0.9;
+	opacity: 1;
 	background: var(--nkui-hover);
 }
 .nkui-now-reducedrow .nkui-now-qcheck {

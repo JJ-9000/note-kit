@@ -20,11 +20,11 @@ Produce the session-end deliverables below. The session log is mandatory; everyt
 
 ## Output container
 
-Everything a handoff produces lands in one container `<inbox>/<date>-<topic>-session/` (CONFIG § Skill slugs). The session log is the **gate file** at the container root; approving the gate auto-reviews the set and the filing-agent files it as a unit (CONFIG § Group approval).
+Everything a handoff produces lands in one container `<inbox>/<date>-<topic>-session/` (CONFIG § Skill slugs). When the session earned tag-along files (atoms, standards, an addendum, a plan), the session log is the **gate file** at the container root: approving the gate auto-reviews the set and the filing-agent files it as a unit (CONFIG § Group approval). When the log stands alone — no tag-alongs — it is not a gate, just the session note; it reviews on its own and carries no gate framing.
 
 ## 1 — Session log
 
-Write to the container root: `<inbox>/<date>-<topic>-session/<YYYY-MM-DD>-<slug>.md`, `type: session`, `project: "[[Name]]"` (naming per CONFIG § Types); the slug names the session topic. As the gate file, the log opens with the decision header — at most five lines: what this set adds or changes, what deserves a real read, and what approval triggers (CONFIG § Group approval). Stamp `project:` only after confirming the target exists — one vault search or project listing check; no match → leave the field empty for downstream inference, never invent a name.
+Write to the container root: `<inbox>/<date>-<topic>-session/<YYYY-MM-DD>-<slug>.md`, `type: session`, `project: "[[Name]]"` (naming per CONFIG § Types); the slug names the session topic. The log opens with the decision header — at most five lines: what this set adds or changes, what deserves a real read, and — only when it gates tag-along files — what approval triggers (CONFIG § Group approval). A session log that stands alone names no gate and triggers no set approval. Stamp `project:` only after confirming the target exists — one vault search or project listing check; no match → leave the field empty for downstream inference, never invent a name.
 
 Target length is ~400 words, per the session format note (CONFIG § Format notes): Successes and Failures stay concrete; Progress trims to decisions.
 
@@ -115,4 +115,4 @@ Before posting the summary, confirm you did not skip an output the session earne
 
 ## 5 — Chat summary
 
-After writing, post a short summary: the container path, the session-log (gate file) wikilink, each atomic and voice/design note as a wikilink with a one-line description, any project-state addendum and its target (or none), and any open blocker for next session. Remind the user that approving the gate file auto-reviews the whole container.
+After writing, post a short summary: the container path, the session-log wikilink (the gate file when the container holds tag-alongs), each atomic and voice/design note as a wikilink with a one-line description, any project-state addendum and its target (or none), and any open blocker for next session. When the container holds tag-alongs, remind the user that approving the gate file auto-reviews the whole container; a lone session log needs no such reminder.

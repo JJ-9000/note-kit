@@ -28,6 +28,23 @@ export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): 
 		}
 	}
 
+	if (s.dimSinkContents) {
+		// Fade + shrink everything *inside* a sink folder (a faded prefix like 99-),
+		// so an expanded sink doesn't read as live files. Opacity rides the children
+		// container so the whole subtree fades as one group (no per-row compounding);
+		// font-size is inherited once down the tree rather than re-applied per depth.
+		for (const p of s.prefixStyles) {
+			if (!(Number.isFinite(p.opacity) && p.opacity < 1)) continue;
+			const size = p.size ?? 1;
+			const decls: string[] = [];
+			if (Number.isFinite(size) && size !== 1) decls.push(`font-size: ${size}em;`);
+			decls.push(`opacity: ${p.opacity};`);
+			out.push(
+				`.nav-folder[data-nkui-sink="${attr(p.prefix)}"] > .nav-folder-children { ${decls.join(" ")} }`
+			);
+		}
+	}
+
 	if (s.hideFolderArrows) {
 		// Hide the collapse chevron. Folders still toggle on title click.
 		out.push(".nav-folder-title .collapse-icon { display: none; }");

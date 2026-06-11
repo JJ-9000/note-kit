@@ -25,6 +25,7 @@ export interface NoteKitUiSettings {
 
 	// Feature toggles
 	enablePrefixStyling: boolean; // a
+	dimSinkContents: boolean; // fade + shrink everything inside a sink folder (a faded prefix like 99-)
 	enableHidePrefix: boolean; // b
 	enableTypeStyling: boolean; // c
 	enableReviewFlags: boolean; // d
@@ -69,6 +70,7 @@ export interface NoteKitUiSettings {
 export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	useKitConfig: true,
 	enablePrefixStyling: true,
+	dimSinkContents: true,
 	enableHidePrefix: true,
 	enableTypeStyling: true,
 	enableReviewFlags: true,
@@ -225,6 +227,18 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.enablePrefixStyling).onChange(async (v) => {
 					s.enablePrefixStyling = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Dim sink-folder contents")
+			.setDesc(
+				"When a faded “sink” folder (a prefix set below 100% opacity, e.g. 99-Archive) is expanded, shrink and fade everything inside it too, so its subfolders and files don't read as live work. Matches the sink folder's own size and opacity."
+			)
+			.addToggle((t) =>
+				t.setValue(s.dimSinkContents).onChange(async (v) => {
+					s.dimSinkContents = v;
 					await save();
 				})
 			);

@@ -18,6 +18,7 @@ export class ExplorerDecorator {
 	private redraw: () => void;
 
 	private prefixSet = new Set<string>();
+	private sinkSet = new Set<string>();
 	private typeColors = new Set<string>();
 	private hideRe: RegExp | null = null;
 
@@ -76,6 +77,15 @@ export class ExplorerDecorator {
 	private compile(): void {
 		const s = this.plugin.settings;
 		this.prefixSet = new Set(s.prefixStyles.map((p) => p.prefix));
+		// A "sink" is a folder whose prefix rule fades it (opacity < 1, e.g. 99-).
+		// Tagging the wrapper lets the stylesheet dim its contents to match.
+		this.sinkSet = new Set(
+			s.dimSinkContents
+				? s.prefixStyles
+						.filter((p) => Number.isFinite(p.opacity) && p.opacity < 1)
+						.map((p) => p.prefix)
+				: []
+		);
 		this.typeColors = new Set(this.plugin.typeStyles().filter((t) => t.color).map((t) => t.type));
 		if (s.enableHidePrefix && this.prefixSet.size) {
 			const alt = [...this.prefixSet].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
@@ -172,12 +182,18 @@ export class ExplorerDecorator {
 		const name = isFolder ? leaf : leaf.replace(/\.md$/i, "");
 
 		// (a) prefix — only configured prefixes; never matches YYYY dates
-		let prefixHit: string | null = null;
-		if (s.enablePrefixStyling) {
-			const m = name.match(/^(\d{2,})[ _-]/);
-			if (m && this.prefixSet.has(m[1])) prefixHit = m[1];
+		const m = name.match(/^(\d{2,})[ _-]/);
+		const matched = m && this.prefixSet.has(m[1]) ? m[1] : null;
+		this.setAttr(el, "data-nkui-prefix", s.enablePrefixStyling ? matched : null);
+
+		// (a2) sink folder — tag the wrapping .nav-folder so the stylesheet can
+		// fade everything *inside* an expanded sink (e.g. 99-Archive). The folder's
+		// own row is still styled by (a); this only reaches its descendants.
+		if (isFolder) {
+			const wrapper = el.closest<HTMLElement>(".nav-folder");
+			const sinkHit = matched && this.sinkSet.has(matched) ? matched : null;
+			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", sinkHit);
 		}
-		this.setAttr(el, "data-nkui-prefix", prefixHit);
 
 		// (c) type + (d) reviewed — files only
 		if (!isFolder) {
@@ -273,6 +289,9 @@ export class ExplorerDecorator {
 					delete content.dataset.nkuiOrig;
 				}
 			});
+			c.querySelectorAll<HTMLElement>(".nav-folder[data-nkui-sink]").forEach((el) =>
+				el.removeAttribute("data-nkui-sink")
+			);
 			c.querySelectorAll<HTMLElement>(".nkui-inbox-count").forEach((b) => b.remove());
 		}
 	}

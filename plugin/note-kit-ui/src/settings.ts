@@ -87,30 +87,30 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	],
 
 	typeField: "type",
-	// Vibrant palette drawn from Dracula + Tokyo Night (popular dark-theme palettes),
-	// tuned for a near-black background. Hue follows the semantic role (palette.ts
-	// ROLES): primary content types get a saturated full hue, their satellites the
-	// same family lightened, operational types a muted blue-gray (chrome, not content)
-	// so the bright primaries read brighter still. Used when Theme palette is off.
+	// Vibrant neon palette tuned for a near-black background. Hue follows the
+	// semantic role (palette.ts ROLES): primary content types get a saturated full
+	// hue, their satellites the same family lightened, operational types a deep
+	// muted indigo (chrome, not content) so the bright primaries read brighter
+	// still. Used when Theme palette is off.
 	typeStyles: [
-		{ type: "project", color: "#ff5555" }, // red — Dracula
-		{ type: "area", color: "#ff9e64" }, // orange — Tokyo Night
-		{ type: "reference", color: "#50fa7b" }, // green — Dracula
-		{ type: "research", color: "#82aaff" }, // blue — Tokyo Night
-		{ type: "plan", color: "#bd93f9" }, // purple — Dracula
-		{ type: "session", color: "#6272a4" }, // blue-gray — operational
-		{ type: "journal", color: "#ff79c6" }, // pink — Dracula
-		{ type: "idea", color: "#ffd75f" }, // yellow
-		{ type: "snippet", color: "#8be9fd" }, // cyan — Dracula
-		{ type: "source", color: "#7d8bc4" }, // blue-gray — operational, light
-		{ type: "index", color: "#ffe7a3" }, // yellow — soft (satellite of idea)
-		{ type: "note", color: "#565f8c" }, // blue-gray — operational
-		{ type: "voice", color: "#ffa6da" }, // pink — soft (satellite of journal)
-		{ type: "design", color: "#d7b8ff" }, // purple — soft (satellite of plan)
-		{ type: "format", color: "#aaf4ff" }, // cyan — soft (satellite of snippet)
-		{ type: "addendum", color: "#ffc499" }, // orange — soft (satellite of area)
-		{ type: "log", color: "#474d70" }, // blue-gray — operational, faint
-		{ type: "revision", color: "#aac4ff" }, // blue — soft (satellite of research)
+		{ type: "project", color: "#ff2a55" }, // red
+		{ type: "area", color: "#ff7e33" }, // orange
+		{ type: "reference", color: "#00ff66" }, // green
+		{ type: "research", color: "#3b82f6" }, // blue
+		{ type: "plan", color: "#a855f7" }, // purple
+		{ type: "session", color: "#4d61ec" }, // indigo — operational
+		{ type: "journal", color: "#ff2ea6" }, // pink
+		{ type: "idea", color: "#ffd700" }, // yellow
+		{ type: "snippet", color: "#00f0ff" }, // cyan
+		{ type: "source", color: "#5c6bc0" }, // indigo — operational, light
+		{ type: "index", color: "#fff066" }, // yellow — soft (satellite of idea)
+		{ type: "note", color: "#3b4261" }, // indigo — operational, dark
+		{ type: "voice", color: "#ff73ca" }, // pink — soft (satellite of journal)
+		{ type: "design", color: "#bf80ff" }, // purple — soft (satellite of plan)
+		{ type: "format", color: "#66e3ff" }, // cyan — soft (satellite of snippet)
+		{ type: "addendum", color: "#ff9955" }, // orange — soft (satellite of area)
+		{ type: "log", color: "#282c42" }, // indigo — operational, faint
+		{ type: "revision", color: "#709eff" }, // blue — soft (satellite of research)
 	],
 	applyTypeBodyClass: true,
 	themePalette: true,

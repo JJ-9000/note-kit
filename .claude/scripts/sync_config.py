@@ -11,7 +11,10 @@ type's `default-home` as its typical-folder cell, `revision` included) and
 and AGENTS.md. v003 also stamps the CONFIG § Pipeline protocol master block
 verbatim into each staged pipeline skill (between matching
 `note-kit:sync pipeline-protocol` markers), so the skills physically carry the
-shared protocol while CONFIG stays its only editable home. The copies are never
+shared protocol while CONFIG stays its only editable home. v004 also distributes
+CONFIG § Rules: the `rule` column as a marker-bounded `## Always-on rules` block
+in CLAUDE.md/AGENTS.md, and the `reminder` column (full text where a cell is
+empty) as the generated `RULES.md` the cadence hook injects. The copies are never
 authoritative; CONFIG.md is.
 
 Each table is bounded by its own sentinel markers
@@ -171,6 +174,21 @@ _AGENTS_SYNC_START = (
     "do not edit between these markers -->"
 )
 _AGENTS_SYNC_END = "<!-- /note-kit:sync scheduled-agents -->"
+
+# Always-on rules: CONFIG § Rules is the canon (columns: rule | reminder). The
+# `rule` column lands in CLAUDE.md/AGENTS.md as orientation; the `reminder`
+# column (full text where empty) becomes the generated RULES.md the cadence
+# hook injects.
+_RULES_ANCHOR = "## Always-on rules"
+_RULES_SYNC_START = (
+    "<!-- note-kit:sync always-on-rules — auto-generated from CONFIG.md; "
+    "do not edit between these markers -->"
+)
+_RULES_SYNC_END = "<!-- /note-kit:sync always-on-rules -->"
+_RULES_MD_NOTICE = (
+    "<!-- generated from CONFIG.md § Rules by sync_config — "
+    "edit the CONFIG table, not this file -->"
+)
 
 # Pipeline-protocol block: CONFIG § Pipeline protocol holds the master between
 # these exact markers; the same markers sit in each staged pipeline skill, and
@@ -332,6 +350,43 @@ def _build_scheduled_agents_table() -> str:
     return _AGENTS_SYNC_START + "\n" + _SYNC_NOTE + "\n\n" + table + "\n" + _AGENTS_SYNC_END
 
 
+def _rules_rows() -> list[dict]:
+    """CONFIG § Rules rows (columns: rule | reminder). Hard-fails when the
+    section or a required column is missing — the rules layer must never
+    silently degrade to an empty injection."""
+    rows = _parse_table(_CONFIG_TEXT, "Rules", ["rule", "reminder"])
+    rows = [r for r in rows if r["rule"].strip()]
+    if not rows:
+        raise ValueError("CONFIG.md § Rules parsed to zero rules.")
+    return rows
+
+
+def _build_rules_orientation_block() -> str:
+    """The `## Always-on rules` block for CLAUDE.md/AGENTS.md (marker-bounded):
+    every rule at full text, read once at session start."""
+    bullets = "\n".join(f"- {r['rule'].strip()}" for r in _rules_rows())
+    return _RULES_SYNC_START + "\n" + _SYNC_NOTE + "\n\n" + bullets + "\n" + _RULES_SYNC_END
+
+
+def _build_rules_md() -> str:
+    """The generated RULES.md the cadence hook injects: each rule's reminder
+    cell, falling back to the full rule text where the cell is empty."""
+    bullets = "\n".join(
+        f"- {(r['reminder'].strip() or r['rule'].strip())}" for r in _rules_rows()
+    )
+    return _RULES_MD_NOTICE + "\n# Always-on rules\n\n" + bullets + "\n"
+
+
+def _sync_rules_md(vault_root: Path) -> str:
+    """Write the generated RULES.md. Returns written | unchanged."""
+    rules_path = vault_root.resolve() / ".claude" / "RULES.md"
+    body = _build_rules_md()
+    if rules_path.exists() and rules_path.read_text(encoding="utf-8") == body:
+        return "unchanged"
+    rules_path.write_text(body, encoding="utf-8")
+    return "written"
+
+
 # ---------------------------------------------------------------------------
 # Sync-log helpers
 # ---------------------------------------------------------------------------
@@ -436,6 +491,7 @@ def _sync_file(md_path: Path, default_header: str) -> tuple[bool, bool]:
     """
     session_body = _build_session_defaults_table()
     agents_body = _build_scheduled_agents_table()
+    rules_body = _build_rules_orientation_block()
     if not md_path.exists():
         md_path.write_text(default_header, encoding="utf-8")
     original = md_path.read_text(encoding="utf-8")
@@ -445,6 +501,9 @@ def _sync_file(md_path: Path, default_header: str) -> tuple[bool, bool]:
     )
     updated, _agents_found = _replace_synced_block(
         updated, agents_body, _AGENTS_SYNC_START, _AGENTS_SYNC_END, _AGENTS_ANCHOR
+    )
+    updated, _rules_found = _replace_synced_block(
+        updated, rules_body, _RULES_SYNC_START, _RULES_SYNC_END, _RULES_ANCHOR
     )
     changed = updated != original
     if changed:
@@ -614,6 +673,15 @@ def main() -> None:
     harness_outcome = _sync_harness_permissions(vault_root)
 
     # ------------------------------------------------------------------
+    # § Rules → generated RULES.md (reminder column, full text where empty)
+    # ------------------------------------------------------------------
+    try:
+        rules_outcome = _sync_rules_md(vault_root)
+    except Exception as exc:
+        rules_outcome = "error"
+        errors.append(f"rules-md: {exc}")
+
+    # ------------------------------------------------------------------
     # Counts
     # ------------------------------------------------------------------
     counts = {
@@ -632,6 +700,7 @@ def main() -> None:
         and not agents_changed
         and not pipe_changed
         and harness_outcome != "written"
+        and rules_outcome != "written"
         and _last_log_hash() == cfg_hash
     )
 
@@ -654,6 +723,7 @@ def main() -> None:
         for name, outcome in pipe_results:
             print(f"  pipeline-protocol -> {name}: {outcome}")
         print(f"  harness-permissions -> settings.local.json: {harness_outcome}")
+        print(f"  rules -> RULES.md: {rules_outcome}")
         if recovery:
             print(f"  Recovered (appended) sections: {recovery}")
         if errors:

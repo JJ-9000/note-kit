@@ -293,9 +293,30 @@ The harness allowlist is **defined here and mirrored** into `settings.local.json
 | `Write(.claude/**)` | same — new helper scripts, logs, generated files |
 | `Bash(python .claude/scripts/*)` | kit scripts (sync, state index, helpers) run on schedule |
 
+## Rules
+
+The always-on obligation set, canonical here and distributed by `sync_config`: the `rule` column lands in CLAUDE.md and AGENTS.md as the `## Always-on rules` orientation block (full text, read at session start), and the `reminder` column becomes the generated `RULES.md` the cadence hook injects (§ Rules injection). A `reminder` is the rule's shorthand — the shortest phrase that re-anchors the behavior mid-session, paying fewer recurring injection tokens than the teaching version (e.g. rule: the full reviewed-reset sentence with its exceptions; reminder: "Edit a `reviewed: true` note → reset to `reviewed: false`, back to `<inbox>` (exceptions in CONFIG)"). An empty `reminder` cell injects the rule at full text. Condense a reminder only on observed drift, and keep the no-delete prohibition expanded — condensing it measurably costs compliance ([[Synthesis-Table]]).
+
+| rule | reminder |
+| ---- | -------- |
+| Your output is a draft: write it to `<inbox>` with `reviewed: false`. | |
+| Never delete or destructively edit vault content outside of the `<inbox>`; version and `<archive>` it instead. | |
+| Editing a `reviewed: true` note resets it to `reviewed: false` in the same change, and moves it back to the `<inbox>`. Exceptions live in CONFIG: a living document (cover, canonical plan) is maintained in place, and a queue-approved frontmatter repair keeps its approval. | Edit a `reviewed: true` note → reset to `reviewed: false`, back to `<inbox>` (exceptions in CONFIG). |
+| Give every note a `type` and a link up (`parent` or `project`) so nothing is orphaned. Stamp only a link that resolves — search first; no match means leave it empty for inference, never invent a name. | Every note: `type` + a resolving link up (`parent`/`project`); no match → leave empty, never invent. |
+| Search the vault before writing anything new (`mcp__vault__vault_search` before Glob/Grep); never invent names, fields, or mechanisms. | `mcp__vault__vault_search` before writing anything new; never invent names, fields, or mechanisms. |
+| Assets carry no frontmatter. | |
+| Artifacts stand alone: no conversation residue, changelog, attribution, or next-step notes in draft files. | Artifacts stand alone: no conversation residue in drafts. |
+| Procedural text instructs; knowledge text declares; both in plain words. | |
+| A question asked in chat that goes unanswered lands in the `<user-queue>` before the session ends. | An unanswered chat question lands in `<user-queue>` before session end. |
+| Sub-agents inherit none of this — name every tool and rule they need in the spawning prompt. | Sub-agents inherit none of this — name every tool and rule in the spawning prompt. |
+| Maintain any active plans, crossing out finished work and correcting course on altered targets. | |
+| Use the vault's configured skills (§ Skill slugs) when alias actions are invoked (planning, researching, etc.). | Alias actions (plan, research, …) run their configured skill (§ Skill slugs). |
+| All edits to vault content outside of `<inbox>` check with the destination's mission, plans, and project scope; alterations are logged in `<archive>`. | Edits outside `<inbox>`: check the destination's mission, plans, scope; log alterations in `<archive>`. |
+| On a repeated correction or lengthy confusion, stop and raise the issue in the `<user-queue>` to clarify intent rather than guessing again. | Repeated correction → stop and raise it in `<user-queue>`, not another guess. |
+
 ## Rules injection
 
-`hooks/load-rules.py` injects `RULES.md` on a cadence: the session's first prompt and every `rules-injection-period` prompts after (1, 31, 61, … at the default). The hook reads the period from the table below at each invocation; an unreadable or missing value falls back to 30. Period 1 means every prompt.
+`hooks/load-rules.py` injects `RULES.md` on a cadence: the session's first prompt and every `rules-injection-period` prompts after (1, 31, 61, … at the default). The hook reads the period from the table below at each invocation; an unreadable or missing value falls back to 30. Period 1 means every prompt. `RULES.md` itself is generated from § Rules by `sync_config` — edit the table, never the file.
 
 | setting | value |
 | ------- | ----- |
@@ -318,7 +339,7 @@ The harness allowlist is **defined here and mirrored** into `settings.local.json
 
 ## Versioning and archiving discipline
 
-Before any destructive operation (overwrite, supersede, merge-onto-target, revise-in-place), the agent archives the source to `<archive>/<source-path>/<date>-<filename>-<version>` and confirms the copy exists before removing the source. Nothing is deleted outright.
+Before any destructive operation (overwrite, supersede, merge-onto-target, revise-in-place), the agent archives the source to `<archive>/<source-path>/<date>-<filename>-<version>` and confirms the copy exists before removing the source. Nothing is deleted outright. **A scripted rewrite is a destructive operation:** a helper script that rewrites a structured file archives the source first and verifies a structural invariant (section count, entry count, parseability) immediately after the write — a verification failure restores the archived copy.
 
 ## Concurrency
 
@@ -399,7 +420,7 @@ A new script registers its trigger here in the same change.
 | script | trigger |
 |---|---|
 | `config_variables.py` | imported by every kit script at startup |
-| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables, stamps the § Pipeline protocol block into the pipeline skills, and mirrors § Harness permissions into `settings.local.json` (merge, hand-added entries preserved) |
+| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables and `## Always-on rules` blocks, generates `RULES.md` from § Rules (reminder column, full text where empty), stamps the § Pipeline protocol block into the pipeline skills, and mirrors § Harness permissions into `settings.local.json` (merge, hand-added entries preserved) |
 | `build_state_index.py` | start of each janitor-agent run (apply mode — a detect-only audit refreshes nothing); consumed again by analyst-agent. Records a per-file body content hash in the snapshot; `reviewed-stale` fires only on a recorded content change newer than the review, with bulk-touch (≥10 shared mtimes) and reciprocal-pair findings suppressed; counts archived members for lifecycle types so a healthy lifecycle never reads `type-unused` |
 | `audit.py` (at `<kit-root>/scheduled-tasks/janitor-agent/`) | each janitor-agent run; detect-only by default, writes only with `--apply`; invokes normalize_type, normalize_tag, rename_with_link_integrity, and subfolder_housekeeping inline; reverts an off-canon kit folder name; resolves missing dates deterministically (archive provenance → session date → import date, tagged `inferred`); flags a duplicate canonical plan per scope (`duplicate-canonical-plan`); validates hook registrations in `settings.json`/`settings.local.json` — a malformed matcher group is silently ignored by the runner, so a dead or script-less registration is flagged (`dead-hook-registration`, `missing-hook-script`, `hooks-settings-unparseable`); never walks the vault root's loose files or an asset folder's interior |
 | `subfolder_housekeeping.py` | inline by audit.py each janitor run; prunes empty subfolders and empty indexes (deterministic) |

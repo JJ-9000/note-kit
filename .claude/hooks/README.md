@@ -8,13 +8,13 @@ Three Python hooks Claude Code runs at fixed moments in a session. Each prints J
 | -------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `load-rules.py`            | `UserPromptSubmit` | Reads `.claude/RULES.md` and injects the always-on rules on a cadence: the session's first prompt and every `rules-injection-period` prompts after (CONFIG § Rules injection, default 30), re-anchoring against long-session drift without per-prompt repetition. |
 | `session-start-context.py` | `SessionStart`     | Asks the vault-search daemon what you're working on and injects a brief: active project, recent sessions, cited references, quality gaps.                                                     |
-| `session-end-audit.py`     | `Stop`             | When a session edited hooks, rules, skills, or `CLAUDE.md`, reminds Claude to re-check that your documentation still matches reality.                                                         |
+| `session-end-audit.py`     | `Stop`             | Post-session upkeep: runs `sync_config` when the session edited `CONFIG.md`; reminds Claude to re-check documentation when hooks, rules, skills, or `CLAUDE.md` changed; gates the stop on a handoff when the session edited vault content (≥3 files blocks, fewer reminds). |
 
 ## load-rules.py
 
 The rule loader. Reads `.claude/RULES.md` and injects it on a cadence: the session's first prompt and every `rules-injection-period` prompts after (default 30 — prompts 1, 31, 61, …), so obligations re-anchor against long-session drift without repeating on every message. The period is read from `CONFIG.md` § Rules injection at each invocation; period 1 means every prompt. Prompt position is tracked per session in a counter file under the OS temp dir, keyed by `session_id`; on any state failure the hook fails open and injects. Only `RULES.md` is loaded here — vocabulary (types, folders, tags, actions) lives in `CONFIG.md`, and agent procedure lives in each agent's own `SKILL.md`.
 
-- **Change an always-on rule:** edit `.claude/RULES.md`.
+- **Change an always-on rule:** edit the `CONFIG.md` § Rules table — `RULES.md` is generated from it by `sync_config` (the `reminder` column, full rule text where a cell is empty).
 - **Change the cadence:** edit `rules-injection-period` in `CONFIG.md` § Rules injection.
 - **Change vocabulary:** edit `CONFIG.md` § the relevant table.
 - **Dependencies:** none (Python standard library).
@@ -32,8 +32,13 @@ The orientation hook. On session start it calls the vault-search daemon's `/api/
 
 ## session-end-audit.py
 
-The documentation-drift guard. When a session ends, it scans the transcript for `Edit`/`Write` calls that touched `.claude/hooks`, `.claude/skills`, `.claude/rules`, or `CLAUDE.md`. If it finds any, it reminds Claude to verify your documentation still reflects reality.
+The post-session upkeep hook. When a session ends, it scans the transcript once and runs three jobs:
 
-- **Configure your documentation surfaces:** edit the `SURFACES` list at the top of the file. Ships with just `CLAUDE.md`. Add a system-architecture doc, a hooks reference, etc., if you keep them.
+1. **Config sync** — if the session edited `CONFIG.md`, runs `scripts/sync_config.py` so every generated surface (orientation tables, `## Always-on rules` blocks, `RULES.md`, harness permissions) stays in sync with the canon.
+2. **Documentation-drift guard** — if the session touched `.claude/hooks`, `.claude/skills`, `.claude/rules`, `scheduled-tasks`, `CONFIG.md`, or `CLAUDE.md`, reminds Claude to verify the documentation surfaces still reflect reality.
+3. **Handoff gate** — if the session edited vault content (outside the kit root) and never ran a handoff skill: at `HANDOFF_BLOCK_THRESHOLD` (3) or more distinct files it blocks the stop until `note-kit-handoff` runs; below it, it reminds. Fails open — an unreadable transcript never blocks.
+
+- **Configure your documentation surfaces:** edit the `SURFACES` list at the top of the file. Add a system-architecture doc, a hooks reference, etc., if you keep them.
+- **Configure the handoff gate:** edit `HANDOFF_BLOCK_THRESHOLD` at the top of the file.
 - **Dependencies:** none (Python standard library).
 - **Install:** Part 4 of the main README.

@@ -1,6 +1,6 @@
 """Stop hook: post-session documentation upkeep.
 
-Two jobs, both driven by what the session actually edited (read from the
+Three jobs, all driven by what the session actually did (read from the
 transcript):
 
 1. If the session edited CONFIG.md, run `scripts/sync_config.py` so the
@@ -10,6 +10,11 @@ transcript):
 
 2. If the session edited hooks, rules, skills, CONFIG.md, or CLAUDE.md, remind
    Claude to re-check the documentation surfaces still reflect reality.
+
+3. If the session edited vault content (outside the kit root) and no handoff
+   ran, gate by volume: at or above HANDOFF_BLOCK_THRESHOLD distinct vault
+   files, block the stop until note-kit-handoff runs; below it, remind only.
+   The check fails open — a transcript that cannot be read never blocks.
 """
 import json
 import os
@@ -49,15 +54,25 @@ CRITICAL_PATH_PATTERNS = (
     "CONFIG.md", "CLAUDE.md", "AGENTS.md",
 )
 
+# Handoff gate (job 3): a session that edited this many distinct vault-content
+# files or more blocks at stop until note-kit-handoff runs; below the
+# threshold it gets a reminder.
+HANDOFF_BLOCK_THRESHOLD = 3
 
-def _edited_paths(transcript_path: str) -> list[str]:
-    """Return the file_path of every Edit/Write tool_use in the transcript."""
+
+def _scan_transcript(transcript_path: str) -> tuple[list[str], bool]:
+    """One pass over the transcript: (edited file paths, handoff ran).
+
+    Edited paths are the file_path of every Edit/Write tool_use. Handoff is
+    detected by a Skill tool_use whose skill names a handoff.
+    """
     if not transcript_path:
-        return []
+        return [], False
     p = Path(transcript_path)
     if not p.exists():
-        return []
+        return [], False
     edited: list[str] = []
+    handoff_ran = False
     try:
         with open(p, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -75,15 +90,40 @@ def _edited_paths(transcript_path: str) -> list[str]:
                         continue
                     if content.get("type") != "tool_use":
                         continue
-                    if content.get("name") not in {"Edit", "Write"}:
-                        continue
+                    name = content.get("name")
                     inp = content.get("input") or {}
+                    if name == "Skill":
+                        skill = inp.get("skill", "")
+                        if isinstance(skill, str) and "handoff" in skill.lower():
+                            handoff_ran = True
+                        continue
+                    if name not in {"Edit", "Write"}:
+                        continue
                     fp = inp.get("file_path", "")
                     if isinstance(fp, str) and fp:
                         edited.append(fp.replace("\\", "/"))
     except Exception:
-        return edited
-    return edited
+        return edited, handoff_ran
+    return edited, handoff_ran
+
+
+def _vault_content_files(edited: list[str]) -> list[str]:
+    """Distinct edited files that are vault content — inside the vault root
+    but outside the kit root (.claude/) and the app/history dirs."""
+    root = str(_VAULT_ROOT).replace("\\", "/").rstrip("/").lower()
+    seen: list[str] = []
+    for fp in edited:
+        norm = fp.replace("\\", "/")
+        low = norm.lower()
+        if not low.startswith(root + "/"):
+            continue
+        rel = norm[len(root) + 1:]
+        first = rel.split("/", 1)[0].lower()
+        if first in {".claude", ".obsidian", ".history"}:
+            continue
+        if norm not in seen:
+            seen.append(norm)
+    return seen
 
 
 def _touched_config(edited: list[str]) -> bool:
@@ -127,7 +167,7 @@ def main() -> None:
     if data.get("stop_hook_active"):
         return
 
-    edited = _edited_paths(data.get("transcript_path", ""))
+    edited, handoff_ran = _scan_transcript(data.get("transcript_path", ""))
 
     notes: list[str] = []
 
@@ -135,10 +175,34 @@ def main() -> None:
     if _touched_config(edited):
         notes.append(_run_sync_config())
 
+    # Job 3 — handoff gate on vault-content edits.
+    vault_files = _vault_content_files(edited)
+    if vault_files and not handoff_ran:
+        listing = ", ".join(vault_files[:10]) + (
+            f" (+{len(vault_files) - 10} more)" if len(vault_files) > 10 else ""
+        )
+        if len(vault_files) >= HANDOFF_BLOCK_THRESHOLD:
+            reason_lines = [
+                f"SESSION-END AUDIT: this session edited {len(vault_files)} vault files "
+                f"with no handoff: {listing}.",
+                "Run the note-kit-handoff skill to log the session, then stop.",
+            ]
+            if notes:
+                reason_lines.append(" ".join(notes))
+            print(json.dumps({
+                "decision": "block",
+                "reason": "\n".join(reason_lines),
+            }))
+            return
+        notes.append(
+            f"This session edited vault content ({listing}) without a handoff — "
+            "consider note-kit-handoff if the work warrants a session log."
+        )
+
     # Job 2 — documentation-surface reminder.
     if not _touched_critical(edited):
-        # Nothing behavior-defining changed. If we still ran sync, surface that;
-        # otherwise stay silent.
+        # Nothing behavior-defining changed. If we still ran sync or noted the
+        # handoff, surface that; otherwise stay silent.
         if notes:
             print(json.dumps({
                 "hookSpecificOutput": {

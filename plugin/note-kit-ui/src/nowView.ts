@@ -95,7 +95,21 @@ export class NowView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		this.scheduleRender = debounce(() => void this.reloadAndRender(), 250, false);
+		this.scheduleRender = debounce(() => {
+			// Never wipe a field the user is typing in (add a task, edit one, pick an
+			// option): a background vault change must not blow away in-progress text.
+			// Defer until the field loses focus, then catch up.
+			const ae = document.activeElement;
+			if (
+				ae instanceof HTMLElement &&
+				(ae.tagName === "TEXTAREA" || ae.tagName === "INPUT") &&
+				this.contentEl.contains(ae)
+			) {
+				this.scheduleRender();
+				return;
+			}
+			void this.reloadAndRender();
+		}, 250, false);
 	}
 
 	getViewType(): string {
@@ -549,31 +563,40 @@ export class NowView extends ItemView {
 				});
 				continue;
 			}
-			// Open item: click the text to cross it off. A user cross-off is a SKIP,
-			// not a completion — the line gains the literal "*(item skipped)*" marker
-			// with its [x] so the agent's sweep tells it from a real completion.
+			// Open item: click the task to cross it off (a SKIP — the line gains the
+			// literal "*(item skipped)*" marker with its [x] so the agent's sweep tells
+			// it from a real completion). A quiet "edit?" beneath re-opens the text for
+			// editing.
 			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
-			row.createSpan({ cls: "nkui-now-qtext", text: item.text });
-			row.setAttr(
-				"aria-label",
-				"Click to skip — the item is marked \"(item skipped)\" and the agent clears it next run without executing."
-			);
+			const main = row.createDiv("nkui-now-qmain");
+			main.createSpan({ cls: "nkui-now-qtext", text: item.text });
+			const editLink = main.createSpan({ cls: "nkui-now-qedit", text: "edit?" });
+			row.setAttr("aria-label", "Click the task to skip it; click “edit?” to change its text.");
 			row.setAttr("title", row.getAttr("aria-label") ?? "");
 			row.addEventListener("click", () => void this.skipMachineItem(item));
+			editLink.addEventListener("click", (ev) => {
+				ev.stopPropagation();
+				this.editMachineItem(main, item);
+			});
 		}
 		if (!opts.items.length) {
 			list.createDiv({ cls: "nkui-now-empty", text: "Nothing queued." });
 		}
 		const add = list.createDiv("nkui-now-qadd");
-		const input = add.createEl("input", {
+		// A textarea, not a one-line input: a long task wraps so it can be read back
+		// (especially on mobile, where a single line scrolls off-screen). It grows
+		// with its content; Enter submits, Shift+Enter is a soft newline.
+		const input = add.createEl("textarea", {
 			cls: "nkui-now-qaddinput",
-			attr: { type: "text", placeholder: "Add a task…" },
+			attr: { rows: "1", placeholder: "Add a task…" },
 		});
+		input.addEventListener("input", () => this.autoGrow(input));
 		input.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" && input.value.trim()) {
+			if (ev.key === "Enter" && !ev.shiftKey && input.value.trim()) {
 				ev.preventDefault();
 				void this.addMachineItem(input.value.trim());
 				input.value = "";
+				this.autoGrow(input);
 			}
 		});
 	}
@@ -1014,6 +1037,66 @@ export class NowView extends ItemView {
 		if (!(f instanceof TFile)) return;
 		const content = (await this.app.vault.read(f)).replace(/\s*$/, "");
 		await this.app.vault.modify(f, `${content}\n- [ ] ${text}\n`);
+	}
+
+	/** Replace an open task's text in place, re-located by its current text (robust
+	 * to the file shifting), keeping its checkbox state. */
+	private async updateMachineItem(oldText: string, newText: string): Promise<void> {
+		const f = this.app.vault.getAbstractFileByPath(this.plugin.settings.machineQueuePath);
+		if (!(f instanceof TFile)) return;
+		const lines = (await this.app.vault.read(f)).split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const m = lines[i].match(CHECKBOX_RE);
+			if (m && m[4] === oldText) {
+				lines[i] = `${m[1]}${m[2]}${m[3]}${newText}${m[5]}`;
+				await this.app.vault.modify(f, lines.join("\n"));
+				break;
+			}
+		}
+		await this.reloadAndRender();
+	}
+
+	/** Turn an open task row back into a live editor: a wrapping textarea seeded with
+	 * the task text. Enter saves, Esc or blur cancels. */
+	private editMachineItem(main: HTMLElement, item: QueueItem): void {
+		main.empty();
+		const ta = main.createEl("textarea", {
+			cls: "nkui-now-qaddinput nkui-now-qedit-field",
+			attr: { rows: "1" },
+		});
+		ta.value = item.text;
+		ta.addEventListener("input", () => this.autoGrow(ta));
+		// Measure after layout so scrollHeight is real, then focus at the end.
+		window.setTimeout(() => {
+			this.autoGrow(ta);
+			ta.focus();
+			ta.setSelectionRange(ta.value.length, ta.value.length);
+		}, 0);
+		let done = false;
+		const save = (): void => {
+			if (done) return;
+			done = true;
+			const v = ta.value.trim();
+			if (v && v !== item.text) void this.updateMachineItem(item.text, v);
+			else void this.reloadAndRender();
+		};
+		ta.addEventListener("keydown", (ev) => {
+			if (ev.key === "Enter" && !ev.shiftKey) {
+				ev.preventDefault();
+				save();
+			} else if (ev.key === "Escape") {
+				ev.preventDefault();
+				done = true;
+				void this.reloadAndRender();
+			}
+		});
+		ta.addEventListener("blur", save);
+	}
+
+	/** Size a textarea to its content so a wrapped task shows in full. */
+	private autoGrow(ta: HTMLTextAreaElement): void {
+		ta.style.height = "auto";
+		ta.style.height = `${ta.scrollHeight}px`;
 	}
 
 	// ── grouping ───────────────────────────────────────────────────────────────

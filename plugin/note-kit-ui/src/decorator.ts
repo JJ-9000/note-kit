@@ -21,6 +21,7 @@ export class ExplorerDecorator {
 	private prefixSet = new Set<string>();
 	private sinkSet = new Set<string>();
 	private typeColors = new Set<string>();
+	private floatSet = new Set<string>();
 	private hideRe: RegExp | null = null;
 
 	constructor(plugin: NoteKitUiPlugin) {
@@ -88,6 +89,7 @@ export class ExplorerDecorator {
 				: []
 		);
 		this.typeColors = new Set(this.plugin.typeStyles().filter((t) => t.color).map((t) => t.type));
+		this.floatSet = new Set(s.floatTopTypes ?? []);
 		if (s.enableHidePrefix && this.prefixSet.size) {
 			const alt = [...this.prefixSet].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 			this.hideRe = new RegExp(`^(?:${alt})[ _-]+`);
@@ -212,6 +214,11 @@ export class ExplorerDecorator {
 			}
 			this.setAttr(el, "data-nkui-type", typeHit);
 
+			// (e2) float-to-top — a file whose type is in the configured set sorts to
+			// the top of its folder (CSS order). Uses the raw type, colour or not.
+			const rawType = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
+			this.setAttr(el, "data-nkui-float", rawType && this.floatSet.has(rawType) ? "true" : null);
+
 			const draft =
 				s.enableReviewFlags && s.showRowBadge && fm ? this.isUnreviewed(fm, s) : false;
 			this.setAttr(el, "data-nkui-reviewed", draft ? "false" : null);
@@ -330,6 +337,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-type");
 				el.removeAttribute("data-nkui-reviewed");
 				el.removeAttribute("data-nkui-queue");
+				el.removeAttribute("data-nkui-float");
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"
 				);

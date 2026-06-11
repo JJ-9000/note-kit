@@ -47,6 +47,8 @@ export interface NoteKitUiSettings {
 	/** Mirror the type colours into the graph view's colour groups (graph.json)
 	 * so graph/bubble nodes match the explorer dots. */
 	syncGraphColors: boolean;
+	/** Explorer: note types whose files sort to the top of their folder. */
+	floatTopTypes: string[];
 
 	// d — unreviewed drafts
 	reviewedField: string;
@@ -115,6 +117,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	applyTypeBodyClass: true,
 	themePalette: true,
 	syncGraphColors: true,
+	floatTopTypes: ["project", "index", "plan"],
 
 	reviewedField: "reviewed",
 	inboxFolders: ["00-Inbox"],
@@ -469,6 +472,20 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				ta.inputEl.style.fontFamily = "var(--font-monospace)";
 				ta.inputEl.disabled = paletteOn;
 			});
+		new Setting(containerEl)
+			.setName("Float types to top")
+			.setDesc(
+				"Comma-separated note types whose files sort to the top of their folder in the explorer (e.g. project, index, plan)."
+			)
+			.addText((t) =>
+				t.setValue(s.floatTopTypes.join(", ")).onChange(async (v) => {
+					s.floatTopTypes = v
+						.split(",")
+						.map((x) => x.trim())
+						.filter(Boolean);
+					await save();
+				})
+			);
 
 		// ── Review flags ──────────────────────────────────────────
 		new Setting(containerEl).setName("Drafts & review").setHeading();

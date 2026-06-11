@@ -471,11 +471,31 @@
 /* queue items — Decide (checkbox) and Queue (click-to-strike) buckets */
 .nkui-now-qrow {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: var(--nkui-gap-s);
 	padding: 0.18em calc(0.5em + var(--nkui-gap-s)) 0.18em 1.55em;
 	margin: 0 -0.5em;
 	border-radius: var(--radius-s, 6px);
+}
+/* An open task: its text on top, a quiet "edit?" affordance beneath (like the
+   crossed-off fate note), stacked so a long task wraps without smushing. */
+.nkui-now-qmain {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+.nkui-now-qedit {
+	align-self: flex-start;
+	font-size: var(--font-ui-smaller, 11px);
+	font-style: italic;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+.nkui-now-qedit:hover {
+	color: var(--text-normal);
+	text-decoration: underline;
 }
 .nkui-now-qrow:hover {
 	background: var(--nkui-hover);
@@ -517,9 +537,14 @@
 .nkui-now-qadd {
 	padding: 0.25em 0.5em 0.1em 1.55em;
 }
+/* A textarea (not an input) so a long task wraps and can be read back. It auto-
+   grows in JS (autoGrow); overflow:hidden keeps the scrollbar away, resize:none
+   keeps the drag handle off, font-family:inherit stops the textarea defaulting to
+   monospace. */
 .nkui-now-qaddinput {
 	width: 100%;
 	box-sizing: border-box;
+	display: block;
 	-webkit-appearance: none; /* strip iOS native input chrome that clips the text */
 	appearance: none;
 	background: transparent;
@@ -528,7 +553,12 @@
 	border-radius: 0 !important; /* theme/mobile sets a pill radius that clips the text */
 	padding: 0.2em 0;
 	color: var(--text-normal);
+	font-family: inherit;
 	font-size: var(--font-ui-small, 13px);
+	line-height: 1.4;
+	resize: none;
+	overflow: hidden;
+	overflow-wrap: anywhere;
 }
 .nkui-now-qaddinput:focus {
 	border-bottom-color: var(--interactive-accent);
@@ -979,11 +1009,16 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 
 /* ── File explorer: queue files float to the top of their folder; coloured (not
    barred) so they read as interaction surfaces. ─────────────────────────────── */
-.nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]) {
+.nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]),
+.nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-float]) {
 	display: flex;
 	flex-direction: column;
 }
+/* Queues sit above the floated types, which sit above everything else. */
 .tree-item:has(> .nav-file-title[data-nkui-queue]) {
+	order: -2;
+}
+.tree-item:has(> .nav-file-title[data-nkui-float]) {
 	order: -1;
 }
 .nav-file-title[data-nkui-queue] .nav-file-title-content {

@@ -7,7 +7,8 @@ import type NoteKitUiPlugin from "./main";
  *   data-nkui-type     (c) note type (only for types with a configured colour)
  *   data-nkui-reviewed (d) "false" on unreviewed drafts
  * Also rewrites displayed names to hide the prefix (b) and injects the live
- * "N unreviewed" pill on inbox folder rows (d).
+ * "needs you" pill on inbox folder rows (d) — drafts awaiting a decision, not
+ * sets already approved and waiting on the filing-agent.
  *
  * All DOM writes are idempotent: re-running on an already-decorated row produces
  * no mutation, so the MutationObserver that drives re-decoration cannot loop.
@@ -243,7 +244,7 @@ export class ExplorerDecorator {
 					badge?.remove();
 					continue;
 				}
-				const n = this.countUnreviewed(folderPath, s);
+				const n = this.countNeedsAttention(folderPath, s);
 				if (n <= 0) {
 					badge?.remove();
 					continue;
@@ -255,22 +256,63 @@ export class ExplorerDecorator {
 		}
 	}
 
-	private countUnreviewed(folderPath: string, s = this.plugin.settings): number {
+	/**
+	 * Count the inbox drafts that actually need the user — not every unreviewed
+	 * file lingering in the folder. A draft in a working set whose gate is already
+	 * approved is awaiting the filing-agent, not a decision (CONFIG § Group
+	 * approval): it sits in the inbox but needs nothing from the user, so it must
+	 * not inflate the attention pill. This mirrors the For You view's
+	 * "awaiting-filing" exclusion. Loose drafts at the inbox root, and drafts in
+	 * sets whose gate is still a draft, count.
+	 */
+	private countNeedsAttention(folderPath: string, s = this.plugin.settings): number {
 		const folder = this.plugin.app.vault.getAbstractFileByPath(folderPath);
 		if (!(folder instanceof TFolder)) return 0;
-		let n = 0;
+
+		// Per container (the first path segment under the inbox): its root-level
+		// members by name + approval, used to resolve the set's gate; and the count
+		// of unreviewed drafts anywhere inside it. A draft directly at the inbox
+		// root has no container and always counts.
+		const roots = new Map<string, { name: string; approved: boolean }[]>();
+		const draftsByContainer = new Map<string, number>();
+		let looseDrafts = 0;
+
 		Vault.recurseChildren(folder, (af) => {
-			if (af instanceof TFile && af.extension === "md") {
-				const fm = this.plugin.app.metadataCache.getFileCache(af)?.frontmatter;
-				if (fm && this.isUnreviewed(fm, s)) n++;
+			if (!(af instanceof TFile) || af.extension !== "md") return;
+			const segs = af.path.slice(folderPath.length + 1).split("/");
+			const fm = this.plugin.app.metadataCache.getFileCache(af)?.frontmatter;
+			const draft = fm ? this.isUnreviewed(fm, s) : false;
+			if (segs.length === 1) {
+				if (draft) looseDrafts++;
+				return;
 			}
+			const container = segs[0];
+			if (segs.length === 2) {
+				const arr = roots.get(container) ?? [];
+				arr.push({ name: segs[1], approved: fm ? this.isApproved(fm, s) : false });
+				roots.set(container, arr);
+			}
+			if (draft) draftsByContainer.set(container, (draftsByContainer.get(container) ?? 0) + 1);
 		});
+
+		let n = looseDrafts;
+		for (const [container, count] of draftsByContainer) {
+			const members = roots.get(container) ?? [];
+			const gate = pickGateName(members.map((m) => m.name));
+			const awaitingFiling = !!gate && (members.find((m) => m.name === gate)?.approved ?? false);
+			if (!awaitingFiling) n += count;
+		}
 		return n;
 	}
 
 	private isUnreviewed(fm: Record<string, unknown>, s = this.plugin.settings): boolean {
 		const v = fm[s.reviewedField];
 		return v === false || v === "false";
+	}
+
+	private isApproved(fm: Record<string, unknown>, s = this.plugin.settings): boolean {
+		const v = fm[s.reviewedField];
+		return v === true || v === "true";
 	}
 
 	// ── teardown ─────────────────────────────────────────────────────────────
@@ -300,6 +342,22 @@ export class ExplorerDecorator {
 		if (value === null) el.removeAttribute(name);
 		else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
 	}
+}
+
+/**
+ * Resolve a working set's gate by the names of its root-level members — the
+ * name-only twin of nowView's pickGate (the decorator only has names + approval
+ * to work with). A lone root file IS the gate; among several, a single
+ * 00-prefixed cover wins, else a single date-named file. Ambiguity resolves to
+ * none — no guessing.
+ */
+function pickGateName(names: string[]): string | null {
+	const one = (xs: string[]): string | null => (xs.length === 1 ? xs[0] : null);
+	return (
+		one(names) ??
+		one(names.filter((n) => /^00[-_ ]/.test(n))) ??
+		one(names.filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n)))
+	);
 }
 
 /** CSS.escape is unavailable in some mobile webviews; fall back to a minimal escape. */

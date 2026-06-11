@@ -597,6 +597,11 @@ export class NowView extends ItemView {
 		count: number,
 		defaultOpen: boolean
 	): HTMLElement {
+		// An empty section (count 0 — an all-approved drafts bucket, a queue with
+		// nothing open, only-resolved decisions) carries nothing the user must act
+		// on. Tag it so the stylesheet recedes it (smaller, faded): a quiet "0" that
+		// never competes with a live count for attention.
+		bucket.toggleClass("nkui-now-group-empty", count <= 0);
 		const gh = bucket.createDiv("nkui-now-group-head");
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");

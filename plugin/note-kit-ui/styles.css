@@ -237,6 +237,21 @@
 	background: var(--background-modifier-border);
 	color: var(--text-muted);
 }
+/* An empty section — count 0, nothing here needs the user. It recedes: the whole
+   group fades, the title drops to body weight, and the count bubble shrinks, so a
+   "0" reads as "clear" rather than borrowing the visual urgency of a live count. */
+.nkui-now-group-empty {
+	opacity: 0.5;
+}
+.nkui-now-group-empty .nkui-now-group-title {
+	font-size: 1em;
+	font-weight: 600;
+}
+.nkui-now-group-empty .nkui-now-count {
+	min-width: 1.4em;
+	height: 1.2em;
+	font-size: var(--font-ui-smaller, 11px);
+}
 .nkui-now-empty {
 	color: var(--text-faint);
 	font-style: italic;

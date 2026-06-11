@@ -48,6 +48,7 @@ from __future__ import annotations
 import sys
 import os
 import re
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -1896,6 +1897,75 @@ def pass17_plan_multiplicity(all_md: list[Path]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pass 18 — Hook-registration validation (detect-only)
+# ---------------------------------------------------------------------------
+
+def pass18_hooks_registration() -> None:
+    """Validate hook registrations in `.claude/settings.json` (+ .local).
+
+    Claude Code requires each event's entries to be matcher groups carrying a
+    `hooks` list of handlers; a bare `{"type", "command"}` object at group
+    level is silently ignored — the hook never fires and nothing reports it.
+    A registration can also rot by pointing at a script that no longer exists.
+    Both failure modes are invisible at runtime, so this pass is the only
+    place they surface. Detect-only: findings route like any other.
+    """
+    for settings_name in ("settings.json", "settings.local.json"):
+        settings_path = VAULT_ROOT / ".claude" / settings_name
+        if not settings_path.exists():
+            continue
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            _log_detect("hooks-settings-unparseable", _rel(settings_path),
+                        f"every hook in this file is dead: {exc}")
+            continue
+        hooks = data.get("hooks")
+        if hooks is None:
+            continue
+        if not isinstance(hooks, dict):
+            _log_detect("dead-hook-registration", _rel(settings_path),
+                        "'hooks' is not an object of event -> matcher-group lists")
+            continue
+        for event, groups in hooks.items():
+            if not isinstance(groups, list):
+                _log_detect("dead-hook-registration", _rel(settings_path),
+                            f"{event}: expected a list of matcher groups")
+                continue
+            for group in groups:
+                if not isinstance(group, dict):
+                    _log_detect("dead-hook-registration", _rel(settings_path),
+                                f"{event}: non-object matcher group")
+                    continue
+                if "hooks" not in group:
+                    _log_detect(
+                        "dead-hook-registration", _rel(settings_path),
+                        f"{event}: entry lacks a 'hooks' list — a bare command "
+                        "object here is silently ignored; wrap it in "
+                        "{'matcher': ..., 'hooks': [...]}",
+                    )
+                    continue
+                handlers = group.get("hooks")
+                if not isinstance(handlers, list) or not handlers:
+                    _log_detect("dead-hook-registration", _rel(settings_path),
+                                f"{event}: 'hooks' is not a non-empty list")
+                    continue
+                for handler in handlers:
+                    if (not isinstance(handler, dict)
+                            or handler.get("type") != "command"
+                            or not str(handler.get("command") or "").strip()):
+                        _log_detect("dead-hook-registration", _rel(settings_path),
+                                    f"{event}: handler missing type/command")
+                        continue
+                    for script in re.findall(r"\./\.claude/[^\s\"']+",
+                                             str(handler["command"])):
+                        if not (VAULT_ROOT / script.removeprefix("./")).exists():
+                            _log_detect("missing-hook-script", _rel(settings_path),
+                                        f"{event}: command references {script} "
+                                        "which does not exist")
+
+
+# ---------------------------------------------------------------------------
 # Pass 13 — Drift detection
 # ---------------------------------------------------------------------------
 
@@ -2232,6 +2302,11 @@ def run_audit() -> None:
     # Pass 17 — Plan multiplicity (detect-only; never auto-fixes).
     print("Pass 17: plan multiplicity...", file=sys.stderr)
     pass17_plan_multiplicity(all_md)
+
+    # Pass 18 — Hook-registration validation (detect-only; a dead hook is
+    # silent everywhere else).
+    print("Pass 18: hook-registration validation...", file=sys.stderr)
+    pass18_hooks_registration()
 
     # Append events to the ledger and stage this run's findings, then refresh
     # the single shared snapshot with those findings folded into ## Open findings.

@@ -6,15 +6,16 @@ Three Python hooks Claude Code runs at fixed moments in a session. Each prints J
 
 | File                       | Event              | What it does                                                                                                                                                                                  |
 | -------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `load-rules.py`            | `UserPromptSubmit` | Reads `.claude/RULES.md` and injects the always-on rules as context on every prompt. |
+| `load-rules.py`            | `UserPromptSubmit` | Reads `.claude/RULES.md` and injects the always-on rules on a cadence: the session's first prompt and every `rules-injection-period` prompts after (CONFIG § Rules injection, default 30), re-anchoring against long-session drift without per-prompt repetition. |
 | `session-start-context.py` | `SessionStart`     | Asks the vault-search daemon what you're working on and injects a brief: active project, recent sessions, cited references, quality gaps.                                                     |
 | `session-end-audit.py`     | `Stop`             | When a session edited hooks, rules, skills, or `CLAUDE.md`, reminds Claude to re-check that your documentation still matches reality.                                                         |
 
 ## load-rules.py
 
-The rule loader. Reads `.claude/RULES.md` and injects it as context every time you submit a prompt. Only `RULES.md` is loaded here — vocabulary (types, folders, tags, actions) lives in `CONFIG.md`, and agent procedure lives in each agent's own `SKILL.md`.
+The rule loader. Reads `.claude/RULES.md` and injects it on a cadence: the session's first prompt and every `rules-injection-period` prompts after (default 30 — prompts 1, 31, 61, …), so obligations re-anchor against long-session drift without repeating on every message. The period is read from `CONFIG.md` § Rules injection at each invocation; period 1 means every prompt. Prompt position is tracked per session in a counter file under the OS temp dir, keyed by `session_id`; on any state failure the hook fails open and injects. Only `RULES.md` is loaded here — vocabulary (types, folders, tags, actions) lives in `CONFIG.md`, and agent procedure lives in each agent's own `SKILL.md`.
 
 - **Change an always-on rule:** edit `.claude/RULES.md`.
+- **Change the cadence:** edit `rules-injection-period` in `CONFIG.md` § Rules injection.
 - **Change vocabulary:** edit `CONFIG.md` § the relevant table.
 - **Dependencies:** none (Python standard library).
 - **Install:** Part 4 of the main README.

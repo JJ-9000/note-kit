@@ -260,6 +260,14 @@ The canonical shapes for the structural verbs a producing agent picks. The actio
 | Relocate file      | `<path-from>` → `<path-to>`                            | filing-agent, analyst-agent, action-agent                        | active-to-active move; archive-first, then rename-with-link-integrity |
 | Create index       | `<parent-folder>/<index>.md`                           | filing-agent, analyst-agent                                      | build an index note linking a folder's members                        |
 
+## Rules injection
+
+`hooks/load-rules.py` injects `RULES.md` on a cadence: the session's first prompt and every `rules-injection-period` prompts after (1, 31, 61, … at the default). The hook reads the period from the table below at each invocation; an unreadable or missing value falls back to 30. Period 1 means every prompt.
+
+| setting | value |
+| ------- | ----- |
+| `rules-injection-period` | 30 |
+
 ## Queue protocol
 
 `<user-queue>` (AI → user) and `<machine-queue>` (user → AI) mirror in structure: each a checkable `.md` one party writes and the other reads. The canonical item shape is `Format-User-Queue` / `Format-Machine-Queue` (templates/format; filed as format notes in the vault), enforced through the action-agent SKILL; only a judgment call reaches `<user-queue>`, never a routine fixable violation a script handles.

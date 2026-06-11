@@ -2,7 +2,7 @@
 
 An Obsidian vault co-managed by an AI assistant and a person. Drafts land in `<inbox>` with `reviewed: false`. The person reviews and sets `reviewed: true`. Scheduled agents file approved items to their permanent homes. `CONFIG.md` is the canonical source for types, folders, tags, actions, and protocols; this file orients a fresh runner and never overrides it.
 
-The whole kit installs to `<vault>/.claude/` — `CONFIG.md`, `CLAUDE.md`, `AGENTS.md`, and `RULES.md` all sit there, alongside `skills/`, `scheduled-tasks/`, `scripts/`, and `hooks/`. This file, `AGENTS.md`, is the orientation for non-Claude runners; point a non-Claude runner at `.claude/AGENTS.md`. (Claude Code does not read it — it loads `CLAUDE.md`.) `RULES.md` is the always-on rules file the runner's per-prompt hook prepends to every prompt.
+The whole kit installs to `<vault>/.claude/` — `CONFIG.md`, `CLAUDE.md`, `AGENTS.md`, and `RULES.md` all sit there, alongside `skills/`, `scheduled-tasks/`, `scripts/`, and `hooks/`. This file, `AGENTS.md`, is the orientation for non-Claude runners; point a non-Claude runner at `.claude/AGENTS.md`. (Claude Code does not read it — it loads `CLAUDE.md`.) `RULES.md` is the always-on rules file the runner's prompt hook injects on a cadence — the session's first prompt and every `rules-injection-period` prompts after (CONFIG § Rules injection, default 30) — so the obligations re-anchor through long sessions; a runner without hook support reads it once at orientation.
 
 ## Tool guidance
 

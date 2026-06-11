@@ -262,6 +262,8 @@ The canonical shapes for the structural verbs a producing agent picks. The actio
 | Relocate file      | `<path-from>` → `<path-to>`                            | filing-agent, analyst-agent, action-agent                        | active-to-active move; archive-first, then rename-with-link-integrity |
 | Create index       | `<parent-folder>/<index>.md`                           | filing-agent, analyst-agent                                      | build an index note linking a folder's members                        |
 
+**Link integrity is mandatory on every in-vault move.** A rename or relocate of an active file runs through `rename_with_link_integrity` so inbound wikilinks follow the file; a move that bypasses it leaves ghosts the `dangling-link` finding then surfaces (§ Log files). When the helper cannot run, record the broken inbound links for the janitor's next pass rather than leaving the move silent.
+
 ## Holds and approvals
 
 The one home for what blocks work and what is pre-approved; both tables are **user-editable**. A hold exists only when completion requires something the agent cannot produce; every agent resolves a potential hold against this table. Everything else completes.

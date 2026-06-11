@@ -545,13 +545,19 @@ export class NowView extends ItemView {
 				txt.addClass("is-done");
 				const skipped = SKIP_MARK_RE.test(item.text);
 				const executed = EXEC_MARK_RE.test(item.text);
+				// Long fate label on desktop; a one-word twin on mobile so the label
+				// never pushes the struck text — the text truncates, the fate stays.
 				row.createSpan({
-					cls: "nkui-now-qclear",
+					cls: "nkui-now-qclear nkui-now-qclear-long",
 					text: skipped
 						? "skipped — clears next agent run"
 						: executed
 							? "executed by action agent — clears next run"
 							: "done — clears next agent run",
+				});
+				row.createSpan({
+					cls: "nkui-now-qclear nkui-now-qclear-short",
+					text: skipped ? "skipped" : executed ? "executed" : "done",
 				});
 				row.setAttr(
 					"aria-label",
@@ -707,7 +713,10 @@ export class NowView extends ItemView {
 			// the row only reports that the files still wait on the filing-agent.
 			const wslot = set.createSpan("nkui-now-waitslot");
 			if (e.awaitingFiling) {
-				wslot.createSpan({ cls: "nkui-now-waitnote", text: "approved — awaiting filing" });
+				// Full note on desktop; "approved" on mobile, inline on the item's
+				// line (the title truncates instead of the row stacking).
+				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-long", text: "approved — awaiting filing" });
+				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-short", text: "approved" });
 			}
 
 			// A gate stands in for a folded working-set: a quiet "+N" marks how

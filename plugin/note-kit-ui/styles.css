@@ -459,6 +459,12 @@
 	font-size: 0.85em;
 	white-space: nowrap;
 }
+/* Long/short twins: desktop shows the full fate label and wait note; mobile
+   shows the one-word twin so the item text truncates instead of being pushed. */
+.nkui-now-qclear-short,
+.nkui-now-waitnote-short {
+	display: none;
+}
 .nkui-now-qadd {
 	padding: 0.25em 0.5em 0.1em 1.55em;
 }
@@ -802,25 +808,35 @@ body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
 body.is-mobile .nkui-now-approveall {
 	padding: 0.2em 0.45em;
 }
-/* "approved — awaiting filing" must reach mobile. On desktop the wait note rides
-   in a measured slot column packed to the right edge; on a phone (where
-   equalizeMetaColumns deliberately bails, so columns aren't width-locked) that
-   slot would otherwise be squeezed off the right edge by the title. Stack the
-   awaiting row — title on its own line, the gate trio (wait note · +N · pill)
-   wrapping full-width beneath it — and let the note wrap rather than clip. */
-body.is-mobile .nkui-now-row-waiting {
-	flex-direction: column;
-	align-items: flex-start;
-	gap: var(--nkui-gap-2xs);
-}
+/* The awaiting-filing row stays on ONE line on mobile: the title truncates
+   with an ellipsis and the wait note renders as its one-word twin ("approved"),
+   trailing off if space still runs out. */
 body.is-mobile .nkui-now-row-waiting .nkui-now-rowtitle {
-	width: 100%;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 body.is-mobile .nkui-now-row-waiting .nkui-now-rowset {
-	margin-left: 0;
-	flex-wrap: wrap;
-	white-space: normal;
+	flex: 0 0 auto;
 }
-body.is-mobile .nkui-now-row-waiting .nkui-now-waitnote {
-	white-space: normal;
+body.is-mobile .nkui-now-waitnote-short {
+	display: inline;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 30vw;
+}
+body.is-mobile .nkui-now-waitnote-long,
+body.is-mobile .nkui-now-qclear-long {
+	display: none;
+}
+body.is-mobile .nkui-now-qclear-short {
+	display: inline;
+}
+/* A crossed-off machine-queue line truncates instead of wrapping or pushing. */
+body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }

@@ -121,6 +121,12 @@ def main() -> None:
     except Exception:
         data = {}
 
+    # A stop that is itself a hook-driven continuation must exit silently:
+    # re-emitting context here re-invokes the session on every stop and the
+    # audit loops until the session is closed (observed live 2026-06-10).
+    if data.get("stop_hook_active"):
+        return
+
     edited = _edited_paths(data.get("transcript_path", ""))
 
     notes: list[str] = []

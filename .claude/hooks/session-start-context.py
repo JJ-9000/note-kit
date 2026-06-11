@@ -4,13 +4,15 @@ Daemon lifecycle (start with use): when the daemon is down, this hook launches
 it detached via daemonctl and moves on without waiting for warm-up — the first
 session of the day brings the engine up; the daemon's own idle timeout takes it
 back down (vault-search/config.yaml `lifecycle.idle_shutdown_minutes`).
-Also surfaces pending `needs-live-session` machine-queue items (CONFIG § Queue
-protocol) so an interactive session picks up work an unattended pass deferred.
+Also surfaces pending `needs-live-session` items (CONFIG § Queue protocol) so
+an interactive session picks up work an unattended pass deferred: open
+machine-queue lines, and the user-queue's standing blocked clusters.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -20,6 +22,7 @@ import urllib.error
 DAEMON_BASE = "http://127.0.0.1:8765"
 TIMEOUT_SEC = 2.0
 MACHINE_QUEUE_REL = os.path.join("00-Outbox", "00-Machine-Queue.md")
+USER_QUEUE_REL = os.path.join("00-Inbox", "00-User-Queue.md")
 
 
 def _start_daemon_if_down(cwd: str) -> bool:
@@ -59,6 +62,28 @@ def pending_live_session_items(cwd: str) -> list[str]:
         for ln in lines
         if "needs-live-session" in ln and "[ ]" in ln
     ][:5]
+
+
+def pending_user_queue_clusters(cwd: str) -> list[str]:
+    """User-queue standing clusters annotated needs-live-session.
+
+    A blocked cluster lives as one `###` item per CONFIG § Queue protocol;
+    the annotation appears in its body (agents write `needs-live-session`,
+    the user sometimes writes it with spaces). Returns the item headings.
+    """
+    path = os.path.join(cwd, USER_QUEUE_REL)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+    titles: list[str] = []
+    for section in re.split(r"^### ", text, flags=re.MULTILINE)[1:]:
+        heading, _, _body = section.partition("\n")
+        blob = section.lower()
+        if "needs-live-session" in blob or "needs live session" in blob:
+            titles.append(heading.strip())
+    return titles[:5]
 
 
 def fetch_brief(cwd: str) -> dict | None:
@@ -175,10 +200,12 @@ def main() -> None:
         ) if launched else ""
 
     live = pending_live_session_items(cwd)
-    if live:
-        block = "\n".join(
-            ["## Waiting for a live session (machine queue)"] + [f"- {ln}" for ln in live]
-        )
+    clusters = pending_user_queue_clusters(cwd)
+    if live or clusters:
+        block_lines = ["## Waiting for a live session"]
+        block_lines += [f"- machine-queue: {ln}" for ln in live]
+        block_lines += [f"- user-queue: {t}" for t in clusters]
+        block = "\n".join(block_lines)
         ctx = (ctx + "\n\n" + block) if ctx else block
 
     print(json.dumps({

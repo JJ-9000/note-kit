@@ -48,7 +48,10 @@ export default class NoteKitUiPlugin extends Plugin {
 
 		// Turn a new empty main-area tab into the For You page (a Home button).
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", (leaf) => this.maybeReplaceEmpty(leaf))
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				this.maybeReplaceEmpty(leaf);
+				this.dedupeNowView();
+			})
 		);
 
 		// One tab per document: opening a file that is already open in another
@@ -73,6 +76,8 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (this.settings.nowOpenOnStartup && this.app.workspace.getLeavesOfType(NOW_VIEW_TYPE).length === 0) {
 				this.activateNowView();
 			}
+			// Collapse any duplicate For You tabs a restored workspace brought back.
+			this.dedupeNowView();
 			// The left dock defaults to the file explorer — never strand a session
 			// in the tag pane (the explorer is the kit's primary navigation).
 			const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
@@ -116,7 +121,35 @@ export default class NoteKitUiPlugin extends Plugin {
 		if (leaf.view?.getViewType() !== "empty") return;
 		// Main area only — leave empty side-panel leaves alone.
 		if (leaf.getRoot() !== this.app.workspace.rootSplit) return;
+		// One For You at a time: if one is already open, focus it and drop this
+		// empty tab instead of opening a second — the Home button reuses its page.
+		if (this.settings.dedupeTabs) {
+			const existing = this.app.workspace
+				.getLeavesOfType(NOW_VIEW_TYPE)
+				.find((l) => l.getRoot() === this.app.workspace.rootSplit);
+			if (existing) {
+				leaf.detach();
+				this.app.workspace.revealLeaf(existing);
+				this.app.workspace.setActiveLeaf(existing, { focus: true });
+				return;
+			}
+		}
 		void leaf.setViewState({ type: NOW_VIEW_TYPE });
+	}
+
+	/** Keep a single For You tab in the main area — detach any extras (e.g. two
+	 * restored from a saved workspace), keeping the active one. Mirrors dedupeTabs
+	 * for the custom view, which is keyed on view type, not a file path. */
+	private dedupeNowView(): void {
+		if (!this.settings.dedupeTabs) return;
+		const leaves = this.app.workspace
+			.getLeavesOfType(NOW_VIEW_TYPE)
+			.filter((l) => l.getRoot() === this.app.workspace.rootSplit);
+		if (leaves.length <= 1) return;
+		const active = this.app.workspace.activeLeaf;
+		const keep = active && leaves.includes(active) ? active : leaves[0];
+		for (const l of leaves) if (l !== keep) l.detach();
+		this.app.workspace.revealLeaf(keep);
 	}
 
 	async activateNowView(): Promise<void> {

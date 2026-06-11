@@ -297,7 +297,7 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("One tab per document")
-			.setDesc("Opening a file that is already open focuses its existing tab instead of creating a duplicate.")
+			.setDesc("Opening a file that is already open focuses its existing tab instead of creating a duplicate. Also keeps a single For You tab — a new tab focuses the open one rather than spawning a second.")
 			.addToggle((t) =>
 				t.setValue(s.dedupeTabs).onChange(async (v) => {
 					s.dedupeTabs = v;

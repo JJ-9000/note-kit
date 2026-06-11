@@ -498,6 +498,45 @@ def _sync_pipeline_skills(vault_root: Path) -> list[tuple[str, str]]:
     return results
 
 
+def _sync_harness_permissions(vault_root: Path) -> str:
+    """Mirror CONFIG § Harness permissions into settings.local.json (merge).
+
+    Reads the `rule` column of the § Harness permissions table and unions it
+    into permissions.allow — hand-added entries are preserved, never removed.
+    A missing section is reported, not an error (older CONFIG). Returns one of:
+    written | unchanged | section-missing.
+    """
+    import json
+
+    try:
+        rows = _parse_table(_CONFIG_TEXT, "Harness permissions", ["rule"])
+    except Exception:
+        return "section-missing"
+    rules = [r["rule"].strip().strip("`") for r in rows if r["rule"].strip()]
+    if not rules:
+        return "section-missing"
+
+    settings_path = vault_root.resolve() / ".claude" / "settings.local.json"
+    data: dict = {}
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception:
+            return "section-missing"  # never clobber an unparseable file
+    perms = data.setdefault("permissions", {})
+    allow = perms.setdefault("allow", [])
+    before = list(allow)
+    for rule in rules:
+        if rule not in allow:
+            allow.append(rule)
+    if allow == before:
+        return "unchanged"
+    settings_path.write_text(
+        json.dumps(data, indent=2) + "\n", encoding="utf-8"
+    )
+    return "written"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sync the CONFIG.md session-start table into CLAUDE.md and AGENTS.md."
@@ -570,6 +609,11 @@ def main() -> None:
             errors.append(f"pipeline-protocol {name}: {outcome}")
 
     # ------------------------------------------------------------------
+    # § Harness permissions → settings.local.json (merge)
+    # ------------------------------------------------------------------
+    harness_outcome = _sync_harness_permissions(vault_root)
+
+    # ------------------------------------------------------------------
     # Counts
     # ------------------------------------------------------------------
     counts = {
@@ -587,6 +631,7 @@ def main() -> None:
         not claude_changed
         and not agents_changed
         and not pipe_changed
+        and harness_outcome != "written"
         and _last_log_hash() == cfg_hash
     )
 
@@ -608,6 +653,7 @@ def main() -> None:
               f"{counts['agents_rows']} rows in `{_SESSION_ANCHOR}`")
         for name, outcome in pipe_results:
             print(f"  pipeline-protocol -> {name}: {outcome}")
+        print(f"  harness-permissions -> settings.local.json: {harness_outcome}")
         if recovery:
             print(f"  Recovered (appended) sections: {recovery}")
         if errors:

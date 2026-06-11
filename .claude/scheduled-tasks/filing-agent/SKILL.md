@@ -11,7 +11,11 @@ Moves every `reviewed: true` file out of `<inbox>` to the destination its type a
 
 **Earn the run.** If `<inbox>` holds no `reviewed: true` file and no staged asset, append nothing and stop.
 
-`reviewed: true` is necessary but not sufficient: a standing hold, a pending home decision, or a stub-folder removal recorded in `<user-queue>` or this agent's log (`<logs>/filing-agent/filing-agent.md`) overrides the flag — read both before moving anything; an item under a hold stays put. Back every hold with a live `<user-queue>` item or the user's recorded answer in the queue's history; re-raise a deferral that is inferred or recorded only in `<logs>/filing-agent/` as a queue decision this run (CONFIG § Queue protocol, No silent deferral).
+**Infer and file is the default** (CONFIG § Agent responsibilities). Infer past a routine gap, tag `inferred`, make the move; the janitor's daily pass corrects a wrong inference.
+
+A hold exists only when it matches a row in **CONFIG § Holds and approvals**; resolve every potential hold against that table. Do each hold row's completable remainder this run. Execute an approved reorganization this run.
+
+For table-matching holds, read `<user-queue>` and this agent's log (`<logs>/filing-agent/filing-agent.md`) before moving anything; an item under a hold stays put, backed per CONFIG § Queue protocol (No silent deferral).
 
 Scan `<inbox>` recursively for `reviewed: true` files. Skip `<user-queue>` — this agent does not file the queue itself — and **never touch `<outbox>`**; every outbox drop is the action-agent's. Everything `reviewed: false` waits for manual review or for its **gate file** — the human-facing file at the root of an agent-output folder (a synthesis, report, index, or authoritative title at the parent's root).
 
@@ -36,7 +40,7 @@ Resolve each file to one folder, by reference to CONFIG.md, never by a baked-in 
 
 Resolve every subfolder by its type-role through CONFIG § Subfolders. Create a missing destination subfolder under an existing root. If `type` is missing or the destination will not resolve, leave the file in place and raise it for the user. Never stamp a placeholder classification to force a move.
 
-**A `project:` or `parent:` that resolves nowhere** is re-inferred with the same ladder as a missing one: enclosing folder → body wikilinks → vault search → sibling consensus. One confident answer → repoint it, tag `inferred`, file, one log line, **no queue**. Queue only when no existing home fits or two existing homes genuinely compete. Never invent new structure to satisfy a stamp — creating an area or project is always the user's call.
+**A `project:` or `parent:` that resolves nowhere** is re-inferred with the same ladder as a missing one: enclosing folder → body wikilinks → vault search → sibling consensus. One confident answer → repoint it, tag `inferred`, file, one log line, **no queue**. On a `reviewed: true` file whose stamp still resolves nowhere, **create the stamped home** (Create folder, CONFIG § Actions): one project or domain named from the stamp, cover written, `inferred`-tagged, one log line. A `reviewed: false` file waits in the inbox — the user deletes it or the dwell window reports it. Queue only two genuinely competing existing homes.
 
 **Asset folders move whole** (CONFIG § Asset folders, `is_asset_folder`): one opaque object, to a referencing project's asset subfolder (CONFIG § Subfolders), else `<catchall>` — never walked, typed, stamped, scattered, or touched destructively, in the inbox and after filing alike. Mining a folder *into* notes is the deliberate note-kit-processor path, not this default.
 
@@ -58,7 +62,8 @@ Within the moved container, deterministic handling still applies: a `type: log` 
 
 Before moving, confirm the file belongs where it is headed:
 
-1. **Inference holds.** Re-derive the destination from the file's own `type`/`project`/`parent`. If a stamped value points somewhere the content plainly does not match, hold the move and raise it.
+1. **Inference holds.** Re-derive the destination from the file's own `type`/`project`/`parent`. Correct a declared type the body's evidence contradicts at file time: fix the field, tag `inferred`, file to the corrected destination, one log line (CONFIG § Agent responsibilities, Tiered reinforcement). Resolve a genuine toss-up by splitting per CONFIG § Types (user-authored splits; a source stays whole).
+1b. **Destination stays sound.** Filing a plan beside an existing canonical plan applies the one-canonical-plan rule: link it from the canonical plan, merge it, or archive it when its work is done. Fix a duplicate map or second cover at the destination now, or log it for the janitor's next pass.
 2. **Not redundant or contradictory.** `mcp__vault__vault_search` the file's subject scoped to the destination folder; if the tool is unavailable (no daemon or `.mcp.json`), fall back to Glob/Grep over the destination folder for the file's key terms — softer, but it catches a near-duplicate filename or heading. On a high-similarity hit: a near-duplicate or clear supersession is resolved here — move the note over its twin, archiving the existing copy first per CONFIG § Versioning and archiving discipline; a hit asserting the opposite of this file is a real contradiction — hold the move and propose it for the user. Below the threshold, filing proceeds. An update or correction to an existing note is treated as an addendum, and the proposal says so. Check provenance (version, date, explicit deprecation); where appropriate version up the incoming draft, dating and archiving the original.
 
 A flagged file stays in `<inbox>`; the question goes to `<user-queue>`, never only to a chat log this unattended run cannot resume from.
@@ -77,7 +82,7 @@ Create the destination asset subfolder if missing. Never stamp frontmatter on as
 
 For each file that passes the check:
 
-- **Move** it: copy → verify → delete, verification logged, with a settle-window re-scan before any filing batch (CONFIG § Concurrency). An active asset tree is immovable (CONFIG § Asset folders). An identically named file the inbox copy supersedes is archived first per CONFIG § Versioning and archiving discipline.
+- **Move** it: copy → verify → delete, verification logged, with a settle-window re-scan before any filing batch (CONFIG § Concurrency). A live-process tree is immovable (CONFIG § Asset folders). An identically named file the inbox copy supersedes is archived first per CONFIG § Versioning and archiving discipline.
 - **Match the destination's frontmatter rule.** Stamp `status` per CONFIG § Status — it reflects the document's own lifecycle, never the filing event: finished knowledge gets `complete`; a living document keeps its own status. A frontmatter-exempt destination per CONFIG § File handling (a `SKILL.md`, a skill-internal or operational doc, `README.md`) gets the inbox-draft frontmatter stripped on the move, leaving only what it allows: `name`/`description` for a `SKILL.md`, none for the rest. Never let `reviewed`, `status`, `type`, `tags`, or `date` ride into a frontmatter-exempt home.
 - **Index.** An index-bearing destination (a direct child of a root, CONFIG § Types `index`) with no index gets one; register the filed note as a child via the index helper, inserting rather than rewriting, the entry description derived from the note's frontmatter and title, not its prose. An index entry always points at a **filed** home, never an `<inbox>` path; an entry made early is corrected in the pass that files its member (CONFIG § Numbering). Never create an index inside a deeper subfolder or the archive; empty indexes are pruned by `audit`.
 - **Queue.** A real question from the content check (unresolved classification, contradiction) becomes one proposal in `<user-queue>` carrying its decision, in the action-agent's proposal shape; each cluster resolves in a single user response. A deterministic placement, including a resolved duplicate or supersession, is executed and logged, never queued.

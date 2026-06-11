@@ -45,7 +45,7 @@ The vault root itself is the user's draft space (§ File handling); only the fol
 
 ## Types
 
-The `type:` vocabulary. `additional-frontmatter` is the keys required beyond the global `type, tags, date`; `default-home` is where a member files when nothing more specific resolves — read top-down: a parent's matching subfolder, else the type's vault-global catch-all under `<areas>`, else `<catchall>`. A `parent` naming a skill resolves to that skill's project; an untyped or unrecognized file outside the root draft space routes to `<catchall>` with `review-flag`. **A declared type survives routing:** a drop whose title or frontmatter declares its type keeps that type through every downstream skill — classification fills gaps, never overrides a declaration. Each drift-prone type's canonical shape lives in its `Format-<Type>` note (§ Format notes).
+The `type:` vocabulary. `additional-frontmatter` is the keys required beyond the global `type, tags, date`; `default-home` is where a member files when nothing more specific resolves — read top-down: a parent's matching subfolder, else the type's vault-global catch-all under `<areas>`, else `<catchall>`. A `parent` naming a skill resolves to that skill's project; an untyped or unrecognized file outside the root draft space routes to `<catchall>` with `review-flag`. **A declared type survives routing:** a drop whose title or frontmatter declares its type keeps that type through every downstream skill — classification fills gaps, never overrides a declaration. **A mixed-type document splits:** user-authored content that genuinely reads as two types splits into one note per type — content preserved, each piece keeping the original's `reviewed` value plus an `inferred` tag, the original archived; a fragment duplicating canon merges into the canon note. An external artifact stays whole — type it `source` and file it. The filing-agent applies this at file time, the janitor on its daily pass; neither queues it. Each drift-prone type's canonical shape lives in its `Format-<Type>` note (§ Format notes).
 
 | type      | pattern               | additional-frontmatter | default-home                                                                              | description                                                                                                                                                                                                  |
 | --------- | --------------------- | ---------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -154,7 +154,9 @@ A folder classified as an **asset** is an opaque, hands-off unit — a repo, a s
 
 A folder is an asset when **any** trigger below fires. `config_variables` parses this table and exposes `is_asset_folder(path)`; `audit.py` and `build_state_index` prune an asset folder from the walk (one outer record, interior never enumerated); the filing, action, and janitor agents read the same predicate **as the first check, before any inference, stamp, or in-folder action** — a file inside an asset folder is never typed, parented, or normalized — and a destructive op is refused inside one.
 
-**An asset tree in active use is immovable.** A tree referenced by a `status: active` plan, or being written to by a live process, stays where it is until the reference clears — no filing, no relocation, no linting, even when its gate is otherwise approved. This explicitly covers an inbox review or script-writing session that depends on versioned assets mid-flight.
+**A live-process tree is immovable.** A tree a running process is writing into stays where it is until the process ends — no filing, no relocation, no linting.
+
+**A plan gates its linked assets.** The inbox draft gate (`reviewed`) governs notes; an asset's review is its plan's approval. When a plan files — or is already filed — each workspace it names lands whole in the plan's project `02-Assets/`, the plan's path references repaired in the same pass. **The source decides the verb:** a workspace inside `<vault-root>` (the inbox, a root-level folder) **moves** (copy → verify → delete); a workspace outside `<vault-root>` — a repo, a tool directory, any external path — is **copied, never moved or deleted**. The external original stays untouched, and the copy notes its source path and date.
 
 **A loose asset in `<inbox>`** (an image, PDF, binary, or export not already under an asset folder) moves under an `<asset>-`-named parent in `<inbox-assets>`; the filing-agent creates the parent when none exists. Never stamped, never sent to a new top-level folder, never left at the bare inbox root.
 
@@ -252,13 +254,44 @@ The canonical shapes for the structural verbs a producing agent picks. The actio
 
 | action             | shape                                                  | authorized-agents                                                | description                                                           |
 | ------------------ | ------------------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Rename file        | `<file>` → `<new-name>`                                | filing-agent, janitor-agent                                      | rename in place; rename-with-link-integrity updates inbound wikilinks |
+| Rename file        | `<file>` → `<new-name>`                                | filing-agent, janitor-agent, action-agent                        | rename in place; rename-with-link-integrity updates inbound wikilinks |
 | Revise / Edit file | `<file>`: edit body in place                           | filing-agent, janitor-agent, action-agent                        | rewrite the existing file, same path and name; archive-first          |
-| Set frontmatter    | `<file>`: `<field>`: old → new                         | filing-agent, janitor-agent                                      | set or update a frontmatter field                                     |
-| Archive file       | `<file>` → `<archive>/<source-path>/<date>-<filename>` | filing-agent, janitor-agent                                      | copy to archive, confirm, remove source                               |
-| Create folder      | `<projects>/<name>/`                                   | filing-agent, janitor-agent, analyst-agent, skills in `<inbox>/` | create a missing project, area, or subfolder                          |
+| Set frontmatter    | `<file>`: `<field>`: old → new                         | filing-agent, janitor-agent, action-agent                        | set or update a frontmatter field                                     |
+| Archive file       | `<file>` → `<archive>/<source-path>/<date>-<filename>` | filing-agent, janitor-agent, action-agent                        | copy to archive, confirm, remove source                               |
+| Create folder      | `<projects>/<name>/`                                   | filing-agent, janitor-agent, analyst-agent, action-agent, skills in `<inbox>/` | create a missing project, area, or subfolder                          |
 | Relocate file      | `<path-from>` → `<path-to>`                            | filing-agent, analyst-agent, action-agent                        | active-to-active move; archive-first, then rename-with-link-integrity |
 | Create index       | `<parent-folder>/<index>.md`                           | filing-agent, analyst-agent                                      | build an index note linking a folder's members                        |
+
+## Holds and approvals
+
+The one home for what blocks work and what is pre-approved; both tables are **user-editable**. A hold exists only when completion requires something the agent cannot produce; every agent resolves a potential hold against this table. Everything else completes.
+
+| hold | trigger | completable remainder |
+| ---- | ------- | --------------------- |
+| user-presence | the step needs the user's accounts, hardware, or eyes — a login, a purchase, an on-device or on-screen confirmation | do everything up to that step (build, deploy, stage, write the spec); leave one annotated line for the live part only |
+| live-process | a running external process is writing into the target tree (an active sim, a mid-flight run) | act on everything outside the tree; re-check next pass — the hold expires with the process |
+| user-deferral | the user recorded "wait" / "leave it" in the queue or its history | rest until the user changes the answer; the recorded decision is the live item |
+
+**Guardrail floor (not table-editable):** refuse and surface a mass or unbounded destructive operation with no named, fully-specified targets; archive first before every destructive step (§ Versioning and archiving discipline); write only inside the vault and its kit root (§ Operational documents); run outward publication (a repo push, an external send) only on an approved item naming it. Within the floor, a modification the user asked for executes.
+
+**Standing approvals** — recurring classes with consent granted here once. A hold row or a recorded user deferral **outranks** a standing approval; § Asset folders still governs filing — an approval that edits inside an asset tree names its development workspace. When a `needs-live-session` annotation recurs for an unlisted class, the analyst proposes a new row.
+
+| class | pre-approved scope | verification |
+| ----- | ------------------ | ------------ |
+| approved kit fix | an `[x]` queue item naming the kit file and the change — scripts, SKILLs, hooks, CONFIG | archive-first; apply; re-read and diff-verify; one log line |
+| local agent redeploy | copy vault-source `scheduled-tasks/` SKILLs to `<user-home>/.claude/scheduled-tasks/note-kit-*` on an approved item | hash-compare every copied file; pre-redeploy copies archived |
+| note-kit-ui pipeline | edit plugin source in the repo working tree (`02-Areas/Note-Kit/02-Assets/note-kit/plugin/note-kit-ui/src/` — a named development workspace), esbuild, deploy `main.js`+`styles.css` to `.obsidian/plugins/note-kit-ui/`, reload | desktop screenshot via obsidian-cli; only the on-device mobile look stays user-presence |
+| local automation build | build and test headless tooling on this machine (e.g. a hython/headless-Houdini spawner) under a project's `02-Assets/` workspace | the build's own test output; anything needing a licensed GUI app or the user's eyes splits off as user-presence |
+
+## Harness permissions
+
+The harness allowlist is **defined here and mirrored** into `settings.local.json` by `sync_config` (merge; hand-added entries are preserved). Edit this table, then re-run sync.
+
+| rule | reason |
+| ---- | ------ |
+| `Edit(.claude/**)` | approved kit fixes execute unattended (§ Holds and approvals) |
+| `Write(.claude/**)` | same — new helper scripts, logs, generated files |
+| `Bash(python .claude/scripts/*)` | kit scripts (sync, state index, helpers) run on schedule |
 
 ## Rules injection
 
@@ -273,6 +306,8 @@ The canonical shapes for the structural verbs a producing agent picks. The actio
 `<user-queue>` (AI → user) and `<machine-queue>` (user → AI) mirror in structure: each a checkable `.md` one party writes and the other reads. The canonical item shape is `Format-User-Queue` / `Format-Machine-Queue` (templates/format; filed as format notes in the vault), enforced through the action-agent SKILL; only a judgment call reaches `<user-queue>`, never a routine fixable violation a script handles.
 
 - **No checkbox, no item.** Write every `<user-queue>` item as one `###` heading with at least one `- [ ]` option line — the UI surfaces only checkbox decisions. Offer a derivable candidate as its own concrete option first — an unhomed folder proposes `Create project <Folder-Name>` from its own name; when no candidate exists, ask for the missing information *as* the option; for an advisory, use the dismissal option `- [ ] Acknowledged — clear this item`. Binds every queue writer: filing, janitor, analyst, action-agent, and any skill surfacing a clarification.
+- **One ask.** Gather everything execution needs into the proposal — destination, name, scope, each missing value as an option or `REPLACE-WITH-` field. Walk the execution forward before writing the item. The analyst flags a follow-up question on an answered item.
+- **Keep the user's `[x]`.** An approved item the agent cannot complete keeps its check; append one line naming the blocking hold row or missing input, and execute it the pass the blocker clears.
 - **Outcomes go to `<logs>`.** Write results, answers, and FYIs to the producer's log in `<logs>/<agent>/` or an inbox note; the queue holds open decisions only.
 - **Plain language.** A proposal reads in established vocabulary the user can answer without opening other documents — no internal shorthand or codename references.
 - **One item per blocked cluster.** A standing hold produces one queue item; the agents never add a second for the same blocked set. The hold is re-logged only when its state changes.
@@ -292,7 +327,7 @@ Shared mutable surfaces — the inbox, the queues, asset trees — are guarded b
 1. **One mutating agent at a time, vault-wide.** A run takes the lease file `<logs>/run-lease.md` (one line: agent, start time) and releases it at exit; a second mutating agent finding a fresh lease waits for its next cadence. (Replaces the old inbox-only serialization sentence; a stale lease past 2 hours is expired, logged, and taken over.)
 2. **Every move is copy → verify → delete.** The destination copy is confirmed (`cmp`-verified) before the source is removed, and the verification is logged. A relocate that copies without removing creates ghost duplicates that resurrect filed notes.
 3. **Settle window before a filing batch.** If the inbox changes between an agent's scan and its act (the user bulk-reviewing, another process writing), the agent stops, re-scans, and defers the batch to a settled pass rather than racing the mutation.
-4. **Active asset trees are immovable** (§ Asset folders) — a live process writing into a path that just moved loses data to a fragment; the reference clears first, the move happens second.
+4. **Live-process trees are immovable** (§ Asset folders) — a live process writing into a path that just moved loses data to a fragment; the process ends first, the move happens second.
 
 ## Pipeline protocol
 
@@ -318,12 +353,14 @@ Stages run in order, each writing its own file and reading only the prior stage'
 
 The four scheduled agents act at different scopes; each SKILL describes only its own work. Cadence is a deployment setting; the defaults are not canon.
 
+**Tiered reinforcement.** Structural correctness is enforced at four tiers: **smart output** (producers author to the format notes and canonical tables), **smart filing** (the filing-agent corrects evidence-backed defects at file time), **smart cleaning** (the janitor's daily per-file pass), **analyst** (weekly macro view). Every tier applies the same standards at its own scope.
+
 | agent                  | scope                                 | trigger                                    | recommended cadence | does                                                                                                                                                                                                                                    |
 | ---------------------- | ------------------------------------- | ------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| note-kit-janitor-agent | whole vault, per file                 | `audit.py` run log                         | daily               | resolves inference the script could not — parent, project, type, tags. Compliance and hygiene only. Flags a stale `reviewed: true` note whose plan or spec changed underneath it.                                                       |
-| note-kit-filing-agent  | inbox file vs. its destination        | `reviewed: true` inbox files               | daily               | moves approved `reviewed: true` inbox files to their homes and stages orphaned assets found in the inbox; first checks the janitor's inference held and the content is not redundant with destination peers. **Never touches the outbox.**                |
+| note-kit-janitor-agent | whole vault, per file                 | `audit.py` run log                         | daily               | resolves inference the script could not — parent, project, type, tags — and **owns structural cleanup**: corrects an evidence-backed wrong declared type, merges a duplicate or foreign map into the canon index, and enforces **one canonical plan per scope** (link, merge, or archive the rest). Backstops filing-agent inference. Flags a stale `reviewed: true` note whose plan or spec changed underneath it. |
+| note-kit-filing-agent  | inbox file vs. its destination        | `reviewed: true` inbox files               | daily               | moves approved `reviewed: true` inbox files to their homes and stages orphaned inbox assets; **infers past gaps and files** — the janitor corrects a wrong inference (`inferred` tags mark it); a hold matches a § Holds and approvals row and carries a live `<user-queue>` item. **Never touches the outbox.** |
 | note-kit-analyst-agent | whole vault, macro                    | accumulated logs + state index          | weekly              | statistical view over the logs and the state index: suggests splits, consolidation, indexes, and canonical renames; flags recurring prompt-correction patterns; flips a 30-day-idle project to `status: open`; reports drafts past the dwell window as one digest line; stewards the built-in memory under the user gate. |
-| note-kit-action-agent  | both queues and all of `<outbox>`     | pending approved work                      | hourly              | executes approved `<user-queue>` items; acts on the `<machine-queue>` checklist; **owns every `<outbox>` drop** — routes a skill instruction to its skill, a content drop onward, and surfaces an un-actionable drop to `<user-queue>`; re-invokes a skill whose queued clarifications the user answered.            |
+| note-kit-action-agent  | both queues and all of `<outbox>`     | pending approved work                      | hourly              | executes approved `<user-queue>` items the pass it finds them, **filing-shaped moves included**; raises a needed back-and-forth as one `<user-queue>` decision the same pass; acts on the `<machine-queue>` checklist; **owns every `<outbox>` drop** — routes a skill instruction to its skill, a content drop onward, and surfaces an un-actionable drop to `<user-queue>`; re-invokes a skill whose queued clarifications the user answered. |
 
 Scheduled agents run from `<user-home>/.claude/scheduled-tasks/note-kit-*` via the Claude Code **Desktop app**; a terminal-only install runs the same SKILL bodies as cloud routines (`/schedule`) instead.
 
@@ -341,11 +378,11 @@ Importing cold material (`<history>`, an old vault) back into active use is a ga
 
 ## Self-modification
 
-How an **approved** change to the kit's own files lands. The two artifact kinds install differently, so "the edit landed" means different things:
+How an **approved** change to the kit's own files lands. **The user's `[x]` on a queue item naming the file and the change is the supervision** — the action-agent executes it unattended per § Holds and approvals (archive-first, apply, diff-verify, log). An agent's own idea for a kit change queues first. The two artifact kinds install differently:
 
-- **Skills** (`<skills>/note-kit-*/SKILL.md`) are auto-discovered as project skills in vault sessions — a vault-source edit is **live for vault work immediately**, no install step. On user approval, the action-agent may edit the vault-source skill autonomously (reversible, archive-first). The `<user-home>/.claude/skills/` copy matters only for use outside this vault; it updates on redeploy.
-- **Scheduled agents** run **only** from the deployed `<user-home>/.claude/scheduled-tasks/note-kit-*` copies — a vault-source edit is the source of record but changes nothing until redeployed. The action-agent edits the vault source on approval and **escalates the deployed copy to `<user-queue>`**; it never overwrites a running agent's deployed SKILL unattended.
-- A redeploy of the whole kit is gated by the driving plan: **no store-back or redeploy while the plan holds open, non-deferred checkboxes**, and a checkbox flips only on an independent read of the artifact — never on a producer's claim. Deploys run in a supervised session.
+- **Skills** (`<skills>/note-kit-*/SKILL.md`) are auto-discovered as project skills in vault sessions — a vault-source edit is **live for vault work immediately**, no install step. The `<user-home>/.claude/skills/` copy matters only for use outside this vault; it updates on redeploy.
+- **Scheduled agents** run **only** from the deployed `<user-home>/.claude/scheduled-tasks/note-kit-*` copies — a vault-source edit is the source of record but changes nothing until redeployed. On an approved item, edit the vault source and run the local redeploy (hash-verified, § Holds and approvals) in the same pass; verify against the deployed file ([[Deployed-Is-Not-Loaded]]).
+- **Outward publication:** run a store-back to the publication repo or a git push only on an approved item naming it, git author checked first. A whole-kit release waits while the driving plan holds open, non-deferred checkboxes; flip a checkbox only on an independent read of the artifact.
 
 ## Format notes
 
@@ -362,7 +399,7 @@ A new script registers its trigger here in the same change.
 | script | trigger |
 |---|---|
 | `config_variables.py` | imported by every kit script at startup |
-| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables and stamps the § Pipeline protocol block into the pipeline skills |
+| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables, stamps the § Pipeline protocol block into the pipeline skills, and mirrors § Harness permissions into `settings.local.json` (merge, hand-added entries preserved) |
 | `build_state_index.py` | start of each janitor-agent run (apply mode — a detect-only audit refreshes nothing); consumed again by analyst-agent. Records a per-file body content hash in the snapshot; `reviewed-stale` fires only on a recorded content change newer than the review, with bulk-touch (≥10 shared mtimes) and reciprocal-pair findings suppressed; counts archived members for lifecycle types so a healthy lifecycle never reads `type-unused` |
 | `audit.py` (at `<kit-root>/scheduled-tasks/janitor-agent/`) | each janitor-agent run; detect-only by default, writes only with `--apply`; invokes normalize_type, normalize_tag, rename_with_link_integrity, and subfolder_housekeeping inline; reverts an off-canon kit folder name; resolves missing dates deterministically (archive provenance → session date → import date, tagged `inferred`); flags a duplicate canonical plan per scope (`duplicate-canonical-plan`); validates hook registrations in `settings.json`/`settings.local.json` — a malformed matcher group is silently ignored by the runner, so a dead or script-less registration is flagged (`dead-hook-registration`, `missing-hook-script`, `hooks-settings-unparseable`); never walks the vault root's loose files or an asset folder's interior |
 | `subfolder_housekeeping.py` | inline by audit.py each janitor run; prunes empty subfolders and empty indexes (deterministic) |

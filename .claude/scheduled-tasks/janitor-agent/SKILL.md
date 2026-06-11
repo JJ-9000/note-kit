@@ -1,6 +1,6 @@
 ---
 name: note-kit-janitor-agent
-description: Resolves the frontmatter inference the audit script deferred (type, parent, project, tags), completes it in place, flags a stale reviewed note, and queues only the calls that are the user's to make.
+description: Resolves the frontmatter inference the audit script deferred (type, parent, project, tags), owns structural cleanup — wrong declared types, duplicate maps and indexes, plan consolidation — completes it in place, flags a stale reviewed note, and queues only the calls that are the user's to make.
 ---
 
 # note-kit-janitor-agent
@@ -58,6 +58,12 @@ Each rung is a structured lookup against the canonical tables and the existing v
 **Stale reviewed note.** Resolve a `reviewed-stale` row by reading the note against the plan or spec it links. If the upstream change actually invalidates the reviewed content, add `review-flag` so the note returns to the user's gate, and append the decision to the log. If not, leave it and log why.
 
 **Version confidence.** When a parent folder holds several files of the same type where one should be canonical or active (`v001` vs `v002`, plans of conflicting prominence), check them against each other and recent sessions to enforce the current canon. Move stray versions to the parent folder's `<archive>/` subfolder, creating one if missing.
+
+**Structural cleanup** (CONFIG § Agent responsibilities):
+
+- **Wrong declared type.** Correct a declared type the body's evidence contradicts (a dated work log typed `project`, a checklist typed `reference`): fix in place, tag `inferred`, one log line. No-re-litigation protects tagged values, not contradicted declarations. Resolve a genuine toss-up by splitting per CONFIG § Types (user-authored splits; a source stays whole).
+- **Duplicate or foreign maps.** Merge a second cover, a `moc`, or any foreign-type map into the canon index: fold in entries pointing at live content, repair inbound wikilinks, archive the foreign note (CONFIG § Versioning and archiving discipline).
+- **One canonical plan per scope.** Where a plans subfolder holds more than one plan, or `duplicate-canonical-plan` fires: keep one canonical plan; link, merge, or archive the rest. Archive a finished plan whose outcome the canonical plan or a filed session records; link a still-active sub-plan from the canonical plan with one line on what it covers. This edit is plan maintenance — `reviewed` is untouched.
 
 ## 3 — Output
 

@@ -16,6 +16,7 @@ Persistent local MCP server that indexes the Obsidian vault and exposes 13 MCP t
 | `requirements.txt` | Pinned Python deps (FastMCP 3.2, sqlite-vec 0.1.9, sentence-transformers 5+). |
 | `install_daemon.py` | One-command installer (stdlib only): creates the venv, installs deps, writes config. Does NOT start the server. |
 | `install-service.ps1` | NSSM service install for Windows (idempotent; needs admin). Run `install_daemon.py` first. |
+| `install-autostart.ps1` | Logon-task install for Windows via Task Scheduler (idempotent; no admin). Run `install_daemon.py` first. |
 | `test-restart.ps1` | Verifies NSSM auto-restart on kill. |
 | `.venv/` | Virtualenv created by `install_daemon.py` (not committed). |
 | `data/` | Runtime data — index db + logs — created by `install_daemon.py` (not committed). |
@@ -62,7 +63,35 @@ and the launch target is always `server.py` in that same folder.
 
 ### Windows
 
-Use the included NSSM installer for service-style management:
+Two installers ship; both auto-locate the daemon from their own folder. Pick one:
+
+| | `install-autostart.ps1` (Task Scheduler) | `install-service.ps1` (NSSM) |
+|---|---|---|
+| Admin required | no | yes |
+| External dependency | none | NSSM at `C:\Tools\nssm\nssm.exe` |
+| Crash restart | no — relaunches at next logon | yes (5s `AppRestartDelay`) |
+| Runs while logged out | no | yes |
+
+**Task Scheduler (default — no admin):**
+
+```powershell
+# Install (one-time). Run install_daemon.py first.
+.\install-autostart.ps1
+
+# Verify
+Get-ScheduledTask note-kit-vault-search
+.\.venv\Scripts\python.exe daemonctl.py status
+
+# Remove
+.\install-autostart.ps1 -Uninstall
+```
+
+The logon task runs `daemonctl.py start` under `pythonw.exe` (no console
+window); `daemonctl` exits once the server is detached and healthy, so the
+task itself is short-lived. Between logons, manage the daemon with
+`daemonctl.py start|stop|restart|status`.
+
+**NSSM service (admin — adds crash-restart supervision):**
 
 ```powershell
 # Install (admin required, one-time). Run install_daemon.py first.
@@ -76,10 +105,9 @@ C:\Tools\nssm\nssm.exe start vault-search
 C:\Tools\nssm\nssm.exe stop vault-search
 ```
 
-`install-service.ps1` auto-locates the daemon from its own folder and points the
-service at `.venv\Scripts\python.exe server.py`. Or use Task Scheduler: run
-`<vault>\.claude\vault-search\.venv\Scripts\python.exe <vault>\.claude\vault-search\server.py`
-triggered at logon.
+`install-service.ps1` points the service at `.venv\Scripts\python.exe server.py`.
+Install only one of the two — a service and a logon task racing for port 8765
+leaves the loser exiting with a bind error at every boot.
 
 ### macOS
 

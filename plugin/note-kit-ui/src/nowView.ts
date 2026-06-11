@@ -251,18 +251,19 @@ export class NowView extends ItemView {
 		// filing is done, so it drops out of the bubble (a section of only approved
 		// gates reads 0).
 		const needsUser = entries.filter((e) => !e.awaitingFiling).length;
-		const head = this.bucketHead(b, id, label, color, needsUser, defaultOpen);
-		// A draft section gets a per-section "approve all" — one armed-then-commit
-		// control that stamps reviewed: true on every draft row here (a folded set's
-		// gate included, which cascades to its peers via group approval). Drafts
-		// only: an awaiting-filing gate is already approved and is left alone.
-		if (approvable) {
-			const drafts = entries.filter((e) => e.draft);
-			if (drafts.length) this.addApproveAll(head, drafts);
-		}
+		this.bucketHead(b, id, label, color, needsUser, defaultOpen);
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
+		// A draft section gets a per-section "approve all" — an armed-then-commit
+		// control that stamps reviewed: true on every draft row here (a folded set's
+		// gate included, cascading to its peers via group approval). It sits at the
+		// top-right of the expanded list, out of the header's tap zone. Drafts only:
+		// an awaiting-filing gate is already approved and is left alone.
+		if (approvable) {
+			const drafts = entries.filter((e) => e.draft);
+			if (drafts.length) this.addApproveAll(list, drafts);
+		}
 		// Keep container members adjacent under one quiet caption: emit in input
 		// order, starting a caption whenever the container changes. Gate-first
 		// inside each container, so the document to read leads its peers.
@@ -623,15 +624,16 @@ export class NowView extends ItemView {
 	}
 
 	/**
-	 * Per-section "approve all": a quiet right-aligned button in the section head
+	 * Per-section "approve all": a quiet right-aligned button atop the expanded list
 	 * that stamps reviewed: true on every draft in the section. Two-step — the
 	 * first tap arms it ("approve N?") and a second within 3.5s commits, so one
 	 * mis-tap can't clear a whole section; the armed state lapses on its own.
 	 * Always visible (never hover-gated) so it works under touch. setAttr clicks
 	 * stop propagation so the surrounding fold header doesn't toggle.
 	 */
-	private addApproveAll(head: HTMLElement, drafts: Entry[]): void {
-		const btn = head.createEl("button", { cls: "nkui-now-approveall", text: "approve all" });
+	private addApproveAll(parent: HTMLElement, drafts: Entry[]): void {
+		const strip = parent.createDiv("nkui-now-approveall-strip");
+		const btn = strip.createEl("button", { cls: "nkui-now-approveall", text: "approve all" });
 		const noun = drafts.length === 1 ? "draft" : "drafts";
 		btn.setAttr("aria-label", `Mark all ${drafts.length} ${noun} in this section reviewed`);
 		btn.setAttr("title", btn.getAttr("aria-label") ?? "");
@@ -1158,7 +1160,10 @@ export class NowView extends ItemView {
 					d.entry.container = cname;
 					needs.push(d.entry);
 				}
-				if (gate) gate.isGate = true;
+				// Only badge a gate that actually gates something — a working set with
+			// peers/nested members. A lone file in a container has no tag-alongs, so
+			// it needs no gate tag; it renders as a plain row.
+			if (gate && ds.length > 1) gate.isGate = true;
 				continue;
 			}
 			// nested working tree — collapse to one head row, fold the rest. The
@@ -1167,7 +1172,10 @@ export class NowView extends ItemView {
 			ds.sort((a, b) => a.depth - b.depth || a.entry.file.path.localeCompare(b.entry.file.path));
 			const head = gate ?? ds[0].entry;
 			head.container = cname;
-			if (gate) gate.isGate = true;
+			// Only badge a gate that actually gates something — a working set with
+			// peers/nested members. A lone file in a container has no tag-alongs, so
+			// it needs no gate tag; it renders as a plain row.
+			if (gate && ds.length > 1) gate.isGate = true;
 			if (ds.length > 1) head.setCount = ds.length - 1;
 			needs.push(head);
 		}
@@ -1369,10 +1377,10 @@ function formatToday(): string {
 }
 
 /** Secondary title line — a quiet status summary. */
-function summary(waiting: number, active: number, decide: number): string {
+function summary(review: number, active: number, decide: number): string {
 	const parts: string[] = [];
 	if (decide > 0) parts.push(`${decide} to decide`);
-	if (waiting > 0) parts.push(`${waiting} waiting`);
+	if (review > 0) parts.push(`${review} to review`);
 	if (active > 0) parts.push(`${active} active`);
 	return parts.length ? parts.join("  ·  ") : "All clear";
 }

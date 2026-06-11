@@ -151,37 +151,37 @@
 /* Selectors carry the .nkui-now-group-head parent to outrank Obsidian's default
    `button` styling (a `.theme-dark button` chip background would otherwise bleed
    through `background: transparent`). */
-.nkui-now-group-head .nkui-now-approveall {
-	margin-left: auto;
+/* "Approve all" sits in a right-aligned strip at the TOP of the expanded list —
+   away from the fold-toggle header and from the left edge where rows are scrolled
+   and tapped, so it can't be pressed by accident. It hides with the list when the
+   section collapses (the foldwrap handles that). Readable at rest (text-muted,
+   full opacity), not the old near-invisible faint. */
+.nkui-now-approveall-strip {
+	display: flex;
+	justify-content: flex-end;
+	padding: 0.1em 0.5em 0.25em;
+}
+.nkui-now-approveall {
 	flex: 0 0 auto;
-	padding: 0 0.3em;
+	padding: 0.1em 0.5em;
 	border: none;
 	border-radius: var(--radius-s, 6px);
 	background: transparent;
 	box-shadow: none;
-	color: var(--text-faint);
+	color: var(--text-muted);
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-normal, 400);
 	line-height: 1.4;
-	opacity: 0.7;
 	cursor: pointer;
-	transition: color 120ms ease, opacity 120ms ease;
+	transition: color 120ms ease, background 120ms ease;
 }
-.nkui-now-group-head .nkui-now-approveall:hover {
-	color: var(--text-muted);
-	background: transparent;
-	opacity: 1;
+.nkui-now-approveall:hover {
+	color: var(--text-normal);
+	background: var(--nkui-hover);
 }
-.nkui-now-group-head .nkui-now-approveall.is-armed {
+.nkui-now-approveall.is-armed {
 	color: var(--interactive-accent);
-	background: transparent;
 	font-weight: var(--font-semibold, 600);
-	opacity: 1;
-}
-/* Only while the section is open — a collapsed section shows just its count and
-   title, never the approve-all (it appears when you unfold the section). */
-.nkui-now-group.is-collapsed .nkui-now-approveall {
-	display: none;
 }
 
 /* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr */
@@ -343,7 +343,7 @@
 	padding-left: 1.55em;
 	margin-top: var(--nkui-gap-2xs);
 	font-size: var(--font-ui-smaller, 11px);
-	color: var(--text-faint);
+	color: var(--text-muted);
 }
 .nkui-now-row-contained {
 	padding-left: 2.4em !important;
@@ -909,7 +909,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 .nkui-now-fatenote {
 	font-size: var(--font-ui-smaller, 11px);
 	font-style: italic;
-	color: var(--text-faint);
+	color: var(--text-muted);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -921,29 +921,27 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	color: var(--text-muted);
 }
 
-/* ── Configured queue surfaces (Decide / Queue) — marked as live interaction
-   surfaces with a quiet left accent; they already render at the top. An empty
-   queue still recedes via .nkui-now-group-empty. ────────────────────────────── */
-.nkui-now-group-queue > .nkui-now-group-head {
-	box-shadow: inset 2px 0 0 0 var(--interactive-accent);
-}
+/* ── Emphasis is COLOUR ONLY — no accent bars. A section's title takes a colour
+   when it warrants attention, so you can see what's open / what's live; nothing
+   needs a left rule.
+
+   Configured queue surfaces (Decide / Queue) colour their title only while they
+   hold actionable content (an open decision or task); empty, they recede via
+   .nkui-now-group-empty (smaller, lighter). They already render at the top. ──── */
 .nkui-now-group-queue:not(.nkui-now-group-empty) > .nkui-now-group-head .nkui-now-group-title {
 	color: var(--text-accent, var(--interactive-accent));
 }
 
-/* ── Open-section emphasis — an unfolded, non-empty section takes its section
-   colour (the pill colour, or the theme heading colour when the theme palette is
-   on; set inline as --nkui-section-color). Collapsed sections stay neutral, so
-   unfolding is visible feedback. Queue surfaces keep their own accent. ───────── */
-.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head {
-	box-shadow: inset 2px 0 0 0 var(--nkui-section-color, transparent);
-}
+/* ── Open-section emphasis — an unfolded, non-empty section colours its title
+   with its section colour (the pill colour, or the theme heading colour when the
+   theme palette is on; set inline as --nkui-section-color). Collapsed stays
+   neutral, so unfolding is visible feedback. Queue surfaces keep their own. ──── */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head .nkui-now-group-title {
 	color: var(--nkui-section-color, var(--text-normal));
 }
 
-/* ── File explorer: queue files float to the top of their folder and wear the
-   same interaction accent as their For You buckets. ─────────────────────────── */
+/* ── File explorer: queue files float to the top of their folder; coloured (not
+   barred) so they read as interaction surfaces. ─────────────────────────────── */
 .nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]) {
 	display: flex;
 	flex-direction: column;
@@ -951,21 +949,14 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 .tree-item:has(> .nav-file-title[data-nkui-queue]) {
 	order: -1;
 }
-.nav-file-title[data-nkui-queue] {
-	box-shadow: inset 2px 0 0 0 var(--interactive-accent);
-}
 .nav-file-title[data-nkui-queue] .nav-file-title-content {
-	font-weight: var(--font-semibold, 600);
 	color: var(--text-accent, var(--interactive-accent));
 }
 
-/* ── File explorer: an open (expanded) folder gets a quiet accent so the active
-   branch stands out from its collapsed siblings (the explorer's "dropdowns"). ── */
-.nav-folder:not(.is-collapsed):not(.mod-root) > .nav-folder-title {
-	box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--interactive-accent) 55%, transparent);
-}
+/* ── File explorer: an open (expanded) folder colours its title so you can see
+   the active branch — colour, not a bar. ────────────────────────────────────── */
 .nav-folder:not(.is-collapsed):not(.mod-root) > .nav-folder-title .nav-folder-title-content {
-	color: var(--text-normal);
+	color: var(--text-accent);
 }
 
 /* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */

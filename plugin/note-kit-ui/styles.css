@@ -22,13 +22,40 @@
 	background: var(--nkui-type-color, var(--text-faint));
 	align-self: center;
 }
-/* (c) the file's name carries its type colour too, so a row reads as its type at
-   a glance — not only the dot — and the open note's inline title matches. */
+/* (c) Type TINT — a row's name, and a note's title / headings / frontmatter,
+   carry a HINT of their type colour mixed into the normal text colour (not the
+   full saturated hue), so the type reads at a glance without shouting. Only typed
+   notes get it: a file with no type (or an asset, which has no frontmatter) has no
+   --nkui-type-color, so the color-mix is invalid and the text keeps its default. */
 .nav-file-title[data-nkui-type] .nav-file-title-content {
-	color: var(--nkui-type-color);
+	color: color-mix(in srgb, var(--nkui-type-color) 38%, var(--text-normal));
 }
-.workspace-leaf-content[class*="nkui-type-"] .inline-title {
-	color: var(--nkui-type-color);
+/* Title + body headings, tinted for emphasis — larger headings take more of the
+   type colour. Covers reading view and live preview (CodeMirror headers). */
+.workspace-leaf-content[class*="nkui-type-"] .inline-title,
+.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h1,
+.workspace-leaf-content[class*="nkui-type-"] .cm-header-1 {
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
+}
+.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h2,
+.workspace-leaf-content[class*="nkui-type-"] .cm-header-2 {
+	color: color-mix(in srgb, var(--nkui-type-color) 46%, var(--text-normal));
+}
+.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h3,
+.workspace-leaf-content[class*="nkui-type-"] .cm-header-3 {
+	color: color-mix(in srgb, var(--nkui-type-color) 40%, var(--text-normal));
+}
+.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(h4, h5, h6),
+.workspace-leaf-content[class*="nkui-type-"] :is(.cm-header-4, .cm-header-5, .cm-header-6) {
+	color: color-mix(in srgb, var(--nkui-type-color) 32%, var(--text-normal));
+}
+/* Frontmatter: a faint type wash on the properties block, with tinted keys. */
+.workspace-leaf-content[class*="nkui-type-"] .metadata-properties {
+	background: color-mix(in srgb, var(--nkui-type-color) 8%, transparent);
+	border-radius: var(--radius-s, 6px);
+}
+.workspace-leaf-content[class*="nkui-type-"] .metadata-property-key {
+	color: color-mix(in srgb, var(--nkui-type-color) 45%, var(--text-muted));
 }
 
 /* ── (c) accent the open note by type ──────────────────────────────────────── */

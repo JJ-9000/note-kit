@@ -89,30 +89,28 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	],
 
 	typeField: "type",
-	// Vibrant neon palette tuned for a near-black background. Hue follows the
-	// semantic role (palette.ts ROLES): primary content types get a saturated full
-	// hue, their satellites the same family lightened, operational types a deep
-	// muted indigo (chrome, not content) so the bright primaries read brighter
-	// still. Used when Theme palette is off.
+	// Curated per-type palette tuned for a near-black background (applies when
+	// Theme palette is off). One hue per type; soft/operational types use lighter
+	// or greyer variants so the primary content types read brightest.
 	typeStyles: [
-		{ type: "project", color: "#ff2a55" }, // red
-		{ type: "area", color: "#ff7e33" }, // orange
-		{ type: "reference", color: "#00ff66" }, // green
-		{ type: "research", color: "#3b82f6" }, // blue
-		{ type: "plan", color: "#a855f7" }, // purple
-		{ type: "session", color: "#4d61ec" }, // indigo — operational
-		{ type: "journal", color: "#ff2ea6" }, // pink
-		{ type: "idea", color: "#ffd700" }, // yellow
-		{ type: "snippet", color: "#00f0ff" }, // cyan
-		{ type: "source", color: "#5c6bc0" }, // indigo — operational, light
-		{ type: "index", color: "#fff066" }, // yellow — soft (satellite of idea)
-		{ type: "note", color: "#3b4261" }, // indigo — operational, dark
-		{ type: "voice", color: "#ff73ca" }, // pink — soft (satellite of journal)
-		{ type: "design", color: "#bf80ff" }, // purple — soft (satellite of plan)
-		{ type: "format", color: "#66e3ff" }, // cyan — soft (satellite of snippet)
-		{ type: "addendum", color: "#ff9955" }, // orange — soft (satellite of area)
-		{ type: "log", color: "#282c42" }, // indigo — operational, faint
-		{ type: "revision", color: "#709eff" }, // blue — soft (satellite of research)
+		{ type: "project", color: "#e42148" },
+		{ type: "area", color: "#ff5e00" },
+		{ type: "reference", color: "#00b347" },
+		{ type: "research", color: "#3b82f6" },
+		{ type: "plan", color: "#a855f7" },
+		{ type: "session", color: "#4d61ec" },
+		{ type: "journal", color: "#f03da2" },
+		{ type: "idea", color: "#f0dc00" },
+		{ type: "snippet", color: "#00b9d1" },
+		{ type: "source", color: "#5c6bc0" },
+		{ type: "index", color: "#ffffff" },
+		{ type: "note", color: "#9aa1c1" },
+		{ type: "voice", color: "#ca76db" },
+		{ type: "design", color: "#bf80ff" },
+		{ type: "format", color: "#e6b8ff" },
+		{ type: "addendum", color: "#ffc894" },
+		{ type: "log", color: "#454545" },
+		{ type: "revision", color: "#ab6969" },
 	],
 	applyTypeBodyClass: true,
 	themePalette: true,

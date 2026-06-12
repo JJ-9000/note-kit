@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf } from "obsidian";
+import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { DEFAULT_SETTINGS, NoteKitUiSettings, NoteKitUiSettingTab, TypeStyle } from "./settings";
 import { buildDynamicCss } from "./css";
 import { ExplorerDecorator } from "./decorator";
@@ -17,6 +17,10 @@ export default class NoteKitUiPlugin extends Plugin {
 	private styleEl!: HTMLStyleElement;
 	private decorator!: ExplorerDecorator;
 	private noteClass!: NoteClassApplier;
+	/** True once the initial layout has settled — guards new-tab note creation from
+	 * firing during startup. */
+	private layoutReady = false;
+	private creatingNote = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -65,6 +69,15 @@ export default class NoteKitUiPlugin extends Plugin {
 		// colors actually moved.
 		this.registerEvent(this.app.workspace.on("css-change", () => this.onCssChange()));
 
+		// Fold children with parent: when a folder is collapsed by a click, collapse
+		// its descendant folders too, so re-opening it shows them folded.
+		this.registerDomEvent(document, "click", (ev) => {
+			if (!this.settings.foldChildrenWithParent) return;
+			const title = (ev.target as HTMLElement | null)?.closest?.(".nav-folder-title") as HTMLElement | null;
+			const path = title?.getAttribute("data-path");
+			if (path) window.setTimeout(() => this.foldDescendants(path), 0);
+		});
+
 		this.app.workspace.onLayoutReady(() => {
 			// Theme CSS is reliably in by now — derive (or re-derive) and paint.
 			this.onCssChange();
@@ -82,6 +95,12 @@ export default class NoteKitUiPlugin extends Plugin {
 			// in the tag pane (the explorer is the kit's primary navigation).
 			const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
 			if (explorer) this.app.workspace.revealLeaf(explorer);
+
+			// Let startup settle before new-tab-creates-note arms, so the initial
+			// empty leaf doesn't spawn a stray untitled note.
+			window.setTimeout(() => {
+				this.layoutReady = true;
+			}, 1000);
 		});
 	}
 
@@ -119,10 +138,16 @@ export default class NoteKitUiPlugin extends Plugin {
 	}
 
 	private maybeReplaceEmpty(leaf: WorkspaceLeaf | null): void {
-		if (!this.settings.nowReplaceNewTab || !leaf) return;
+		if (!leaf) return;
 		if (leaf.view?.getViewType() !== "empty") return;
 		// Main area only — leave empty side-panel leaves alone.
 		if (leaf.getRoot() !== this.app.workspace.rootSplit) return;
+		// New tab creates a note (takes precedence over For You).
+		if (this.settings.newTabCreatesNote) {
+			void this.fillEmptyWithNote(leaf);
+			return;
+		}
+		if (!this.settings.nowReplaceNewTab) return;
 		// One For You at a time: if one is already open, focus it and drop this
 		// empty tab instead of opening a second — the Home button reuses its page.
 		if (this.settings.dedupeTabs) {
@@ -137,6 +162,46 @@ export default class NoteKitUiPlugin extends Plugin {
 			}
 		}
 		void leaf.setViewState({ type: NOW_VIEW_TYPE });
+	}
+
+	/** Turn a new empty tab into a fresh untitled note at the vault root. Guarded so
+	 * it never fires during startup (layoutReady) or re-enters mid-create. */
+	private async fillEmptyWithNote(leaf: WorkspaceLeaf): Promise<void> {
+		if (!this.layoutReady || this.creatingNote) return;
+		this.creatingNote = true;
+		try {
+			const fm = this.app.fileManager as unknown as {
+				createNewMarkdownFile: (folder: unknown, name: string) => Promise<TFile>;
+			};
+			const file = await fm.createNewMarkdownFile(this.app.vault.getRoot(), "Untitled");
+			await leaf.openFile(file);
+		} catch {
+			/* leave the tab empty on failure */
+		} finally {
+			this.creatingNote = false;
+		}
+	}
+
+	/** Collapse every descendant folder of a folder that was just collapsed (using
+	 * the file-explorer's fileItems map). No-op when the click expanded it. */
+	private foldDescendants(path: string): void {
+		const view = this.app.workspace.getLeavesOfType("file-explorer")[0]?.view as unknown as {
+			fileItems?: Record<
+				string,
+				{ collapsed?: boolean; collapsible?: boolean; setCollapsed?: (c: boolean) => void }
+			>;
+		};
+		const items = view?.fileItems;
+		if (!items) return;
+		const self = items[path];
+		if (!self || !self.collapsed) return; // only when the click just collapsed it
+		for (const p of Object.keys(items)) {
+			if (p === path || !p.startsWith(path + "/")) continue;
+			const it = items[p];
+			if (it?.collapsible && !it.collapsed && typeof it.setCollapsed === "function") {
+				it.setCollapsed(true);
+			}
+		}
 	}
 
 	/** Keep a single For You tab in the main area — detach any extras (e.g. two

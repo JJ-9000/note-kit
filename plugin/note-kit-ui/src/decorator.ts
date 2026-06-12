@@ -267,6 +267,21 @@ export class ExplorerDecorator {
 			const wrapper = el.closest<HTMLElement>(".nav-folder");
 			const sinkHit = matched && this.sinkSet.has(matched) ? matched : null;
 			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", sinkHit);
+
+			// NN-<Type> folder colouring: a numeric-prefixed folder whose de-prefixed
+			// name is a note type (Projects→project, References→reference, …) is tinted
+			// by that type — brighter than the files inside (stylesheet). Singularise
+			// the plural folder name to match the singular type.
+			const fm = name.match(/^\d{2,}[ _-]+(.+)$/);
+			const bare = fm ? fm[1].toLowerCase() : "";
+			const singular = bare.endsWith("s") ? bare.slice(0, -1) : bare;
+			const ftype = this.typeColors.has(bare) ? bare : this.typeColors.has(singular) ? singular : null;
+			this.setAttr(el, "data-nkui-folder-type", ftype);
+			const fcolor = ftype
+				? this.plugin.typeStyles().find((t) => t.type === ftype)?.color ?? null
+				: null;
+			if (fcolor) el.style.setProperty("--nkui-folder-color", fcolor);
+			else el.style.removeProperty("--nkui-folder-color");
 		}
 
 		// (c) type + (d) reviewed + (e) queue surface — files only
@@ -421,6 +436,10 @@ export class ExplorerDecorator {
 			c.querySelectorAll<HTMLElement>(".nav-folder[data-nkui-sink]").forEach((el) =>
 				el.removeAttribute("data-nkui-sink")
 			);
+			c.querySelectorAll<HTMLElement>(".nav-folder-title[data-nkui-folder-type]").forEach((el) => {
+				el.removeAttribute("data-nkui-folder-type");
+				el.style.removeProperty("--nkui-folder-color");
+			});
 			c.querySelectorAll<HTMLElement>(".nkui-inbox-count").forEach((b) => b.remove());
 		}
 	}

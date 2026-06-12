@@ -30,6 +30,7 @@ export interface NoteKitUiSettings {
 	enableTypeStyling: boolean; // c
 	enableReviewFlags: boolean; // d
 	hideFolderArrows: boolean; // explorer minimalism — hide collapse chevrons
+	foldChildrenWithParent: boolean; // collapsing a folder also collapses its subfolders
 	minimalChrome: boolean; // quieten Obsidian's tab bar + nav toolbar (main area only)
 	calmReading: boolean; // reading-mode overrides to reduce note noise
 	dedupeTabs: boolean; // one tab per document — focus the existing tab instead of opening twins
@@ -60,6 +61,7 @@ export interface NoteKitUiSettings {
 	// "Now" view
 	nowOpenOnStartup: boolean;
 	nowReplaceNewTab: boolean; // a new empty tab opens For You instead of the blank screen
+	newTabCreatesNote: boolean; // a new empty tab becomes an untitled note at the vault root (overrides For You)
 	nowRecentCount: number;
 	nowActiveTypes: string[];
 	nowQueueFolders: string[];
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	enableTypeStyling: true,
 	enableReviewFlags: true,
 	hideFolderArrows: true,
+	foldChildrenWithParent: true,
 	minimalChrome: true,
 	calmReading: true,
 	dedupeTabs: true,
@@ -128,6 +131,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 
 	nowOpenOnStartup: true,
 	nowReplaceNewTab: true,
+	newTabCreatesNote: true,
 	nowRecentCount: 15,
 	nowActiveTypes: ["project", "area"],
 	nowQueueFolders: ["00-Outbox"],
@@ -284,6 +288,16 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.hideFolderArrows).onChange(async (v) => {
 					s.hideFolderArrows = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Fold children with parent")
+			.setDesc("Collapsing a folder also collapses its subfolders, so re-opening it shows them folded.")
+			.addToggle((t) =>
+				t.setValue(s.foldChildrenWithParent).onChange(async (v) => {
+					s.foldChildrenWithParent = v;
 					await save();
 				})
 			);
@@ -561,10 +575,20 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			);
 		new Setting(containerEl)
 			.setName("New tab opens For You")
-			.setDesc("Turn a new empty tab (Ctrl/Cmd-T or +) into the For You page — a Home button.")
+			.setDesc("Turn a new empty tab (Ctrl/Cmd-T or +) into the For You page — a Home button. Ignored when “New tab creates a note” is on.")
 			.addToggle((t) =>
 				t.setValue(s.nowReplaceNewTab).onChange(async (v) => {
 					s.nowReplaceNewTab = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("New tab creates a note")
+			.setDesc("A new empty tab becomes an untitled note at the vault root. Takes precedence over “New tab opens For You”.")
+			.addToggle((t) =>
+				t.setValue(s.newTabCreatesNote).onChange(async (v) => {
+					s.newTabCreatesNote = v;
 					await save();
 				})
 			);

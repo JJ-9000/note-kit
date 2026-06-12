@@ -6,7 +6,10 @@
 :root {
 	--nkui-dot-size: 8px;
 	--nkui-dot-gap: 6px;
-	--nkui-draft-color: var(--color-orange, #e3742f);
+	/* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)
+	   take their colour from the THEME's accent, not a hardcoded default, so they
+	   sit with whatever theme is active. Override in a snippet if desired. */
+	--nkui-draft-color: var(--text-accent, var(--interactive-accent));
 	--nkui-accent-width: 3px;
 }
 
@@ -60,6 +63,49 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-reading-view,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-editor {
 	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary));
+}
+/* Content tint — in a typed+tinted note the whole body leans toward the type
+   colour: plain text a hair, the inline formats (bold/italic/code/links) more, all
+   mixed toward text-normal so contrast holds and they stay LIGHTER than the
+   full-colour headings. Only inside a typed, tinted note — never elsewhere. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-line {
+	color: color-mix(in srgb, var(--nkui-type-color) 13%, var(--text-normal));
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered strong,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong {
+	color: color-mix(in srgb, var(--nkui-type-color) 38%, var(--text-normal));
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered em,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em {
+	color: color-mix(in srgb, var(--nkui-type-color) 30%, var(--text-normal));
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered code,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-inline-code {
+	color: color-mix(in srgb, var(--nkui-type-color) 40%, var(--text-normal));
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(a, .internal-link, .external-link),
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-link, .cm-hmd-internal-link, .cm-url) {
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-accent, var(--text-normal)));
+}
+/* A button inside a tinted note gets ONE controlled tint (type mixed with a
+   neutral field colour) instead of the page-background tint showing THROUGH a
+   second button tint. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content button:not(.clickable-icon) {
+	background: color-mix(in srgb, var(--nkui-type-color) 12%, var(--background-modifier-form-field, var(--background-secondary)));
+	color: color-mix(in srgb, var(--nkui-type-color) 30%, var(--text-normal));
+}
+
+/* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
+   its type, BRIGHTER than the files inside (the folder is the heading of its kind,
+   not the same wash as its contents): a strong mix when collapsed, the full type
+   colour when open. data-nkui-folder-type / --nkui-folder-color are set by the
+   decorator. */
+body.nkui-type-tint .nav-folder-title[data-nkui-folder-type] .nav-folder-title-content {
+	color: color-mix(in srgb, var(--nkui-folder-color) 65%, var(--text-normal));
+}
+body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] .nav-folder-title-content {
+	color: var(--nkui-folder-color);
 }
 
 /* ── (c) accent the open note by type ──────────────────────────────────────── */
@@ -1126,4 +1172,76 @@ body.is-mobile .nkui-now-reducedrow {
 	min-height: 40px;
 	padding-top: 0.4em;
 	padding-bottom: 0.4em;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   0.4.40 — queue bullets · list type-colour · quiet separators · minimal icons
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* A bullet marks each queued item so the list reads as discrete items even when a
+   long task wraps to several lines. */
+.nkui-now-qbullet {
+	flex: 0 0 auto;
+	margin-top: 0.05em;
+	color: var(--text-faint);
+	line-height: 1.2;
+}
+
+/* For You list rows take their type colour in the title (like the explorer file
+   names), when Tint by type is on. --nkui-row-color is set per row. The gate row
+   keeps its bolder weight but joins the tint. */
+body.nkui-type-tint .nkui-now-rowtitle,
+body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
+	color: color-mix(in srgb, var(--nkui-row-color, var(--text-normal)) 45%, var(--text-normal));
+}
+
+/* ── Quiet separators / no notches (tabs + lists) ───────────────────────────── */
+.nkui-now-divider {
+	border-top-color: color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+}
+.nkui-now-decision + .nkui-now-decision {
+	border-top-color: color-mix(in srgb, var(--background-modifier-border) 50%, transparent);
+}
+/* Tabs everywhere (main area AND the side docks): drop hard bottom borders and the
+   active-tab notch/accent — including the folder/Files tab's coloured edge. */
+.workspace-tab-header-container {
+	border-bottom: none !important;
+	box-shadow: none !important;
+}
+.workspace-tab-header {
+	border: none !important;
+}
+.workspace-tab-header::before,
+.workspace-tab-header::after {
+	display: none !important;
+}
+.workspace-tab-header.is-active {
+	box-shadow: none !important;
+	border-color: transparent !important;
+}
+
+/* ── Minimal control icons — smaller and lighter, less outline noise ─────────── */
+.nav-buttons-container .clickable-icon .svg-icon,
+.workspace-tab-header .workspace-tab-header-inner-icon .svg-icon,
+.side-dock-actions .clickable-icon .svg-icon {
+	width: 16px;
+	height: 16px;
+	stroke-width: 1.5;
+}
+
+/* Solid folder icon (replaces Lucide's outline folder on the Files tab / explorer)
+   — a proof of the mask approach; the full solid set is planned (see the inbox
+   note "Note-Kit-UI-Minimal-Solid-Icon-Options"). The SVG paints in currentColor
+   via a mask; the original outline paths are hidden. */
+.svg-icon.lucide-folder,
+.svg-icon.lucide-folder-closed,
+.svg-icon.lucide-folder-open {
+	background-color: currentColor;
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z'/%3E%3C/svg%3E") center / contain no-repeat;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.svg-icon.lucide-folder > *,
+.svg-icon.lucide-folder-closed > *,
+.svg-icon.lucide-folder-open > * {
+	display: none;
 }

@@ -563,6 +563,7 @@ export class NowView extends ItemView {
 							? "executed — clears next run"
 							: "done — clears next agent run",
 					struck: true,
+					bullet: true,
 					onOpen: () => void this.skipMachineItem(item),
 					ariaLabel: executed
 						? "Executed by the action agent; clears on its next run. Click to restore — it will run again."
@@ -575,6 +576,7 @@ export class NowView extends ItemView {
 			// it from a real completion). A quiet "edit?" beneath re-opens the text for
 			// editing.
 			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
+			row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
 			const main = row.createDiv("nkui-now-qmain");
 			main.createSpan({ cls: "nkui-now-qtext", text: item.text });
 			const editLink = main.createSpan({ cls: "nkui-now-qedit", text: "edit?" });
@@ -743,9 +745,11 @@ export class NowView extends ItemView {
 			checkbox?: { checked: boolean; onChange: () => void | Promise<void> };
 			previewFile?: TFile;
 			ariaLabel?: string;
+			bullet?: boolean;
 		}
 	): void {
 		const row = list.createDiv("nkui-now-reducedrow");
+		if (o.bullet) row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
 		if (o.ariaLabel) {
 			row.setAttr("aria-label", o.ariaLabel);
 			row.setAttr("title", o.ariaLabel);
@@ -872,13 +876,12 @@ export class NowView extends ItemView {
 		if (contained) row.addClass("nkui-now-row-contained");
 		if (e.isGate) row.addClass("nkui-now-row-gate");
 		if (e.awaitingFiling) row.addClass("nkui-now-row-waiting");
-		// Draft rows carry their type colour as --nkui-row-color so the "approve all?"
-		// hold can light the candidates up in their own colour while it's held.
-		if (e.draft) {
-			row.addClass("nkui-now-row-draft");
-			const rc = e.type ? this.colorFor(e.type) : null;
-			if (rc) row.style.setProperty("--nkui-row-color", rc);
-		}
+		// Every row carries its type colour as --nkui-row-color: the stylesheet tints
+		// the row title with it (like the explorer file names), and the "approve all?"
+		// hold lights the draft candidates up in their own colour.
+		const rc = e.type ? this.colorFor(e.type) : null;
+		if (rc) row.style.setProperty("--nkui-row-color", rc);
+		if (e.draft) row.addClass("nkui-now-row-draft");
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
 		const open = (newLeaf: boolean) => this.app.workspace.openLinkText(e.file.path, "", newLeaf);

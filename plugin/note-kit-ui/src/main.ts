@@ -216,7 +216,7 @@ export default class NoteKitUiPlugin extends Plugin {
 		// The fill depletes over ~1.15s (the hold animation, run in reverse); when it
 		// empties the offer expires. Hovering pauses it — the button holds full and the
 		// countdown restarts on leave — so it's reachable as long as you're over it.
-		const COUNT = 1167;
+		const COUNT = 1517;
 		const arm = (): void => {
 			timer = window.setTimeout(restore, COUNT);
 		};

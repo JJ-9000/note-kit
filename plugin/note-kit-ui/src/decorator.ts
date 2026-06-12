@@ -313,10 +313,17 @@ export class ExplorerDecorator {
 			const bare = fm ? fm[1].toLowerCase() : "";
 			const singular = bare.endsWith("s") ? bare.slice(0, -1) : bare;
 			const ftype = this.typeColors.has(bare) ? bare : this.typeColors.has(singular) ? singular : null;
-			this.setAttr(el, "data-nkui-folder-type", ftype);
-			const fcolor = ftype
+			let fcolor = ftype
 				? this.plugin.typeStyles().find((t) => t.type === ftype)?.color ?? null
 				: null;
+			// Otherwise (the folder name isn't a type) an OPEN folder borrows the colour
+			// of its top-most ##-prefixed child (its cover/index) by that child's type —
+			// so a plain folder still reads its kind from what leads it.
+			if (!ftype) {
+				const cc = this.topChildTypeColor(path);
+				if (cc) fcolor = cc;
+			}
+			this.setAttr(el, "data-nkui-folder-type", ftype ?? (fcolor ? "child" : null));
 			if (fcolor) el.style.setProperty("--nkui-folder-color", fcolor);
 			else el.style.removeProperty("--nkui-folder-color");
 		}
@@ -413,6 +420,24 @@ export class ExplorerDecorator {
 			if (!awaitingFiling) n += count;
 		}
 		return n;
+	}
+
+	/** Colour of a folder's top-most ##-prefixed direct child file, by that child's
+	 * frontmatter type — the cover/index that leads the folder. Null when the folder
+	 * has no prefixed child or that child's type carries no colour. */
+	private topChildTypeColor(folderPath: string): string | null {
+		const folder = this.plugin.app.vault.getAbstractFileByPath(folderPath);
+		if (!(folder instanceof TFolder)) return null;
+		const prefixed = folder.children
+			.filter((c): c is TFile => c instanceof TFile && c.extension === "md" && /^\d{2,}[-_ ]/.test(c.name))
+			.sort((a, b) => a.name.localeCompare(b.name));
+		for (const f of prefixed) {
+			const t = this.plugin.app.metadataCache.getFileCache(f)?.frontmatter?.[this.plugin.settings.typeField];
+			if (t == null) continue;
+			const color = this.plugin.typeStyles().find((x) => x.type === String(t))?.color;
+			if (color) return color;
+		}
+		return null;
 	}
 
 	private isUnreviewed(fm: Record<string, unknown>, s = this.plugin.settings): boolean {

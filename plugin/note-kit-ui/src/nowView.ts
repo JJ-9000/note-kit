@@ -46,7 +46,7 @@ interface RowOpts {
 
 /** Press-and-hold duration (ms) for every commit affordance — gate approve, approve
  * all, draft approve. ~3x faster than the original 700ms: a quick, deliberate press. */
-const HOLD_MS = 233;
+const HOLD_MS = 303;
 
 /** One checkbox item parsed from the machine queue (a flat checklist). */
 interface QueueItem {
@@ -840,22 +840,19 @@ export class NowView extends ItemView {
 		// waiting row — gate or lone file — aligns its "approved…" and "un-approve…".
 		const note = row.createDiv("nkui-now-fatenote nkui-now-waitline");
 		note.createSpan({ cls: "nkui-now-waittext", text: "awaiting filing" });
+		// "undo +N" — a press-and-hold (the gate-approve language) that sends the gate
+		// and its N members back to drafts; the +N marks the gated set, since the
+		// leading "gate +N" was dropped from this line.
 		const undo = note.createSpan({
-			cls: "nkui-now-unapprove",
-			text: "undo",
+			cls: "nkui-now-unapprove nkui-now-gateapprove",
+			text: e.setCount ? `undo +${e.setCount}` : "undo",
 		});
+		const undoHint = "Hold to undo — sends the set back to drafts";
+		undo.setAttr("aria-label", undoHint);
+		undo.setAttr("title", undoHint);
 		undo.setAttr("role", "button");
 		undo.setAttr("tabindex", "0");
-		undo.addEventListener("click", (ev) => {
-			ev.stopPropagation();
-			void this.unapproveSet(e);
-		});
-		undo.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" || ev.key === " ") {
-				ev.preventDefault();
-				void this.unapproveSet(e);
-			}
-		});
+		this.attachHold(undo, () => this.unapproveSet(e));
 		this.attachPreview(row, e.file, e.type);
 	}
 
@@ -1160,7 +1157,7 @@ export class NowView extends ItemView {
 	 * the pick reads as a transition rather than a snap. */
 	private async fadeThen(card: HTMLElement, write: () => Promise<void>): Promise<void> {
 		card.addClass("is-resolving");
-		await new Promise((r) => setTimeout(r, 60));
+		await new Promise((r) => setTimeout(r, 78));
 		await write();
 	}
 

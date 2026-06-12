@@ -87,6 +87,18 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-prope
 	--checkbox-color-hover: var(--nkui-ts);
 	accent-color: var(--nkui-tm);
 }
+/* Frontmatter tag PILLS follow the type tint (background + text), not the theme's
+   fixed pill colour — so they tint like every other typed element. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value .multi-select-pill {
+	background: color-mix(in srgb, var(--nkui-type-color) 16%, var(--background-secondary)) !important;
+}
+/* A fenced code BLOCK's background is washed toward the type colour too (reading +
+   live preview), so the block sits on the same tinted surface as the note. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered pre,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered pre > code,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-line.HyperMD-codeblock {
+	background: color-mix(in srgb, var(--nkui-type-color) 8%, var(--background-primary-alt, var(--background-secondary))) !important;
+}
 /* The note's background, washed a hair toward the type colour. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-reading-view,
@@ -133,13 +145,26 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content b
    with the nkui-type-<type> class + colour. Active tab a touch stronger than the
    rest; the wash overrides minimalChrome's transparent-!important at equal
    specificity. */
+/* Seamless on ANY theme (not only when minimalChrome is on): the tab bar and its
+   tabs share the EDITOR'S background-primary, so there's no secondary-surface seam
+   between the tab and the note — and no border/shadow to draw a line. */
+.mod-root .workspace-tab-header-container,
+.mod-root .workspace-tab-header,
+.mod-root .workspace-tab-header .workspace-tab-header-inner {
+	background: var(--background-primary) !important;
+	border: none !important;
+	box-shadow: none !important;
+}
+/* A typed tab washes that shared background a hair toward its note's type colour —
+   opaque over background-primary (not transparent), so it reads as the same tinted
+   surface as the note rather than letting the theme's tab colour show through. */
 body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"],
 body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner {
-	background: color-mix(in srgb, var(--nkui-type-color) 4%, transparent) !important;
+	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary)) !important;
 }
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"],
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner {
-	background: color-mix(in srgb, var(--nkui-type-color) 9%, transparent) !important;
+	background: color-mix(in srgb, var(--nkui-type-color) 9%, var(--background-primary)) !important;
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
@@ -249,8 +274,9 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	font-weight: 800;
 	line-height: 1.1;
 	letter-spacing: -0.02em;
-	/* track the theme's heading colour (green here) so theme settings drive it */
-	color: var(--h2-color, var(--text-normal));
+	/* track the theme's heading colour, falling back to the theme accent (never plain
+	   text) so the date always reads as tinted to the theme settings. */
+	color: var(--h2-color, var(--text-accent, var(--interactive-accent)));
 }
 .nkui-now-subtitle {
 	font-size: var(--font-ui-small, 13px);
@@ -328,7 +354,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 }
 .nkui-now-group-head .nkui-now-approveall.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 233ms linear;
+	transition: transform 303ms linear;
 }
 /* While a hold is in progress, the section's draft candidates light up in their
    own type colour, so it's clear what the approval would file. */
@@ -976,7 +1002,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 /* Label the lone reviewed checkbox without showing the editable key field. */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"] .metadata-property-value::before {
 	content: "reviewed ";
-	color: var(--text-muted);
+	color: var(--nkui-tk, var(--text-muted));
 	margin-right: 0.25em;
 }
 /* No hover/focus outline or box on the metadata fields — a gentle opacity shift
@@ -1186,10 +1212,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	font-size: var(--font-ui-smaller, 11px);
 }
 .nkui-now-waittext {
-	flex: 0 1 auto;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	flex: 0 0 auto; /* never shrink — "awaiting filing" always shows in full */
 	color: var(--text-muted);
 }
 /* un-approve — same pressable language as "edit?" / "approve all?" (small italic,
@@ -1199,7 +1222,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
    regardless of the "un-approve" vs "un-approve gate +N" label length. */
 body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
 	flex: 0 0 auto;
-	width: 3.5em;
+	min-width: 4.5em;
 	text-align: left;
 }
 .nkui-now-unapprove {
@@ -1237,27 +1260,38 @@ body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head .nkui-now-group-title {
 	color: var(--nkui-section-color, var(--text-normal));
 }
+/* An open dropdown's HEADER takes a faint wash of its section colour too (like the
+   explorer's open-folder / selected-file highlight), so the open section reads as
+   the exposed one. */
+body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head {
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 10%, transparent);
+}
 
-/* ── File explorer: queue files float to the top of their folder; coloured (not
-   barred) so they read as interaction surfaces. ─────────────────────────────── */
-/* Only the OPEN folder's children flex (for the float ordering). A collapsing
-   folder must keep its default display so Obsidian's height collapse animates —
-   forcing display:flex on it (top-level PARA folders hold queues/floats, so they
-   matched) is what stopped top-level folders from animating while plain sub-folders
-   still did. */
-.nav-folder:not(.is-collapsed) > .nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]),
-.nav-folder:not(.is-collapsed) > .nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-float]) {
-	display: flex;
-	flex-direction: column;
+/* Square highlights — drop the rounded corners on the dropdown headers, the For You
+   rows, and the explorer selection, so a highlight reads as a crisp band, not a pill. */
+.nkui-now-group-head,
+.nkui-now-row,
+.nkui-now-qrow,
+.nkui-now-optrow,
+.nkui-now-reducedrow,
+.nkui-now-needsread,
+.nav-file-title,
+.nav-folder-title {
+	border-radius: 0 !important;
 }
-/* Queues sit above the floated types, which sit above everything else. */
-.tree-item:has(> .nav-file-title[data-nkui-queue]) {
-	order: -2;
+
+/* ── File explorer: queue / floated files are coloured (not barred) so they read as
+   interaction surfaces. ───────────────────────────────────────────────────────
+   NOTE: the float-to-top ORDERING (display:flex on .nav-folder-children + order on
+   the tree-items) was removed — flexing the children container fought Obsidian's
+   own row layout: it blocked the folder collapse/expand height animation and clipped
+   rows when a folder opened. The ordering needs a DOM-reorder approach instead (move
+   the nodes in the decorator), not a CSS flex override. Colouring stays. */
+.nav-file-title[data-nkui-queue] .nav-file-title-content,
+.nav-file-title[data-nkui-float] .nav-file-title-content {
+	/* placeholder to keep the float attribute referenced; colour is set below */
 }
-.tree-item:has(> .nav-file-title[data-nkui-float]) {
-	order: -1;
-}
-/* A queue file always floats to the top of its folder; its colour reflects state:
+/* A queue file's colour reflects state:
    muted when idle (nothing to act on), accent + bold only when it holds an open
    decision/task (data-nkui-queue-active, set by updateQueueState). */
 .nav-file-title[data-nkui-queue] .nav-file-title-content {
@@ -1322,6 +1356,12 @@ body.is-mobile .nkui-now-reducedrow {
 body.nkui-type-tint .nkui-now-rowtitle,
 body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 	color: var(--nkui-tm, var(--text-normal));
+}
+/* Folded peer rows under a gate still tint to their type — just dimmer, so the gate
+   still leads without the peers going flat grey. */
+body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-rowtitle {
+	color: var(--nkui-tm, var(--text-muted));
+	opacity: 0.75;
 }
 
 /* ── Quiet separators / no notches (tabs + lists) ───────────────────────────── */
@@ -1425,7 +1465,7 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 }
 .nkui-now-gateapprove.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 233ms linear;
+	transition: transform 303ms linear;
 }
 
 /* Pressable button texts (approve all, +N gated / approve, undo, draft) read a stop
@@ -1508,11 +1548,11 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 }
 .nkui-close-offer.is-counting {
 	opacity: 0.4;
-	transition: opacity 1167ms linear;
+	transition: opacity 1517ms linear;
 }
 .nkui-close-offer.is-counting::before {
 	transform: scaleX(0);
-	transition: transform 1167ms linear;
+	transition: transform 1517ms linear;
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;

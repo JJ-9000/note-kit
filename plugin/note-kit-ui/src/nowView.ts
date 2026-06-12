@@ -344,20 +344,28 @@ export class NowView extends ItemView {
 	/** Square the section-head count pills, measured — not guessed in CSS. The
 	 * pill stretches to the head band's height, but that height is content-
 	 * driven, so CSS aspect-ratio can't transfer it into width (indefinite
-	 * cross size); a 2-digit pill rendered a tall rectangle. Measure each
-	 * pill's stretched height once and seat it as the min-width, so every pill
-	 * in the column is an even square until a long count forces it wider.
-	 * Batched clear → measure → assign, like equalizeMetaColumns. */
+	 * cross size); a 2-digit pill rendered a tall rectangle. Every pill seats
+	 * the COLUMN's tallest band as its min square — one even size down the
+	 * page, so a diminished section's pill never shrinks below its peers
+	 * (tone and text do the talking; the box holds), and the bands equalize
+	 * (the head grows to its flush pill). Batched clear → measure → assign,
+	 * like equalizeMetaColumns. */
 	private squareHeadPills(): void {
 		const pills = Array.from(
 			this.contentEl.querySelectorAll<HTMLElement>(".nkui-now-group-head .nkui-now-count")
 		);
 		if (!pills.length) return;
-		for (const p of pills) p.style.minWidth = "";
-		const heights = pills.map((p) => p.getBoundingClientRect().height);
-		pills.forEach((p, i) => {
-			if (heights[i] > 0) p.style.minWidth = `${heights[i]}px`;
-		});
+		for (const p of pills) {
+			p.style.minWidth = "";
+			p.style.minHeight = "";
+		}
+		const heights = pills.map((p) => p.getBoundingClientRect().height).filter((h) => h > 0);
+		if (!heights.length) return;
+		const side = Math.max(...heights);
+		for (const p of pills) {
+			p.style.minWidth = `${side}px`;
+			p.style.minHeight = `${side}px`;
+		}
 	}
 
 	private renderBucket(

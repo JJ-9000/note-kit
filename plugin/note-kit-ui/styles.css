@@ -434,7 +434,10 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 }
 /* The count pill fills the head band's full height — flush with the highlight,
    the number evenly margined inside its own box (negative block margin eats
-   the band padding; stretch covers taller titles). */
+   the band padding; stretch covers taller titles). Squareness is measured, not
+   guessed: the band height is content-driven (indefinite), so CSS aspect-ratio
+   cannot transfer it into width — squareHeadPills (nowView) seats the measured
+   height as each pill's min-width instead. */
 .nkui-now-group-head .nkui-now-count {
 	align-self: stretch;
 	height: auto;
@@ -572,15 +575,17 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 /* count as a notification bubble; background colour is set inline to the type colour.
    Fixed box (height + inline-flex centring + tabular digits) so a 1→2 digit count
    never changes the bubble's height and the header doesn't jump on fold.
-   Square below 3 digits: min-width equals the height (em so it scales); from
-   3 digits the box widens while the inline padding stays constant. */
+   EVEN below 100: the minimum width seats two tabular digits, so every 1- and
+   2-digit pill in the column renders the same box (1.7em alone left 2-digit
+   pills wider than their 1-digit neighbours); from 3 digits the box widens
+   while the inline padding stays constant. */
 .nkui-now-count {
 	flex: 0 0 auto;
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	min-width: 1.7em;
+	min-width: max(1.7em, calc(2ch + 1em));
 	height: 1.7em;
 	padding: 0 0.5em;
 	border-radius: var(--nkui-radius);
@@ -770,6 +775,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	font-style: italic;
 	color: var(--text-faint);
 	white-space: nowrap;
+	/* Italic glyphs overhang their advance width and "g" descends below the
+	   baseline box — without this breathing room a clipping ancestor crops the
+	   trailing letter ("awaiting filing" losing its g's tail on the phone). */
+	padding-inline-end: 0.18em;
+	padding-block-end: 0.12em;
 }
 /* quiet "+N" marking a folded working-set behind its gate row */
 .nkui-now-setcount {
@@ -1277,6 +1287,9 @@ body.is-mobile .nkui-now-waitnote-short {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	max-width: 30vw;
+	/* overflow:hidden clips the italic overhang + g descender — pad them in. */
+	padding-inline-end: 0.18em;
+	padding-block-end: 0.12em;
 }
 body.is-mobile .nkui-now-waitnote-long {
 	display: none;
@@ -1348,6 +1361,10 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	/* The overflow box clips the italic overhang and the g descender
+	   ("awaiting filing" losing its g's tail) — pad them inside the box. */
+	padding-inline-end: 0.18em;
+	padding-block-end: 0.12em;
 }
 .nkui-now-waittext {
 	flex: 0 0 auto; /* never shrink — "awaiting filing" always shows in full */
@@ -2465,6 +2482,15 @@ body.is-mobile .nkui-queue-lock {
 /* Animations off → the fill snaps, like every other hold. */
 body:not(.nkui-anim) .nkui-queue-lock-btn.is-holding::before {
 	transition: none !important;
+}
+
+/* ── Shy undo (mobile) — the undo control on a waiting row is invisible and
+   inert until the row has been tapped once, so a thumb grazing the action
+   column can't arm an accidental undo. Once revealed, the shared pressable
+   styles govern untouched. ──────────────────────────────────────────────────── */
+body.is-mobile .nkui-undo-shy:not(.is-undo-revealed) .nkui-now-unapprove {
+	opacity: 0;
+	pointer-events: none;
 }
 body.is-mobile .nkui-queue-lock-btn.is-holding {
 	filter: brightness(1.12);

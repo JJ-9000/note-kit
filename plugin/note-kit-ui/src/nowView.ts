@@ -326,6 +326,8 @@ export class NowView extends ItemView {
 		// Version footer — a quiet build stamp below the last section.
 		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
 
+		this.squareHeadPills();
+
 		// Column widths come from live boxes; a render that raced the injected
 		// stylesheet or webfont measured the fallback font and locked stale
 		// widths in. Re-measure once fonts settle (Format-UI-Spacing:
@@ -336,6 +338,25 @@ export class NowView extends ItemView {
 		if (document.fonts && document.fonts.status !== "loaded") {
 			void document.fonts.ready.then(() => this.onResize());
 		}
+	}
+
+	/** Square the section-head count pills, measured — not guessed in CSS. The
+	 * pill stretches to the head band's height, but that height is content-
+	 * driven, so CSS aspect-ratio can't transfer it into width (indefinite
+	 * cross size); a 2-digit pill rendered a tall rectangle. Measure each
+	 * pill's stretched height once and seat it as the min-width, so every pill
+	 * in the column is an even square until a long count forces it wider.
+	 * Batched clear → measure → assign, like equalizeMetaColumns. */
+	private squareHeadPills(): void {
+		const pills = Array.from(
+			this.contentEl.querySelectorAll<HTMLElement>(".nkui-now-group-head .nkui-now-count")
+		);
+		if (!pills.length) return;
+		for (const p of pills) p.style.minWidth = "";
+		const heights = pills.map((p) => p.getBoundingClientRect().height);
+		pills.forEach((p, i) => {
+			if (heights[i] > 0) p.style.minWidth = `${heights[i]}px`;
+		});
 	}
 
 	private renderBucket(
@@ -475,6 +496,9 @@ export class NowView extends ItemView {
 		for (const list of Array.from(this.contentEl.querySelectorAll<HTMLElement>(".nkui-now-list"))) {
 			this.equalizeMetaColumns(list);
 		}
+		// Also fires when a hidden leaf becomes visible — the render-time pass
+		// measures 0 on a background tab, so this is where its pills square up.
+		this.squareHeadPills();
 	}
 
 	/** Decide bucket — each open decision is one entry; the count is OPEN decisions.
@@ -857,6 +881,16 @@ export class NowView extends ItemView {
 			onCommit: () => this.unapproveSet(e, row),
 			onTap: () => this.toggleGateMembers(row, e),
 		});
+		// Mobile: undo is shy — invisible and inert until the row is tapped once
+		// (a thumb grazing the action column kept arming accidental undos). The
+		// revealing pointerdown runs in capture before the event could reach the
+		// control, so the first tap only ever reveals.
+		if (Platform.isMobile) {
+			row.addClass("nkui-undo-shy");
+			row.addEventListener("pointerdown", () => row.addClass("is-undo-revealed"), {
+				capture: true,
+			});
+		}
 		this.attachPreview(row, e.file, e.type);
 	}
 

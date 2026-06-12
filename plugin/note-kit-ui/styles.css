@@ -31,7 +31,7 @@
    no type (or an asset, which has no frontmatter) has no --nkui-type-color, so the
    color-mix is invalid and the text keeps its default — nothing un-typed is touched. */
 body.nkui-type-tint .nav-file-title[data-nkui-type] .nav-file-title-content {
-	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
+	color: var(--nkui-tm);
 }
 /* Boldest heading — the title and h1 — IS the full type colour (matching the type's
    dot/pill); sub-headings stay tinted, the larger ones more so. Reading + live
@@ -43,22 +43,22 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-header-1 {
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h2,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-header-2 {
-	color: color-mix(in srgb, var(--nkui-type-color) 75%, var(--text-normal));
+	color: var(--nkui-ts);
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h3,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-header-3 {
-	color: color-mix(in srgb, var(--nkui-type-color) 65%, var(--text-normal));
+	color: var(--nkui-tm);
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(h4, h5, h6),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-header-4, .cm-header-5, .cm-header-6) {
-	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
+	color: var(--nkui-tm);
 }
 /* One shared "lighter" type tone — the tone the inline code text uses. Bold,
    italic, code, and the frontmatter property controls all draw from it, so they
    read as one family and a single tweak moves them together. Defined on the
    typed leaf, where --nkui-type-color resolves. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
-	--nkui-type-ink: color-mix(in srgb, var(--nkui-type-color) 40%, var(--text-normal));
+	--nkui-type-ink: var(--nkui-tk);
 }
 /* Frontmatter: tint the property TEXT and the property / add-property buttons to
    the shared lighter tone (same as the inline code) — not a box around them. */
@@ -77,7 +77,7 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.metadata-p
    the body's internal links, so they read coloured (matching "the other links")
    rather than the theme's default link grey. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value :is(a, .internal-link, .external-link, .multi-select-pill-content) {
-	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-accent, var(--text-normal)));
+	color: var(--nkui-tm);
 }
 /* The note's background, washed a hair toward the type colour. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
@@ -103,14 +103,14 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-inline-code
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(a, .internal-link, .external-link),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-link, .cm-hmd-internal-link, .cm-url) {
-	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-accent, var(--text-normal)));
+	color: var(--nkui-tm);
 }
 /* A button inside a tinted note gets ONE controlled tint (type mixed with a
    neutral field colour) instead of the page-background tint showing THROUGH a
    second button tint. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content button:not(.clickable-icon) {
 	background: color-mix(in srgb, var(--nkui-type-color) 12%, var(--background-modifier-form-field, var(--background-secondary)));
-	color: color-mix(in srgb, var(--nkui-type-color) 30%, var(--text-normal));
+	color: var(--nkui-tk);
 }
 
 /* An open typed file's TAB takes the type colour too, so the tab matches the
@@ -119,10 +119,10 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content b
    otherwise), which resolves --nkui-type-color here. The active tab reads a
    touch stronger; inactive tabs already recede via the opacity rule in css.ts. */
 body.nkui-type-tint .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-title {
-	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
+	color: var(--nkui-tm);
 }
 body.nkui-type-tint .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-title {
-	color: color-mix(in srgb, var(--nkui-type-color) 80%, var(--text-normal));
+	color: var(--nkui-ts);
 }
 /* Seamless: the active tab shares a faint wash of the open file's type colour (the
    same idea as the note's 4% background tint), so tab and note read as one surface.
@@ -290,7 +290,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	border-radius: var(--radius-s, 6px);
 	background: transparent;
 	box-shadow: none;
-	color: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 70%, var(--text-normal));
+	color: var(--nkui-tm, var(--interactive-accent));
 	font-size: var(--font-ui-smaller, 11px);
 	font-style: italic;
 	font-weight: var(--font-normal, 400);
@@ -318,7 +318,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 }
 .nkui-now-group-head .nkui-now-approveall.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 350ms linear;
+	transition: transform 233ms linear;
 }
 /* While a hold is in progress, the section's draft candidates light up in their
    own type colour, so it's clear what the approval would file. */
@@ -483,7 +483,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	font-size: var(--font-ui-smaller, 11px);
 	font-style: italic;
 	font-weight: var(--font-normal, 400);
-	color: color-mix(in srgb, var(--nkui-row-color, var(--nkui-draft-color)) 70%, var(--text-normal));
+	color: var(--nkui-tm, var(--nkui-draft-color));
 }
 /* Container caption: a quiet line naming the working set its member rows
    belong to, so peer/approval relationships read at a glance. */
@@ -516,7 +516,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	padding: 0;
 	border: none;
 	background: transparent;
-	color: color-mix(in srgb, var(--nkui-row-color, var(--interactive-accent)) 70%, var(--text-normal));
+	color: var(--nkui-tm, var(--interactive-accent));
 	font-size: var(--font-ui-smaller, 11px);
 	font-style: italic;
 	font-weight: var(--font-normal, 400);
@@ -1277,7 +1277,7 @@ body.is-mobile .nkui-now-reducedrow {
    keeps its bolder weight but joins the tint. */
 body.nkui-type-tint .nkui-now-rowtitle,
 body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
-	color: color-mix(in srgb, var(--nkui-row-color, var(--text-normal)) 62%, var(--text-normal));
+	color: var(--nkui-tm, var(--text-normal));
 }
 
 /* ── Quiet separators / no notches (tabs + lists) ───────────────────────────── */
@@ -1380,7 +1380,7 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 }
 .nkui-now-gateapprove.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 350ms linear;
+	transition: transform 233ms linear;
 }
 
 /* Waiting gate on ONE line: subject (flex, truncates) + status inline. */
@@ -1442,11 +1442,11 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 }
 .nkui-close-offer.is-counting {
 	opacity: 0.4;
-	transition: opacity 1750ms linear;
+	transition: opacity 1167ms linear;
 }
 .nkui-close-offer.is-counting::before {
 	transform: scaleX(0);
-	transition: transform 1750ms linear;
+	transition: transform 1167ms linear;
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;

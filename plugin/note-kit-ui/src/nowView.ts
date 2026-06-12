@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile, setIcon, debounce, Platform } from "obsidian";
 import { typeClass } from "./settings";
+import { toneVars } from "./palette";
 import type NoteKitUiPlugin from "./main";
 
 export const NOW_VIEW_TYPE = "note-kit-now";
@@ -44,8 +45,8 @@ interface RowOpts {
 }
 
 /** Press-and-hold duration (ms) for every commit affordance — gate approve, approve
- * all, draft approve. Kept short so a deliberate hold reads as quick, not a chore. */
-const HOLD_MS = 350;
+ * all, draft approve. ~3x faster than the original 700ms: a quick, deliberate press. */
+const HOLD_MS = 233;
 
 /** One checkbox item parsed from the machine queue (a flat checklist). */
 interface QueueItem {
@@ -663,15 +664,14 @@ export class NowView extends ItemView {
 		// on. Tag it so the stylesheet recedes it (smaller, faded): a quiet "0" that
 		// never competes with a live count for attention.
 		bucket.toggleClass("nkui-now-group-empty", count <= 0);
-		// Open-section emphasis colour: the section's own pill colour, or the theme
-		// heading colour when the theme palette ("match theme") is on. The
-		// stylesheet applies it only while the section is unfolded.
-		bucket.style.setProperty(
-			"--nkui-section-color",
-			this.plugin.settings.themePalette
-				? "var(--h2-color, var(--interactive-accent))"
-				: color ?? "var(--interactive-accent)"
-		);
+		// Open-section emphasis colour: the section's own pill (type) colour. The
+		// stylesheet applies it only while the section is unfolded. When it's a real
+		// type hex, derive its sub-tones too, so the section header + "approve all"
+		// follow the canon hue rather than a mixed-toward-white wash.
+		bucket.style.setProperty("--nkui-section-color", color ?? "var(--interactive-accent)");
+		if (color && color.startsWith("#")) {
+			for (const [k, v] of Object.entries(toneVars(color))) bucket.style.setProperty(k, v);
+		}
 		const gh = bucket.createDiv("nkui-now-group-head");
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");
@@ -991,7 +991,10 @@ export class NowView extends ItemView {
 		// the row title with it (like the explorer file names), and the "approve all?"
 		// hold lights the draft candidates up in their own colour.
 		const rc = e.type ? this.colorFor(e.type) : null;
-		if (rc) row.style.setProperty("--nkui-row-color", rc);
+		if (rc) {
+			row.style.setProperty("--nkui-row-color", rc);
+			for (const [k, v] of Object.entries(toneVars(rc))) row.style.setProperty(k, v);
+		}
 		if (e.draft) row.addClass("nkui-now-row-draft");
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
@@ -1159,7 +1162,7 @@ export class NowView extends ItemView {
 	 * the pick reads as a transition rather than a snap. */
 	private async fadeThen(card: HTMLElement, write: () => Promise<void>): Promise<void> {
 		card.addClass("is-resolving");
-		await new Promise((r) => setTimeout(r, 90));
+		await new Promise((r) => setTimeout(r, 60));
 		await write();
 	}
 

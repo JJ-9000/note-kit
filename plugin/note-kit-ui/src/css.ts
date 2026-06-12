@@ -1,4 +1,14 @@
 import { NoteKitUiSettings, TypeStyle, typeClass } from "./settings";
+import { toneVars } from "./palette";
+
+/** Serialize a type colour + its derived sub-tones as CSS declarations. */
+function colorDecls(color: string): string {
+	const tones = toneVars(color);
+	const tv = Object.entries(tones)
+		.map(([k, v]) => `${k}: ${v};`)
+		.join(" ");
+	return `--nkui-type-color: ${color}; ${tv}`;
+}
 
 /** Escape a value for safe use inside a CSS attribute-selector string. */
 function attr(v: string): string {
@@ -80,10 +90,11 @@ export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): 
 	if (s.enableTypeStyling) {
 		for (const t of typeStyles) {
 			if (!t.color) continue;
-			// explorer row dot colour
-			out.push(`.nav-file-title[data-nkui-type="${attr(t.type)}"] { --nkui-type-color: ${t.color}; }`);
-			// open-note accent colour
-			out.push(`.${typeClass(t.type)} { --nkui-type-color: ${t.color}; }`);
+			const decls = colorDecls(t.color);
+			// explorer row dot colour + derived sub-tones
+			out.push(`.nav-file-title[data-nkui-type="${attr(t.type)}"] { ${decls} }`);
+			// open-note accent colour + derived sub-tones
+			out.push(`.${typeClass(t.type)} { ${decls} }`);
 		}
 	}
 

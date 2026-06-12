@@ -253,8 +253,13 @@ export class NowView extends ItemView {
 		// Column widths come from live boxes; a render that raced the injected
 		// stylesheet or webfont measured the fallback font and locked stale
 		// widths in. Re-measure once fonts settle (Format-UI-Spacing:
-		// "first-render metrics can predate the stylesheet").
-		void document.fonts?.ready.then(() => this.onResize());
+		// "first-render metrics can predate the stylesheet") — but ONLY when fonts
+		// aren't already loaded. Once they are (every render after the first), the
+		// promise resolves a microtask later and the redundant re-equalize was an
+		// extra reflow for nothing.
+		if (document.fonts && document.fonts.status !== "loaded") {
+			void document.fonts.ready.then(() => this.onResize());
+		}
 	}
 
 	private renderBucket(
@@ -359,28 +364,34 @@ export class NowView extends ItemView {
 			}
 			return;
 		}
-		for (const cls of [
+		// Equalize each column to its widest member — in THREE batched phases (clear
+		// all → measure all → assign all), never read-after-write per row. Interleaving
+		// a width write with a getBoundingClientRect read forces a synchronous reflow on
+		// every iteration; over six columns × N rows that layout-thrash is the visible
+		// "stutter, dots then text" on the Active section. Batched, the browser does one
+		// layout flush for the whole measuring pass instead of dozens.
+		const groups = [
 			"nkui-now-gateslot",
 			"nkui-now-waitslot",
 			"nkui-now-countslot",
 			"nkui-now-pillslot",
 			"nkui-now-metatype",
 			"nkui-now-metaage",
-		]) {
-			const els = Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`));
-			if (els.length < 2) continue;
-			let max = 0;
-			for (const el of els) {
-				el.style.width = "";
-				max = Math.max(max, el.getBoundingClientRect().width);
-			}
-			// Hidden view (background tab) measures 0 — leave natural; onResize
-			// re-runs this when the view becomes visible.
-			if (max <= 0) continue;
-			// Exact sub-pixel width: rounding up would widen the box past the text
-			// and the slack reads as an unequal gap beside an 8px neighbour.
-			for (const el of els) el.style.width = `${max.toFixed(2)}px`;
-		}
+		]
+			.map((cls) => Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`)))
+			.filter((els) => els.length >= 2);
+		// Phase 1 — clear every width (writes only).
+		for (const els of groups) for (const el of els) el.style.width = "";
+		// Phase 2 — measure every column (reads only; a single layout flush). Exact
+		// sub-pixel width: rounding up widens the box past the text and the slack reads
+		// as an unequal gap beside an 8px neighbour.
+		const widths = groups.map((els) => Math.max(...els.map((el) => el.getBoundingClientRect().width)));
+		// Phase 3 — assign each column its width (writes only). A column measuring 0 (a
+		// hidden background tab) is left natural; onResize re-runs when it's visible.
+		groups.forEach((els, i) => {
+			if (widths[i] <= 0) return;
+			for (const el of els) el.style.width = `${widths[i].toFixed(2)}px`;
+		});
 	}
 
 	/** Re-measure each section's columns when the view's geometry changes —

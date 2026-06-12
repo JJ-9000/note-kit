@@ -1,0 +1,137 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   Note-Kit theme — STARTER (v0.1.0)
+   Vibedose colours (dark + vibrant) on a Minimal-clean base: Minimal's low-noise
+   borders / outlines / highlights, Vibedose's dark palette and saturated hues.
+   Supplemental to the note-kit-ui plugin — the plugin reads --color-* / theme
+   accents from here, so the For You view and explorer follow the theme.
+   This is a foundation to build on; tune the variables below.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.theme-dark {
+	/* ── Surfaces — near-black, few steps (Minimal: flat, low contrast between
+	   panes so borders aren't needed to separate them) ─────────────────────── */
+	--background-primary: #0c0c11;
+	--background-primary-alt: #101017;
+	--background-secondary: #0f0f15;
+	--background-secondary-alt: #15151d;
+	--background-modifier-border: #1b1b25;
+	--background-modifier-border-hover: #272733;
+	--background-modifier-border-focus: #34344a;
+	--background-modifier-hover: rgba(255, 255, 255, 0.04);
+	--background-modifier-active-hover: rgba(255, 255, 255, 0.07);
+	--background-modifier-form-field: #14141c;
+
+	/* ── Text ──────────────────────────────────────────────────────────────── */
+	--text-normal: #e7e9f2;
+	--text-muted: #9aa0b6;
+	--text-faint: #5a5f74;
+	--text-accent: #8b7bff;
+	--text-accent-hover: #9d8fff;
+	--text-on-accent: #ffffff;
+	--text-selection: rgba(108, 92, 255, 0.28);
+
+	/* ── Accent ────────────────────────────────────────────────────────────── */
+	--interactive-accent: #6c5cff;
+	--interactive-accent-hover: #7e6fff;
+	--color-accent: #6c5cff;
+	--color-accent-1: #6c5cff;
+	--color-accent-2: #8b7bff;
+
+	/* ── Vibrant palette (Vibedose-leaning) — the plugin maps types off these
+	   when "Theme palette" is on ───────────────────────────────────────────── */
+	--color-red: #ff3b6b;
+	--color-orange: #ff9933;
+	--color-yellow: #ffd24d;
+	--color-green: #2be08a;
+	--color-cyan: #2bd4e0;
+	--color-blue: #4d8bff;
+	--color-purple: #a06bff;
+	--color-pink: #ff6bd0;
+
+	/* Headings: h1 stays neutral-bright; h2 takes a hue (a calm accent header). */
+	--h1-color: var(--text-normal);
+	--h2-color: #8b7bff;
+	--h3-color: var(--text-normal);
+	--h4-color: var(--text-muted);
+
+	/* Tighter radii, soft shadows (Minimal). */
+	--radius-s: 5px;
+	--radius-m: 8px;
+	--radius-l: 12px;
+	--shadow-s: none;
+	--shadow-l: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Minimal: strip borders / outlines / notches / visual noise ─────────────── */
+.workspace-split,
+.workspace-tabs,
+.workspace-leaf,
+.workspace-tab-header-container,
+.workspace-tab-header,
+.titlebar,
+.status-bar,
+.view-header {
+	border: none !important;
+	box-shadow: none !important;
+}
+.workspace-tab-header::before,
+.workspace-tab-header::after {
+	display: none !important;
+}
+/* Inactive tabs recede; active marked by colour + weight, not a notch. */
+.workspace-tab-header:not(.is-active) {
+	opacity: 0.55;
+}
+.workspace-tab-header.is-active .workspace-tab-header-inner-title {
+	color: var(--text-normal);
+	font-weight: 700;
+}
+
+/* Dividers: faint, never hard rules. */
+hr,
+.markdown-rendered hr {
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	opacity: 0.6;
+}
+
+/* Quiet scrollbars. */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--background-modifier-border);
+	border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--background-modifier-border-hover);
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+/* No focus-outline clutter; borderless-ish fields. */
+*:focus {
+	outline: none;
+}
+input,
+textarea,
+.dropdown {
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: none;
+}
+
+/* Smaller, lighter control icons (less outline noise — the explicit ask). The
+   note-kit-ui plugin thins these too; the theme reinforces it globally. */
+.svg-icon {
+	stroke-width: 1.6;
+}
+.nav-buttons-container .clickable-icon,
+.side-dock-actions .clickable-icon {
+	opacity: 0.55;
+}
+.nav-buttons-container:hover .clickable-icon,
+.side-dock-actions:hover .clickable-icon {
+	opacity: 0.85;
+}

@@ -17,15 +17,12 @@ export default class NoteKitUiPlugin extends Plugin {
 	private styleEl!: HTMLStyleElement;
 	private decorator!: ExplorerDecorator;
 	private noteClass!: NoteClassApplier;
-	/** True once the initial layout has settled — guards new-tab note creation from
-	 * firing during startup. */
-	private layoutReady = false;
-	private creatingNote = false;
 	/** Last-known `reviewed` value per file — lets us catch the false→true flip
-	 * (the user checking the box) and offer to close the tab. */
+	 * (the user checking the box) and offer to close the tab. Seeded on file-open so
+	 * the very first flip is caught (an unseen file has no prior `false` to compare). */
 	private reviewedState = new Map<string, boolean>();
-	/** True while we're opening the For You view — keeps new-tab-creates-note from
-	 * hijacking the brief empty leaf `getLeaf("tab")` creates for it. */
+	/** True while we're opening the For You view — keeps the new-tab→For-You handler
+	 * from racing the brief empty leaf `getLeaf("tab")` creates for it. */
 	private openingNow = false;
 
 	async onload(): Promise<void> {
@@ -65,9 +62,14 @@ export default class NoteKitUiPlugin extends Plugin {
 		);
 
 		// One tab per document: opening a file that is already open in another
-		// main-area tab focuses the existing tab and closes the duplicate.
+		// main-area tab focuses the existing tab and closes the duplicate. Also seed
+		// the reviewed-state map for the opened file, so a later false→true flip is
+		// recognised as a flip (not a first sighting) and the close-tab offer fires.
 		this.registerEvent(
-			this.app.workspace.on("file-open", (file) => this.dedupeTabsFor(file?.path))
+			this.app.workspace.on("file-open", (file) => {
+				this.dedupeTabsFor(file?.path);
+				if (file) this.seedReviewed(file);
+			})
 		);
 
 		// The palette is read from the app's CSS, so it follows the theme: re-derive
@@ -105,12 +107,6 @@ export default class NoteKitUiPlugin extends Plugin {
 			// in the tag pane (the explorer is the kit's primary navigation).
 			const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
 			if (explorer) this.app.workspace.revealLeaf(explorer);
-
-			// Let startup settle before new-tab-creates-note arms, so the initial
-			// empty leaf doesn't spawn a stray untitled note.
-			window.setTimeout(() => {
-				this.layoutReady = true;
-			}, 1000);
 		});
 	}
 
@@ -150,15 +146,10 @@ export default class NoteKitUiPlugin extends Plugin {
 	}
 
 	private maybeReplaceEmpty(leaf: WorkspaceLeaf | null): void {
-		if (!leaf) return;
+		if (!leaf || this.openingNow) return;
 		if (leaf.view?.getViewType() !== "empty") return;
 		// Main area only — leave empty side-panel leaves alone.
 		if (leaf.getRoot() !== this.app.workspace.rootSplit) return;
-		// New tab creates a note (takes precedence over For You).
-		if (this.settings.newTabCreatesNote) {
-			void this.fillEmptyWithNote(leaf);
-			return;
-		}
 		if (!this.settings.nowReplaceNewTab) return;
 		// One For You at a time: if one is already open, focus it and drop this
 		// empty tab instead of opening a second — the Home button reuses its page.
@@ -176,21 +167,33 @@ export default class NoteKitUiPlugin extends Plugin {
 		void leaf.setViewState({ type: NOW_VIEW_TYPE });
 	}
 
+	/** Record a file's current `reviewed` value without offering to close — called on
+	 * file-open so the next change is compared against a known prior state. Only seeds
+	 * an unseen file, so it never clobbers a flip the change handler is about to read. */
+	private seedReviewed(file: TFile): void {
+		if (this.reviewedState.has(file.path)) return;
+		const field = this.settings.reviewedField;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		this.reviewedState.set(file.path, !!fm && (fm[field] === true || fm[field] === "true"));
+	}
+
 	/** On a `reviewed` false→true flip (the user checking the box), offer to close
-	 * the file's tab: its reviewed checkbox becomes a "close tab?" button that fades
-	 * over a timer. */
+	 * the file's tab: its reviewed checkbox is swapped for a "close tab?" button that
+	 * fades on a short timer (the hold-fill visual), then the checkbox returns. */
 	private maybeOfferClose(file: TFile): void {
 		const field = this.settings.reviewedField;
 		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
 		const reviewed = !!fm && (fm[field] === true || fm[field] === "true");
 		const prev = this.reviewedState.get(file.path);
 		this.reviewedState.set(file.path, reviewed);
-		if (!reviewed || prev !== false) return; // only on a real false → true flip
+		// Only on a real false → true flip. `prev === undefined` (an unseen file) is
+		// NOT a flip — seedReviewed on file-open ensures a tracked false precedes it.
+		if (!reviewed || prev !== false) return;
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (view instanceof MarkdownView && view.file?.path === file.path) {
-				// Let Obsidian finish re-rendering the property block first.
-				window.setTimeout(() => this.injectCloseButton(view, leaf), 60);
+				// Show after ~1/4s, once Obsidian has re-rendered the property block.
+				window.setTimeout(() => this.injectCloseButton(view, leaf), 250);
 			}
 		}
 	}
@@ -204,36 +207,34 @@ export default class NoteKitUiPlugin extends Plugin {
 		if (!value) return;
 		value.style.display = "none";
 		const btn = prop.createEl("button", { cls: "nkui-close-offer", text: "close tab?" });
+		let timer: number | undefined;
 		const restore = (): void => {
+			if (timer) window.clearTimeout(timer);
 			btn.remove();
-			value.style.display = "";
+			value.style.display = ""; // the checked reviewed box returns
+		};
+		// The fill depletes over ~3.5s (the hold animation, run in reverse); when it
+		// empties the offer expires. Hovering pauses it — the button holds full and the
+		// countdown restarts on leave — so it's reachable as long as you're over it.
+		const COUNT = 3500;
+		const arm = (): void => {
+			timer = window.setTimeout(restore, COUNT);
 		};
 		btn.addEventListener("click", (ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
 			leaf.detach();
 		});
-		// Fade over ~6s, then the offer expires and the checkbox returns.
-		window.requestAnimationFrame(() => btn.addClass("is-fading"));
-		window.setTimeout(restore, 6000);
-	}
-
-	/** Turn a new empty tab into a fresh untitled note at the vault root. Guarded so
-	 * it never fires during startup (layoutReady) or re-enters mid-create. */
-	private async fillEmptyWithNote(leaf: WorkspaceLeaf): Promise<void> {
-		if (!this.layoutReady || this.creatingNote || this.openingNow) return;
-		this.creatingNote = true;
-		try {
-			const fm = this.app.fileManager as unknown as {
-				createNewMarkdownFile: (folder: unknown, name: string) => Promise<TFile>;
-			};
-			const file = await fm.createNewMarkdownFile(this.app.vault.getRoot(), "Untitled");
-			await leaf.openFile(file);
-		} catch {
-			/* leave the tab empty on failure */
-		} finally {
-			this.creatingNote = false;
-		}
+		btn.addEventListener("pointerenter", () => {
+			if (timer) window.clearTimeout(timer);
+			btn.removeClass("is-counting");
+		});
+		btn.addEventListener("pointerleave", () => {
+			btn.addClass("is-counting");
+			arm();
+		});
+		window.requestAnimationFrame(() => btn.addClass("is-counting"));
+		arm();
 	}
 
 	/** Collapse every descendant folder of a folder that was just collapsed (using

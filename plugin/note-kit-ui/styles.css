@@ -68,6 +68,17 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-add-b
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-icon {
 	color: var(--nkui-type-ink);
 }
+/* The text actually lives in inner inputs (key + value editors); colour those too,
+   or the tint never reaches the typed text. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.metadata-property-key, .metadata-property-value) :is(input, .metadata-input-longtext, .metadata-input-text) {
+	color: var(--nkui-type-ink);
+}
+/* Frontmatter CLICKABLES — a `parent` link, a tag pill — take the same link tone as
+   the body's internal links, so they read coloured (matching "the other links")
+   rather than the theme's default link grey. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value :is(a, .internal-link, .external-link, .multi-select-pill-content) {
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-accent, var(--text-normal)));
+}
 /* The note's background, washed a hair toward the type colour. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-reading-view,
@@ -120,7 +131,7 @@ body.nkui-type-tint .workspace-tab-header.is-active[class*="nkui-type-"] .worksp
    --nkui-folder-color set by the decorator. Coloured ONLY when OPEN; collapsed it
    reads as a normal folder. */
 body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] .nav-folder-title-content {
-	color: color-mix(in srgb, var(--nkui-folder-color) 80%, var(--text-normal));
+	color: var(--nkui-folder-color);
 }
 
 /* ── (c) accent the open note by type ──────────────────────────────────────── */
@@ -140,22 +151,16 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	align-self: center;
 }
 
-/* ── (d) live "N unreviewed" pill on the inbox folder row ───────────────────── */
+/* ── (d) live "N unreviewed" count on the inbox folder row ──────────────────── */
+/* A plain NUMBER, not a pill — the count attends, but a filled bubble read as a
+   notification badge competing with the folder name. Coloured in the draft accent
+   so it still signals "needs you", left as bare tabular digits. */
 .nkui-inbox-count {
 	margin-left: auto;
 	flex: 0 0 auto;
 	align-self: center;
-	/* inline-flex centring (not line-height/text-align) so the number sits dead
-	   centre in the pill. */
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 1.35em;
-	height: 1.4em;
-	padding: 0 6px;
-	border-radius: 9px;
-	background: var(--nkui-draft-color);
-	color: var(--text-on-accent, #fff);
+	padding-left: 0.5em;
+	color: var(--nkui-draft-color);
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-semibold, 600);
 	font-variant-numeric: tabular-nums;
@@ -1138,11 +1143,6 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	overflow: hidden;
 	font-size: var(--font-ui-smaller, 11px);
 }
-.nkui-now-waitline > .nkui-now-gatepill,
-.nkui-now-waitline > .nkui-now-setcount,
-.nkui-now-waitline > .nkui-now-unapprove {
-	flex: 0 0 auto;
-}
 .nkui-now-waittext {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -1151,7 +1151,15 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	color: var(--text-muted);
 }
 /* un-approve — same pressable language as "edit?" / "approve all?" (small italic,
-   underline on hover), in the action accent. */
+   underline on hover), in the action accent. A FIXED-width, left-aligned column so
+   its left edge lands at the same x on every waiting row (gate or lone file); the
+   constant-width "approved — awaiting filing" text just left of it then aligns too,
+   regardless of the "un-approve" vs "un-approve gate +N" label length. */
+body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
+	flex: 0 0 auto;
+	width: 8.5em;
+	text-align: left;
+}
 .nkui-now-unapprove {
 	color: var(--text-accent, var(--interactive-accent));
 	font-style: italic;
@@ -1182,9 +1190,10 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
    with its section colour (the pill colour, or the theme heading colour when the
    theme palette is on; set inline as --nkui-section-color). Collapsed stays
    neutral, so unfolding is visible feedback. Queue surfaces keep their own. ──── */
-/* Header takes the LIGHTER tone; the rows below carry the stronger tint (swapped). */
+/* An open dropdown title takes the FULL section/pill colour (the rows below stay a
+   stop lighter); collapsed it reads neutral, so unfolding is visible feedback. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head .nkui-now-group-title {
-	color: color-mix(in srgb, var(--nkui-section-color, var(--text-normal)) 55%, var(--text-normal));
+	color: var(--nkui-section-color, var(--text-normal));
 }
 
 /* ── File explorer: queue files float to the top of their folder; coloured (not
@@ -1383,9 +1392,14 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	transition: none !important;
 }
 
-/* "close tab?" — replaces the reviewed checkbox once the box is checked; fades on a
-   ~6s timer (hover holds it full). Click closes the tab. */
+/* "close tab?" — replaces the reviewed checkbox once the box is checked (after a
+   ~1/4s beat). A fill DEPLETES over ~3.5s — the press-and-hold animation run in
+   reverse — marking the window; when it empties the checkbox returns. Hover holds
+   it full (the JS restarts the timer on leave). Click closes the tab. */
 .nkui-close-offer {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
 	border: none;
 	background: transparent;
 	box-shadow: none;
@@ -1394,14 +1408,55 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	font-size: var(--font-ui-small, 13px);
 	cursor: pointer;
 	padding: 0 0.4em;
+	border-radius: var(--radius-s, 4px);
 	opacity: 1;
-	transition: opacity 6000ms linear;
 }
-.nkui-close-offer.is-fading {
-	opacity: 0.15;
+.nkui-close-offer::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background: currentColor;
+	opacity: 0.18;
+	transform: scaleX(1);
+	transform-origin: left center;
+}
+.nkui-close-offer.is-counting {
+	opacity: 0.4;
+	transition: opacity 3500ms linear;
+}
+.nkui-close-offer.is-counting::before {
+	transform: scaleX(0);
+	transition: transform 3500ms linear;
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;
 	text-decoration: underline;
 	transition: opacity 120ms ease;
+}
+.nkui-close-offer:hover::before {
+	transform: scaleX(1);
+	transition: none;
+}
+/* Animations off: the offer just shows full; the JS timer still returns the box. */
+body:not(.nkui-anim) .nkui-close-offer.is-counting {
+	opacity: 1;
+	transition: none !important;
+}
+body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
+	transform: scaleX(1);
+	transition: none !important;
+}
+
+/* ── Page-preview popover, tinted by the previewed note's type ────────────────
+   The core popover carries no type class, so the For You view stamps the fresh one
+   with nkui-type-<type> + --nkui-type-color (inline). A quiet type-coloured top
+   accent and the embed's title in the type colour, so a right-click preview reads
+   as the same kind as the row and tab it came from. */
+.popover.hover-popover[class*="nkui-type-"] {
+	border-top: 2px solid color-mix(in srgb, var(--nkui-type-color) 70%, var(--background-modifier-border));
+}
+.popover.hover-popover[class*="nkui-type-"] :is(.markdown-embed-title, .inline-title, .markdown-preview-view h1) {
+	color: var(--nkui-type-color);
 }

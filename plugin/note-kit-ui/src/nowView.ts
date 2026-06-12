@@ -1,4 +1,5 @@
 import { ItemView, WorkspaceLeaf, TFile, setIcon, debounce, Platform } from "obsidian";
+import { typeClass } from "./settings";
 import type NoteKitUiPlugin from "./main";
 
 export const NOW_VIEW_TYPE = "note-kit-now";
@@ -812,9 +813,10 @@ export class NowView extends ItemView {
 		title.addEventListener("click", (ev) =>
 			this.app.workspace.openLinkText(e.file.path, "", ev.ctrlKey || ev.metaKey)
 		);
+		// No leading "gate +N": it's redundant with the "un-approve gate +N" at the
+		// end of the line. The status and un-approve sit in fixed columns so every
+		// waiting row — gate or lone file — aligns its "approved…" and "un-approve…".
 		const note = row.createDiv("nkui-now-fatenote nkui-now-waitline");
-		if (e.isGate) note.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
-		if (e.setCount) note.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
 		note.createSpan({ cls: "nkui-now-waittext", text: "approved — awaiting filing" });
 		const undo = note.createSpan({
 			cls: "nkui-now-unapprove",
@@ -834,7 +836,7 @@ export class NowView extends ItemView {
 				void this.unapproveSet(e);
 			}
 		});
-		this.attachPreview(row, e.file);
+		this.attachPreview(row, e.file, e.type);
 	}
 
 	/** Send an approved waiting set back to Needs-you: clear `reviewed` on the gate
@@ -857,7 +859,7 @@ export class NowView extends ItemView {
 	/** Native page-preview on demand: right-click (desktop) or long-press (mobile)
 	 * fires Obsidian's own hover-link, so the core Page Preview plugin shows its
 	 * popover — no bespoke window to manage. A no-op when that plugin is off. */
-	private attachPreview(el: HTMLElement, file: TFile): void {
+	private attachPreview(el: HTMLElement, file: TFile, type?: string | null): void {
 		const fire = (event: Event): void => {
 			this.app.workspace.trigger("hover-link", {
 				event,
@@ -867,6 +869,7 @@ export class NowView extends ItemView {
 				linktext: file.path,
 				sourcePath: file.path,
 			});
+			this.stampPopover(type ?? null);
 		};
 		el.addEventListener("contextmenu", (ev) => {
 			ev.preventDefault();
@@ -890,6 +893,24 @@ export class NowView extends ItemView {
 		el.addEventListener("touchmove", clear, { passive: true });
 		el.addEventListener("touchend", clear);
 		el.addEventListener("touchcancel", clear);
+	}
+
+	/** Tint the page-preview popover by the previewed note's type: the core popover
+	 * carries no type class, so stamp the freshly-created one (it appears a beat after
+	 * the hover-link fires) with the type class + colour, which the stylesheet keys
+	 * off to give the popover the note's accent. */
+	private stampPopover(type: string | null): void {
+		if (!type) return;
+		const color = this.colorFor(type);
+		if (!color) return;
+		window.setTimeout(() => {
+			const pops = Array.from(document.body.querySelectorAll<HTMLElement>(".popover.hover-popover"));
+			const pop = pops[pops.length - 1];
+			if (!pop || pop.classList.contains("nkui-typed")) return;
+			pop.addClass("nkui-typed");
+			pop.addClass(typeClass(type));
+			pop.style.setProperty("--nkui-type-color", color);
+		}, 80);
 	}
 
 	/** Press-and-hold (~700ms) to commit; a fill sweeps while held (is-holding). A
@@ -957,7 +978,7 @@ export class NowView extends ItemView {
 		row.addEventListener("keydown", (ev) => {
 			if (ev.key === "Enter") open(false);
 		});
-		this.attachPreview(row, e.file);
+		this.attachPreview(row, e.file, e.type);
 
 		let titleDim = 1;
 		if (opts.showRowDot) {

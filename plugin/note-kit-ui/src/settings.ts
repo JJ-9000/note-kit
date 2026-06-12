@@ -7,6 +7,10 @@ export interface TypeStyle {
 	color: string;
 }
 
+/** What the right-sidebar leaf hosts (see main.applySidebarNow): the For You
+ * page (the shipped default), the user queue, or the machine queue. */
+export type SidebarContent = "for-you" | "user-queue" | "machine-queue";
+
 export interface NoteKitUiSettings {
 	/** Derive vault structure (inbox/outbox, queue paths, field names, type
 	 * vocabulary) from the kit's .claude/CONFIG.md at load, so the plugin cannot
@@ -55,7 +59,6 @@ export interface NoteKitUiSettings {
 	// "Now" view
 	nowOpenOnStartup: boolean;
 	nowReplaceNewTab: boolean; // a new empty tab opens For You instead of the blank screen
-	nowRecentCount: number;
 	nowActiveTypes: string[];
 	nowQueueFolders: string[];
 	nowCollapsedSections: string[]; // section titles currently folded
@@ -64,9 +67,11 @@ export interface NoteKitUiSettings {
 	machineQueuePath: string; // user → AI checklist (addable from the view)
 	/** Open queue files in the clean queue view instead of the raw note. */
 	queueCleanView: boolean;
-	/** Show the For You view in the sidebar (the same full page; on mobile the
-	 * swipe-left drawer). */
+	/** Keep a leaf in the right sidebar (on mobile the swipe-left drawer). */
 	sidebarNow: boolean;
+	/** What that right-sidebar leaf hosts — the For You page (default), the
+	 * user queue, or the machine queue. */
+	sidebarContent: SidebarContent;
 	/** One-time default-palette migration has run (see main.migratePalette). */
 	paletteMigrated: boolean;
 	/** Press-and-hold commit duration in ms (approve / undo holds). */
@@ -129,15 +134,15 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 
 	nowOpenOnStartup: true,
 	nowReplaceNewTab: true,
-	nowRecentCount: 15,
 	nowActiveTypes: ["project", "area"],
 	nowQueueFolders: ["Outbox"],
-	nowCollapsedSections: ["Recent"],
+	nowCollapsedSections: [],
 	nowExpandedGroups: [],
 	userQueuePath: "Inbox/User-Queue.md",
 	machineQueuePath: "Outbox/Machine-Queue.md",
 	queueCleanView: true,
 	sidebarNow: true,
+	sidebarContent: "for-you",
 	paletteMigrated: false,
 	holdMs: 395,
 	solidIcons: true,
@@ -296,12 +301,28 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			);
 		new Setting(containerEl)
 			.setName("Show in sidebar")
-			.setDesc("Keep the For You page in the sidebar too (the same full page; on mobile it lives in the swipe-left drawer).")
+			.setDesc("Keep a leaf in the right sidebar (on mobile, the swipe-left drawer) hosting the content chosen below.")
 			.addToggle((t) =>
 				t.setValue(s.sidebarNow).onChange(async (v) => {
 					s.sidebarNow = v;
 					await save();
 				})
+			);
+		new Setting(containerEl)
+			.setName("Sidebar content")
+			.setDesc(
+				"What the right sidebar hosts: the For You page, the user queue (decisions for you), or the machine queue (your checklist for the agents). On mobile a queue here sits behind a hold-to-unlock, so a stray swipe never lands a tap on it."
+			)
+			.addDropdown((d) =>
+				d
+					.addOption("for-you", "For You")
+					.addOption("user-queue", "User queue")
+					.addOption("machine-queue", "Machine queue")
+					.setValue(s.sidebarContent)
+					.onChange(async (v) => {
+						s.sidebarContent = v as SidebarContent;
+						await save();
+					})
 			);
 		new Setting(containerEl)
 			.setName("Clean queue view")
@@ -325,20 +346,6 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 						await save();
 					})
 			);
-		new Setting(containerEl)
-			.setName("Recent items")
-			.setDesc("How many recently-changed notes the Recent section shows.")
-			.addSlider((sl) =>
-				sl
-					.setLimits(5, 40, 1)
-					.setValue(s.nowRecentCount)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						s.nowRecentCount = v;
-						await save();
-					})
-			);
-
 		const forYouAdv = advancedGroup(containerEl, "Advanced — For You sources");
 		new Setting(forYouAdv)
 			.setName("Active types")

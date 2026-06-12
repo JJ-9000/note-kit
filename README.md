@@ -121,7 +121,19 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
    **Semantic search is automatic:** the daemon starts on demand when a Claude Code session opens in the vault, and shuts down on its own when idle. Its first start downloads a small embedding model (~90 MB) and builds the search index, so the first session after install needs internet and takes a minute or two. For an always-on daemon instead, the included Windows-service script (`.claude/vault-search/install-service.ps1`) registers it as a system service; on macOS and Linux, wrap the same start command in launchd or systemd.
 
 5. **The scheduled agents.** The four agents ship as folders under `<vault>/.claude/scheduled-tasks/`. Running them on a local schedule requires the **Claude Code Desktop app**. Register each agent skill as a scheduled routine either via chat or in the *Routines* UI in the side panel. Set your preferred model, cadence, and permissions (**Bypass Permissions** or **Auto Mode**, you may need to allow this feature in the claude code settings so the agents don't stall).
-   
+
+   **Permissions matter more than they look.** A scheduled run cannot answer a permission prompt: it freezes on the dialog, and because each routine runs one session at a time, the frozen session also silently blocks every later scheduled run of that agent until someone notices. If you don't use Bypass/Auto Mode, grant the tools the agents use up front in `<vault>/.claude/settings.local.json` — the filing agent moves notes with a copy → verify → delete sequence, so at minimum:
+
+   ```json
+   "permissions": {
+     "allow": [
+       "Bash(cp:*)", "Bash(cmp:*)", "Bash(mv:*)", "Bash(rm:*)", "Bash(rmdir:*)"
+     ]
+   }
+   ```
+
+   Tighter grants work too (run each agent once interactively and always-allow what it asks for) — the rule is simply that an unattended agent must never be able to hit a prompt.
+
    What each agent touches:
 
    - **janitor-agent** — reads the whole vault; writes frontmatter and filename fixes; runs `audit.py`
@@ -297,7 +309,7 @@ If...
 - **`python` is not recognized** (Windows): Python wasn't added to PATH. Re-run the Python installer, choose Modify, and tick "Add python.exe to PATH" — or use `py` instead of `python` in every command.
 - **The search daemon won't start, or the `vault` tool errors:** check it with `python .claude/vault-search/daemonctl.py status` from the vault folder. The most common cause is another vault on the same machine already holding port 8765 — change `port:` in `.claude/vault-search/config.yaml`, then update the same number in `.mcp.json` and `.claude/hooks/session-start-context.py`.
 - **First search of the day is slow:** that's the on-demand start warming up (and on day one, the ~90 MB model download). After that, queries are quick.
-- **An agent run stalls waiting for permission:** open its routine in the Desktop app, run it once interactively, and choose always-allow on the tools it asks for.
+- **An agent run stalls waiting for permission:** open its routine in the Desktop app, run it once interactively, and choose always-allow on the tools it asks for (or grant the file-move family shown in Install step 5). A stalled run does double damage: routines run one session at a time, so the frozen session also blocks every later scheduled run of that agent until it's closed.
 
 ---
 

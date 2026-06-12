@@ -22,10 +22,11 @@
 	--nkui-settle: 170ms; /* a resolved card softening before re-render */
 	/* Unroll/collapse scales with the section's length: the view sets --nkui-rows
 	   (child row count) on the unrolling container; duration is one step per row,
-	   clamped, so short and long sections feel the same speed per row. */
-	--nkui-row-ms: 28ms;
-	--nkui-unroll-min: 120ms;
-	--nkui-unroll-max: 420ms;
+	   clamped, so short and long sections feel the same speed per row.
+	   Values are the shipped 28/120/420 trimmed 30% (×0.7) — dropdowns snap. */
+	--nkui-row-ms: 20ms;
+	--nkui-unroll-min: 84ms;
+	--nkui-unroll-max: 294ms;
 }
 
 /* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)
@@ -534,13 +535,17 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-foldwrap {
 	display: grid;
 	grid-template-rows: 1fr;
-	transition-property: grid-template-rows, opacity;
-	transition-timing-function: ease;
-	transition-duration: clamp(
+	/* ONE shared clock for BOTH animated properties: the height collapse and the
+	   veil resolve to the same --nkui-unroll duration and the same curve, so the
+	   fold reads as a single motion — never height-then-fade as two steps. */
+	--nkui-unroll: clamp(
 		var(--nkui-unroll-min),
 		calc(var(--nkui-rows, 6) * var(--nkui-row-ms)),
 		var(--nkui-unroll-max)
 	);
+	transition:
+		grid-template-rows var(--nkui-unroll) ease,
+		opacity var(--nkui-unroll) ease;
 }
 .nkui-now-group.is-collapsed .nkui-now-foldwrap {
 	grid-template-rows: 0fr;
@@ -843,20 +848,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	text-decoration: line-through;
 	color: var(--text-faint);
 }
-/* Fate label on a crossed-off queue item: the agent's next-run sweep deletes
-   [x] lines from the file, and that consequence must be visible without hover
-   (mobile has no tooltips). */
-.nkui-now-qclear {
-	flex: 0 0 auto;
-	margin-left: var(--nkui-gap-s, 8px);
-	color: var(--text-faint);
-	font-style: italic;
-	font-size: 0.85em;
-	white-space: nowrap;
-}
-/* Long/short twins: desktop shows the full fate label and wait note; mobile
-   shows the one-word twin so the item text truncates instead of being pushed. */
-.nkui-now-qclear-short,
+/* Long/short twins: desktop shows the full wait note; mobile shows the short
+   twin so the item text truncates instead of being pushed. */
 .nkui-now-waitnote-short {
 	display: none;
 }
@@ -870,12 +863,16 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	flex: 1 1 auto;
 	width: auto;
 }
-/* The "+" submit button — the reliable way to add a task on mobile. A bare icon:
-   no border, box, or background at any state (only the glyph brightens on hover),
-   sized down so it doesn't read as a chunky button beside the slim input. */
+/* The "+" submit button — the reliable way to add a task on mobile — and the
+   mobile-only keyboard-done twin beside it. Bare icons: no border, box, or
+   background at any state (only the glyph brightens on hover), sized down so
+   they don't read as chunky buttons beside the slim input. */
 .nkui-now-qaddsubmit,
 .nkui-now-qaddsubmit:hover,
-.nkui-now-qaddsubmit:focus {
+.nkui-now-qaddsubmit:focus,
+.nkui-now-qadddone,
+.nkui-now-qadddone:hover,
+.nkui-now-qadddone:focus {
 	flex: 0 0 auto;
 	display: inline-flex;
 	align-items: center;
@@ -889,13 +886,16 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	box-shadow: none !important;
 	cursor: pointer;
 }
-.nkui-now-qaddsubmit {
+.nkui-now-qaddsubmit,
+.nkui-now-qadddone {
 	color: var(--text-faint);
 }
-.nkui-now-qaddsubmit:hover {
+.nkui-now-qaddsubmit:hover,
+.nkui-now-qadddone:hover {
 	color: var(--text-normal);
 }
-.nkui-now-qaddsubmit .svg-icon {
+.nkui-now-qaddsubmit .svg-icon,
+.nkui-now-qadddone .svg-icon {
 	width: 16px;
 	height: 16px;
 }
@@ -947,28 +947,6 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 }
 .nkui-now-decision.is-resolving {
 	opacity: 0.3;
-}
-/* A resolved decision ([x] in the file, awaiting the action-agent's clearing
-   pass) lingers as one diminished, truncated row — small, faint, struck —
-   visibly not an active decision. Unchecking re-opens it. */
-.nkui-now-resolvedrow {
-	display: flex;
-	align-items: center;
-	gap: var(--nkui-gap-s);
-	min-height: 24px;
-	padding: 0.1em calc(0.5em + var(--nkui-gap-s)) 0.1em 1.55em;
-	margin: 0 -0.5em;
-	font-size: var(--font-ui-small);
-}
-.nkui-now-resolvedrow .nkui-now-restext {
-	flex: 1 1 auto;
-	min-width: 0;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	text-decoration: line-through;
-	color: var(--text-faint);
-	cursor: pointer;
 }
 .nkui-now-decision-title {
 	font-weight: var(--font-semibold, 600);
@@ -1282,8 +1260,8 @@ body.is-mobile .nkui-now-qaddinput {
 	text-overflow: clip;
 }
 /* The awaiting-filing row stays on ONE line on mobile: the title truncates
-   with an ellipsis and the wait note renders as its one-word twin ("approved"),
-   trailing off if space still runs out. */
+   with an ellipsis and the wait note renders as its short twin ("filing
+   agent"), trailing off if space still runs out. */
 body.is-mobile .nkui-now-row-waiting .nkui-now-rowtitle {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -1300,12 +1278,8 @@ body.is-mobile .nkui-now-waitnote-short {
 	text-overflow: ellipsis;
 	max-width: 30vw;
 }
-body.is-mobile .nkui-now-waitnote-long,
-body.is-mobile .nkui-now-qclear-long {
+body.is-mobile .nkui-now-waitnote-long {
 	display: none;
-}
-body.is-mobile .nkui-now-qclear-short {
-	display: inline;
 }
 /* A crossed-off machine-queue line truncates instead of wrapping or pushing. */
 body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
@@ -1594,10 +1568,25 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	display: none;
 }
 
-/* ── 0.4.42 — queue files as plain numbers (not coloured open-folder lookalikes) ── */
+/* ── 0.4.42 — queue files as plain numbers (not coloured open-folder lookalikes).
+   Identity lives on the ROW, never the name colour (a coloured name reads as an
+   open folder): the queue files and the inbox/outbox folder rows carry a faint
+   wash in the draft-accent family — the inbox pill / draft dot colour — plus a
+   step of weight, so the kit's interaction surfaces read as one kind in the
+   tree. The decorator stamps data-nkui-queue on the queue files and
+   data-nkui-role="inbox" / "outbox" on those folder title rows. ── */
 .nav-file-title[data-nkui-queue] .nav-file-title-content {
 	color: var(--text-normal) !important;
-	font-weight: var(--font-normal, 400) !important;
+	font-weight: var(--font-medium, 500) !important;
+}
+.nav-file-title[data-nkui-queue],
+.nav-folder-title[data-nkui-role="inbox"],
+.nav-folder-title[data-nkui-role="outbox"] {
+	background: color-mix(in srgb, var(--nkui-draft-color) 8%, transparent);
+}
+.nav-folder-title[data-nkui-role="inbox"] .nav-folder-title-content,
+.nav-folder-title[data-nkui-role="outbox"] .nav-folder-title-content {
+	font-weight: var(--font-semibold, 600);
 }
 /* Plain number (no pill, theme-neutral) on a queue file — its open-item count. */
 .nkui-queue-count {
@@ -1989,13 +1978,16 @@ body.is-mobile .nkui-cols > .nkui-col-meta > * + * {
 body.nkui-anim .nkui-now-gatemembers {
 	grid-template-rows: 0fr;
 	opacity: 0;
-	transition-property: grid-template-rows, opacity;
-	transition-timing-function: ease;
-	transition-duration: clamp(
+	/* Same one-clock contract as the section foldwrap: height and veil share
+	   --nkui-unroll, so the peek unrolls as one motion. */
+	--nkui-unroll: clamp(
 		var(--nkui-unroll-min),
 		calc(var(--nkui-rows, 1) * var(--nkui-row-ms)),
 		var(--nkui-unroll-max)
 	);
+	transition:
+		grid-template-rows var(--nkui-unroll) ease,
+		opacity var(--nkui-unroll) ease;
 }
 body.nkui-anim .nkui-now-gatemembers.is-open {
 	grid-template-rows: 1fr;
@@ -2268,4 +2260,226 @@ body.nkui-solid-icons .lucide-settings {
 body.nkui-solid-icons .lucide-sun {
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm-1-6h2v4h-2V1zm0 18h2v4h-2v-4zM1 11h4v2H1v-2zm18 0h4v2h-4v-2zM3.5 4.9L4.9 3.5l2.9 2.8-1.5 1.5-2.8-2.9zm12.7 12.7l1.5-1.5 2.8 2.9-1.4 1.4-2.9-2.8zM3.5 19.1l2.8-2.9 1.5 1.5-2.9 2.8-1.4-1.4zM16.2 6.3l2.9-2.8 1.4 1.4-2.8 2.9-1.5-1.5z'/%3E%3C/svg%3E");
 	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm-1-6h2v4h-2V1zm0 18h2v4h-2v-4zM1 11h4v2H1v-2zm18 0h4v2h-4v-2zM3.5 4.9L4.9 3.5l2.9 2.8-1.5 1.5-2.8-2.9zm12.7 12.7l1.5-1.5 2.8 2.9-1.4 1.4-2.9-2.8zM3.5 19.1l2.8-2.9 1.5 1.5-2.9 2.8-1.4-1.4zM16.2 6.3l2.9-2.8 1.4 1.4-2.8 2.9-1.5-1.5z'/%3E%3C/svg%3E");
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Mobile wave — centered surfaces · compact frontmatter · visible arming
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── File-explorer list centered for one-thumb reach ──────────────────────────
+   The tree column caps and centres in the pane, and a symmetric inline inset
+   pulls the rows toward the middle of the glass instead of the far left edge —
+   reachable without re-gripping the phone. */
+body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
+	max-width: 480px;
+	margin-inline: auto;
+	padding-inline: clamp(8px, 6vw, 40px);
+}
+
+/* ── For You on a phone: a deliberately centered column, vertically too ───────
+   Inline: a narrower cap than the desktop 760px (88% of the pane, never more
+   than 480px), so the column reads as placed, not full-bleed. Block: the scroll
+   pane becomes a flex column with two equal flexible spacers (the ::before /
+   ::after pseudo flex items). While the content is shorter than the screen the
+   spacers share the slack and a short queue sits at the viewport's vertical
+   centre — within thumb reach; as content grows they shrink continuously to
+   zero, so the page anchors to the top with no jump once it spans the screen. */
+body.is-mobile .nkui-now {
+	display: flex;
+	flex-direction: column;
+}
+/* The unlock scrim is exempt: it must cover the FULL pane (a capped absolute
+   box would drop right:0 and leave an edge strip of live queue tappable). */
+body.is-mobile .nkui-now > *:not(.nkui-queue-lock) {
+	flex: 0 0 auto;
+	width: 100%;
+	max-width: min(480px, 88%);
+}
+body.is-mobile .nkui-now::before,
+body.is-mobile .nkui-now::after {
+	content: "";
+	flex: 1 1 0;
+}
+
+/* ── Mobile frontmatter — the properties block compacts ───────────────────────
+   A dedicated body.is-mobile rule set (NOT calm-reading forced on): shallow
+   rows, tight gaps, a narrower key column, and tag / multi-select rows that
+   wrap cleanly inside the screen — prior art: the calm-reading compaction and
+   the tag-pill centring rules above. Font sizes stay untouched (the qaddinput
+   lesson: shrinking text under 16px invites the iOS focus-zoom). */
+body.is-mobile .metadata-container {
+	--metadata-gap: 2px;
+	padding-block: var(--nkui-gap-2xs);
+}
+body.is-mobile .metadata-property {
+	min-height: 30px; /* compact but still a comfortable tap target */
+	padding-block: 0;
+	align-items: center;
+}
+body.is-mobile .metadata-property-key {
+	min-width: 0;
+	width: 34%;
+	flex: 0 0 auto;
+}
+body.is-mobile .metadata-property-value {
+	min-width: 0;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+body.is-mobile .metadata-property-value :is(input, .metadata-input-longtext, .metadata-input-text) {
+	min-height: 0;
+	padding-block: 2px;
+}
+/* Tag / multi-select rows wrap as tidy pill lines instead of jumbling: pills
+   centre on each line, never exceed the row, and the trailing add-tag input
+   flexes onto the next line rather than forcing the row wide. */
+body.is-mobile .metadata-property-value .multi-select-container {
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--nkui-gap-2xs);
+	padding-block: 1px;
+}
+body.is-mobile .metadata-property-value .multi-select-pill {
+	max-width: 100%;
+	min-width: 0;
+}
+body.is-mobile .metadata-property-value .multi-select-pill .multi-select-pill-content {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+body.is-mobile .metadata-property-value .multi-select-input {
+	min-width: 4em;
+	flex: 1 1 4em;
+}
+
+/* ── Mobile hold affordance — arming must be unmistakable under a thumb ───────
+   Touch has no hover: while a hold is arming, the fill doubles its contrast and
+   the control steps brighter and a hair larger, one treatment on every hold
+   (approve gate, approve all, undo — all carry one of these two classes). The
+   fill's sweep IS the progress readout; these rules make it legible in
+   daylight. The close-offer's depleting fill takes the same stronger contrast. */
+body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding {
+	opacity: 1;
+	filter: brightness(1.12);
+	transform: scale(1.03);
+}
+body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding::before {
+	opacity: 0.45;
+}
+body.is-mobile .nkui-close-offer::before {
+	opacity: 0.32;
+}
+/* The arming wash on the candidates steps up too, so what a commit would file
+   is readable at arm's length. */
+body.is-mobile .nkui-now-group.is-arming .nkui-now-row-draft {
+	background: color-mix(in srgb, var(--nkui-row-color, var(--interactive-accent)) 24%, transparent);
+}
+body.is-mobile .nkui-now-group.is-arming > .nkui-now-group-head {
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 22%, transparent);
+}
+
+/* ── Sidebar queue dock — a queue view living in the narrow right sidebar ─────
+   The wide-page column treatment collapses: full-width rows, a tighter head,
+   a smaller title. Body rows are the same nkui-now-* parts and need nothing. */
+/* The unlock scrim's inset:0 must mean "this view's content", not whichever
+   Obsidian ancestor happens to be positioned. */
+.nkui-now.nkui-queue {
+	position: relative;
+}
+.nkui-now.nkui-queue-side > * {
+	max-width: 100%;
+}
+.nkui-queue-side .nkui-queue-head {
+	margin-bottom: var(--nkui-gap-m);
+}
+.nkui-queue-side .nkui-queue-title {
+	font-size: 1.15em;
+}
+
+/* ── Queue unlock scrim — the "are you sure?" gate on a sidebar queue reveal.
+   Full-bleed over the view content; the only exit is the press-and-hold button,
+   which speaks the shared hold language (sweeping fill on --nkui-hold). ─────── */
+.nkui-queue-lock {
+	position: absolute;
+	inset: 0;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--nkui-gap-m);
+	padding: var(--nkui-gap-l);
+	text-align: center;
+	background: color-mix(in srgb, var(--background-primary) 78%, transparent);
+	-webkit-backdrop-filter: blur(6px);
+	backdrop-filter: blur(6px);
+}
+/* Mobile is the gate's home and old phones its target hardware: the scrim
+   paints at the moment the drawer-slide animates, and a near-full-pane
+   backdrop blur sampled per frame can halve that animation's frame rate —
+   a denser wash carries the legibility instead. */
+body.is-mobile .nkui-queue-lock {
+	background: color-mix(in srgb, var(--background-primary) 94%, transparent);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
+.nkui-queue-lock-title {
+	font-size: 1.2em;
+	font-weight: 700;
+}
+.nkui-queue-lock-text {
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+	max-width: 26em;
+}
+.nkui-queue-lock-btn {
+	position: relative;
+	z-index: 0;
+	overflow: hidden;
+	cursor: pointer;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--nkui-radius);
+	background: transparent;
+	color: var(--text-normal);
+	padding: 0.45em 1.1em;
+	font-size: var(--font-ui-small, 13px);
+}
+.nkui-queue-lock-btn::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background: currentColor;
+	opacity: 0.22;
+	transform: scaleX(0);
+	transform-origin: left center;
+}
+.nkui-queue-lock-btn.is-holding::before {
+	transform: scaleX(1);
+	transition: transform var(--nkui-hold) linear;
+}
+/* Animations off → the fill snaps, like every other hold. */
+body:not(.nkui-anim) .nkui-queue-lock-btn.is-holding::before {
+	transition: none !important;
+}
+body.is-mobile .nkui-queue-lock-btn.is-holding {
+	filter: brightness(1.12);
+	transform: scale(1.03);
+}
+body.is-mobile .nkui-queue-lock-btn.is-holding::before {
+	opacity: 0.45;
+}
+
+/* ── Keyboard-done button — shares the qaddsubmit bare-icon block above; only
+   present while the box is being typed in, so it never crowds the slim input
+   at rest. ──────────────────────────────────────────────────────────────────── */
+.nkui-now-qadddone {
+	display: none;
+}
+body.is-mobile .nkui-now-qadd:focus-within .nkui-now-qadddone {
+	display: inline-flex;
 }

@@ -1,4 +1,4 @@
-import { TFile, TFolder, Vault, debounce } from "obsidian";
+import { TFile, TFolder, Vault, debounce, type Debouncer } from "obsidian";
 import type NoteKitUiPlugin from "./main";
 
 /**
@@ -34,7 +34,7 @@ import type NoteKitUiPlugin from "./main";
 export class ExplorerDecorator {
 	private plugin: NoteKitUiPlugin;
 	private observers: MutationObserver[] = [];
-	private redraw: () => void;
+	private redraw: Debouncer<[], void>;
 
 	/** Declared sink folder names (settings.sinkFolders), prefix-stripped and
 	 * lower-cased — a folder anywhere whose own name matches is a sink. */
@@ -50,12 +50,34 @@ export class ExplorerDecorator {
 	/** Counts-only refresh — much cheaper than decorateAll; the explorer is a
 	 * virtualized list, so scroll fires mutation batches constantly and a full
 	 * decorate+reorder pass per batch reads as dropped frames. */
-	private countsRefresh: () => void;
+	private countsRefresh: Debouncer<[], void>;
+	/** Scroll-settle re-decoration — the explorer recycles rows as it scrolls,
+	 * and a reused row can surface carrying another path's decoration (a wash
+	 * that "follows scroll") or none at all (a folder-note index blank until
+	 * scrolled away and back). Decoration-only (no counts), debounced trailing
+	 * so a fling costs ONE pass after the scroll settles, not work per frame. */
+	private scrollRedraw: Debouncer<[], void>;
+	/** Containers whose scroll listener is already attached — attachObservers
+	 * re-runs on every layout-change and must not stack duplicate listeners. */
+	private scrollBound = new WeakSet<HTMLElement>();
+	/** The path each element was last decorated as — recycling implies a
+	 * data-path swap, so the stale-mark hygiene only needs to run when the
+	 * stored path differs; same path means nothing can be stale. */
+	private lastDecoratedPath = new WeakMap<HTMLElement, string>();
+	/** folderPath → borrowed colour. topChildTypeColor sorts + reads metadata
+	 * per call — the heaviest per-row cost in decorate — so each pass pays it
+	 * once per unique folder; vault/metadata events invalidate. */
+	private folderColorCache = new Map<string, string | null>();
 
 	constructor(plugin: NoteKitUiPlugin) {
 		this.plugin = plugin;
 		this.redraw = debounce(() => this.decorateAll(), 150, false);
 		this.countsRefresh = debounce(() => void this.updateCounts(), 600, false);
+		// resetTimer: TRUE — each scroll event pushes the deadline back, so the
+		// pass runs once on settle; with false this is a 10Hz throttle that runs
+		// the full pass DURING the fling, the exact churn the counts-only fix
+		// removed.
+		this.scrollRedraw = debounce(() => this.decorateRendered(), 100, true);
 	}
 
 	start(): void {
@@ -69,6 +91,7 @@ export class ExplorerDecorator {
 			app.metadataCache.on("changed", (file) => {
 				// Targeted row + counts only — "changed" fires continuously while the
 				// user types; a debounced FULL pass here cost visible frame drops.
+				this.folderColorCache.clear();
 				this.decorateByPath(file.path);
 				this.countsRefresh();
 			})
@@ -76,12 +99,23 @@ export class ExplorerDecorator {
 		this.plugin.registerEvent(app.metadataCache.on("resolved", this.redraw));
 		this.plugin.registerEvent(
 			app.vault.on("rename", (file) => {
+				this.folderColorCache.clear();
 				this.decorateByPath(file.path);
 				this.redraw();
 			})
 		);
-		this.plugin.registerEvent(app.vault.on("create", this.redraw));
-		this.plugin.registerEvent(app.vault.on("delete", this.redraw));
+		this.plugin.registerEvent(
+			app.vault.on("create", () => {
+				this.folderColorCache.clear();
+				this.redraw();
+			})
+		);
+		this.plugin.registerEvent(
+			app.vault.on("delete", () => {
+				this.folderColorCache.clear();
+				this.redraw();
+			})
+		);
 		// A queue's actionable state changes by CONTENT (a box toggled, a task
 		// added/edited) — that fires 'modify', not a metadata change — so refresh the
 		// queue highlight on it.
@@ -106,6 +140,11 @@ export class ExplorerDecorator {
 	stop(): void {
 		for (const o of this.observers) o.disconnect();
 		this.observers = [];
+		// A pending refresh firing after unload would re-inject badges into the
+		// explorer of a dead plugin.
+		this.redraw.cancel();
+		this.countsRefresh.cancel();
+		this.scrollRedraw.cancel();
 		this.clearAll();
 		// Hand the row order back to Obsidian — observers are gone, so this can't loop.
 		this.resortExplorer();
@@ -125,6 +164,7 @@ export class ExplorerDecorator {
 
 	private compile(): void {
 		const s = this.plugin.settings;
+		this.folderColorCache.clear(); // type colours / settings may have changed
 		// A "sink" is a declared low-attention folder (settings.sinkFolders, e.g.
 		// Archive): a folder anywhere whose name — prefix-stripped, case-insensitive
 		// — equals an entry. The stylesheet dims its whole subtree.
@@ -188,6 +228,13 @@ export class ExplorerDecorator {
 				attributeFilter: ["data-path"],
 			});
 			this.observers.push(obs);
+			// Row recycling can reveal a row without any observable mutation (the
+			// virtualizer repositions existing nodes) — a settled scroll re-runs
+			// the decoration pass so every visible row paints correctly.
+			if (!this.scrollBound.has(c)) {
+				this.scrollBound.add(c);
+				this.plugin.registerDomEvent(c, "scroll", () => this.scrollRedraw(), { passive: true });
+			}
 		}
 	}
 
@@ -208,7 +255,16 @@ export class ExplorerDecorator {
 		const toOrder = new Set<HTMLElement>();
 		for (const m of muts) {
 			if (m.type === "attributes" && m.target instanceof HTMLElement) {
-				if (m.target.matches(".nav-file-title, .nav-folder-title")) this.decorate(m.target, s);
+				if (m.target.matches(".nav-file-title, .nav-folder-title")) {
+					this.decorate(m.target, s);
+					// A data-path swap is a RECYCLED row — its folder's weight heat
+					// and float order were computed for the old path. Recycling is
+					// continuous during a fling, so ordering here per batch would
+					// re-attach reorder work to the hottest event stream in the
+					// plugin; the settled pass reorders every container instead (a
+					// genuine rename settles ≤100ms later, imperceptible).
+					this.scrollRedraw();
+				}
 				continue;
 			}
 			if (m.target instanceof HTMLElement) {
@@ -257,6 +313,15 @@ export class ExplorerDecorator {
 	// ── decoration ─────────────────────────────────────────────────────────────
 
 	private decorateAll(): void {
+		this.decorateRendered();
+		void this.updateCounts();
+	}
+
+	/** Decoration + ordering over every RENDERED row, counts excluded — the
+	 * virtualized explorer only keeps the visible rows in the DOM, so this is
+	 * cheap, and the scroll-settle pass (scrollRedraw) uses it to re-stamp
+	 * recycled rows without re-reading the queue files. */
+	private decorateRendered(): void {
 		const s = this.plugin.settings;
 		for (const c of this.containers()) {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
@@ -271,7 +336,6 @@ export class ExplorerDecorator {
 				this.reorderChildren(cc)
 			);
 		}
-		void this.updateCounts();
 	}
 
 	/** The element whose direct children are the vault root's tree-items.
@@ -336,6 +400,10 @@ export class ExplorerDecorator {
 			let badge = el.querySelector<HTMLElement>(".nkui-queue-count");
 			if (n <= 0) {
 				badge?.remove();
+				// The tooltip lives on the ROW — without this an emptied queue
+				// keeps advertising its last nonzero count.
+				el.removeAttribute("aria-label");
+				el.removeAttribute("title");
 				continue;
 			}
 			if (!badge) badge = el.createSpan({ cls: "nkui-queue-count" });
@@ -390,6 +458,13 @@ export class ExplorerDecorator {
 	private decorate(el: HTMLElement, s = this.plugin.settings): void {
 		const path = el.getAttribute("data-path");
 		if (!path) return;
+		// Stale marks exist only when the element was recycled onto a NEW path —
+		// same path since the last pass means the hygiene strips below can be
+		// skipped (2-3 selector queries + ~8 attribute removals per row per pass
+		// add up at a few hundred rendered rows). Regular stamping still runs:
+		// frontmatter can change without a path swap.
+		const recycled = this.lastDecoratedPath.get(el) !== path;
+		this.lastDecoratedPath.set(el, path);
 		const isFolder = el.classList.contains("nav-folder-title");
 		const leaf = path.split("/").pop() ?? path;
 		const name = isFolder ? leaf : leaf.replace(/\.md$/i, "");
@@ -408,6 +483,21 @@ export class ExplorerDecorator {
 			this.setAttr(el, "data-nkui-sink", isSink ? "" : null);
 			const wrapper = el.closest<HTMLElement>(".nav-folder");
 			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", isSink ? "" : null);
+
+			// (a1) workflow role — the inbox/outbox folders are the kit's working
+			// mouths, not content; the stylesheet keys an identity wash on the role.
+			// Configured paths first (both queue-folder settings), CONFIG literals
+			// next, the bare name at the vault ROOT only as the CONFIG-less
+			// fallback (mirroring rootRank).
+			const facts = this.plugin.kitFacts;
+			const atRoot = !path.includes("/");
+			const role =
+				s.inboxFolders.includes(path) || path === facts?.inboxLiteral || (!facts && atRoot && bare === "inbox")
+					? "inbox"
+					: s.nowQueueFolders.includes(path) || path === facts?.outboxLiteral || (!facts && atRoot && bare === "outbox")
+						? "outbox"
+						: null;
+			this.setAttr(el, "data-nkui-role", role);
 
 			// Type-named folder colouring: a folder whose name — with any numeric
 			// prefix stripped — is a note type (02-Projects or plain Projects →
@@ -430,6 +520,36 @@ export class ExplorerDecorator {
 			this.setAttr(el, "data-nkui-folder-type", ftype ?? (fcolor ? "child" : null));
 			if (fcolor) el.style.setProperty("--nkui-folder-color", fcolor);
 			else el.style.removeProperty("--nkui-folder-color");
+
+			// Recycled-row hygiene: the explorer reuses elements while scrolling,
+			// so a folder title can surface still carrying a previous FILE row's
+			// marks — clear everything a folder never owns, so stale decoration
+			// can't appear to follow the scroll. Only on a path swap (see above).
+			if (recycled) {
+				for (const a of [
+					"data-nkui-type",
+					"data-nkui-reviewed",
+					"data-nkui-queue",
+					"data-nkui-queue-active",
+					"data-nkui-float",
+					"data-nkui-cover",
+					"data-nkui-weight",
+				]) {
+					el.removeAttribute(a);
+				}
+				el.querySelector(".nkui-weight-badge")?.remove();
+				const staleQ = el.querySelector(".nkui-queue-count");
+				if (staleQ) {
+					staleQ.remove();
+					// The queue badge carried its tooltip on the ROW (setQueueBadge).
+					el.removeAttribute("aria-label");
+					el.removeAttribute("title");
+				}
+				el.style.removeProperty("--nkui-weight-heat");
+				// A stale inbox pill on a folder that is NOT an inbox (updateCounts
+				// only ever touches rows matching the configured inbox paths).
+				if (!s.inboxFolders.includes(path)) el.querySelector(".nkui-inbox-count")?.remove();
+			}
 		}
 
 		// (a2) uncategorized — a vault-ROOT item the kit doesn't recognise: a root
@@ -451,6 +571,25 @@ export class ExplorerDecorator {
 			// folder and gives them the same accent as their For You buckets.
 			const isQueue = path === s.userQueuePath || path === s.machineQueuePath;
 			this.setAttr(el, "data-nkui-queue", isQueue ? "true" : null);
+
+			// Recycled-row hygiene (the file-row mirror of the folder branch):
+			// drop folder-only marks and another path's badges so a reused element
+			// never shows the previous row's decoration. Only on a path swap.
+			if (recycled) {
+				this.setAttr(el, "data-nkui-folder-type", null);
+				el.removeAttribute("data-nkui-role");
+				el.style.removeProperty("--nkui-folder-color");
+				el.querySelector(".nkui-inbox-count")?.remove();
+				if (!isQueue) {
+					const staleQ = el.querySelector(".nkui-queue-count");
+					if (staleQ) {
+						staleQ.remove();
+						// The queue badge carried its tooltip on the ROW (setQueueBadge).
+						el.removeAttribute("aria-label");
+						el.removeAttribute("title");
+					}
+				}
+			}
 
 			const fm = this.plugin.app.metadataCache.getCache(path)?.frontmatter;
 			let typeHit: string | null = null;
@@ -490,14 +629,17 @@ export class ExplorerDecorator {
 			let badge = el.querySelector<HTMLElement>(".nkui-weight-badge");
 			if (w > 0) {
 				if (!badge) badge = el.createSpan({ cls: "nkui-weight-badge" });
-				const text = `w${w}`;
+				// A labelled value, not a bare number — "weight: N" reads on its own.
+				const text = `weight: ${w}`;
 				if (badge.textContent !== text) badge.setText(text);
-				badge.setAttr(
-					"aria-label",
-					"standard weight — how many times the kit has re-derived this rule"
-				);
+				const tip = "standard weight — how many times the kit has re-derived this rule; heavier sorts first";
+				badge.setAttr("aria-label", tip);
+				badge.setAttr("title", tip);
 			} else {
 				badge?.remove();
+				// An unweighted row carries no heat — clear a recycled element's
+				// leftover wash now; reorderChildren re-scales the weighted rows.
+				el.style.removeProperty("--nkui-weight-heat");
 			}
 		}
 
@@ -572,6 +714,14 @@ export class ExplorerDecorator {
 	 * carries a colour.
 	 */
 	private topChildTypeColor(folderPath: string): string | null {
+		const cached = this.folderColorCache.get(folderPath);
+		if (cached !== undefined) return cached;
+		const color = this.computeTopChildTypeColor(folderPath);
+		this.folderColorCache.set(folderPath, color);
+		return color;
+	}
+
+	private computeTopChildTypeColor(folderPath: string): string | null {
 		const folder = this.plugin.app.vault.getAbstractFileByPath(folderPath);
 		if (!(folder instanceof TFolder)) return null;
 		const files = folder.children
@@ -846,6 +996,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-float");
 				el.removeAttribute("data-nkui-cover");
 				el.removeAttribute("data-nkui-sink");
+				el.removeAttribute("data-nkui-role");
 				el.removeAttribute("data-nkui-uncat");
 				el.removeAttribute("data-nkui-weight");
 				el.style.removeProperty("--nkui-weight-heat");

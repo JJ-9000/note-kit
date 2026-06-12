@@ -101,8 +101,8 @@ interface OutboxDrop {
 
 /**
  * The kit's front page. Surfaces what needs you (drafts grouped by type),
- * active work, the two kit queues as live checklists — the AI→you "Decide"
- * decisions and the you→AI "Queue" you can add to — and a recency feed.
+ * active work, and the two kit queues as live checklists — the AI→you
+ * "Decide" decisions and the you→AI "Queue" you can add to.
  *
  * Reads metadataCache + file stats for the file lists; reads/writes only the two
  * queue files (toggling [x] and appending items), which exist for exactly that.
@@ -502,7 +502,7 @@ export class NowView extends ItemView {
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
 		renderReducedRow(list, {
 			title: label,
-			note: "runs next agent pass",
+			note: "awaiting action agent",
 			struck: true,
 			checkbox: {
 				checked: true,
@@ -839,7 +839,8 @@ export class NowView extends ItemView {
 		// No leading "gate +N": it's redundant with the "undo gate +N" at the
 		// end of the line. Status and undo are grid cells (nkui-cols) — the list grid
 		// aligns them across waiting rows, gate or lone file, on any pane width.
-		row.createSpan({ cls: "nkui-now-fatenote nkui-now-waittext nkui-col-meta", text: "awaiting filing" });
+		// Agent-explicit: the row names WHO it waits for, not just that it waits.
+		row.createSpan({ cls: "nkui-now-fatenote nkui-now-waittext nkui-col-meta", text: "awaiting filing agent" });
 		// "undo +N" — a press-and-hold (the gate-approve language) that sends the gate
 		// and its N members back to drafts; the +N marks the gated set. A single tap
 		// unfolds the gated member files beneath the row instead.
@@ -1075,10 +1076,11 @@ export class NowView extends ItemView {
 			// the row only reports that the files still wait on the filing-agent.
 			const wslot = set.createSpan("nkui-now-waitslot");
 			if (e.awaitingFiling) {
-				// Full note on desktop; "approved" on mobile, inline on the item's
-				// line (the title truncates instead of the row stacking).
-				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-long", text: "awaiting filing" });
-				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-short", text: "awaiting" });
+				// Full note on desktop; a compact agent name on mobile, inline on
+				// the item's line (the title truncates instead of the row
+				// stacking). Both name the agent the row waits for.
+				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-long", text: "awaiting filing agent" });
+				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-short", text: "filing agent" });
 			}
 
 			// A gate stands in for a folded working-set: a quiet "+N" marks how
@@ -1204,8 +1206,8 @@ export class NowView extends ItemView {
 
 	/** Acknowledge a non-choice notification — the shared write appends the
 	 * sanctioned option text checked under its heading, so it parses as a
-	 * resolved decision (the dimmed, struck "runs next agent pass" row) and the
-	 * action-agent clears it next pass. */
+	 * resolved decision (the dimmed, struck "awaiting action agent" row) and
+	 * the action-agent clears it next pass. */
 	private async acknowledge(path: string, d: Decision): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (f instanceof TFile) await queueWrites.acknowledge(this.app.vault, f, d);
@@ -1240,8 +1242,10 @@ export class NowView extends ItemView {
 		await this.reloadAndRender();
 		const box = this.machineAddInput;
 		if (box) {
-			box.focus();
 			autoGrow(box);
+			// Desktop types tasks in a run — re-focus the re-created box. Mobile
+			// must NOT: re-focusing re-summons the just-dismissed iOS keyboard.
+			if (!Platform.isMobile) box.focus();
 		}
 	}
 
@@ -1716,7 +1720,10 @@ export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => v
 	submitBtn.addEventListener("click", (ev) => {
 		ev.preventDefault();
 		submit();
-		input.focus();
+		// Desktop keeps focus for the next task; mobile blurs so the iOS
+		// keyboard retracts once the task is in.
+		if (Platform.isMobile) input.blur();
+		else input.focus();
 	});
 	input.addEventListener("input", () => autoGrow(input));
 	input.addEventListener("keydown", (ev) => {
@@ -1725,6 +1732,23 @@ export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => v
 			submit();
 		}
 	});
+	// Mobile-only "done" — blurs the field so the soft keyboard retracts (the
+	// return key inserts a newline here, so nothing else dismisses it). The
+	// stylesheet shows it only while the box has focus.
+	if (Platform.isMobile) {
+		const done = add.createEl("button", { cls: "nkui-now-qadddone" });
+		setIcon(done, "check");
+		done.setAttr("aria-label", "Done — dismiss the keyboard");
+		// preventDefault on pointerdown keeps the tap from moving focus to the
+		// button first — and suppresses the click on some mobile platforms (the
+		// attachHold lesson), so the blur rides pointerup, not click.
+		done.addEventListener("pointerdown", (ev) => ev.preventDefault());
+		done.addEventListener("pointerup", (ev) => {
+			ev.preventDefault();
+			const ae = document.activeElement;
+			if (ae instanceof HTMLElement) ae.blur();
+		});
+	}
 	return input;
 }
 

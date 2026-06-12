@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, setIcon, debounce } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, setIcon, debounce, Platform } from "obsidian";
 import {
 	Decision,
 	QueueItem,
@@ -14,7 +14,7 @@ import {
 } from "./nowView";
 import * as queueWrites from "./queueWrites";
 import { CHECKBOX_RE } from "./queueWrites";
-import { attachKeyActivate } from "./holds";
+import { attachHold, attachKeyActivate } from "./holds";
 import type NoteKitUiPlugin from "./main";
 
 export const QUEUE_VIEW_TYPE = "note-kit-queue";
@@ -47,6 +47,11 @@ export class QueueView extends ItemView {
 	/** The add-task box (machine mode) — re-focused after an add re-render. */
 	private addInput: HTMLTextAreaElement | null = null;
 	private scheduleRender: () => void;
+	/** Mobile sidebar gate: while true the rendered queue sits behind an
+	 * "are you sure?" hold-to-unlock scrim (a swipe-left opens the drawer with
+	 * the finger already over the content — a write surface must not take that
+	 * landing as a tap). Re-armed by main.ts on each drawer open. */
+	private sideLocked = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
 		super(leaf);
@@ -94,6 +99,9 @@ export class QueueView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
+		// A sidebar-hosted queue on mobile starts locked — the first reveal is a
+		// swipe, and the gate must already be up for it.
+		if (Platform.isMobile && this.isSideLeaf()) this.sideLocked = true;
 		// React to the queue file changing under us (an agent pass, a sync).
 		this.registerEvent(
 			this.app.vault.on("modify", (f) => {
@@ -112,6 +120,13 @@ export class QueueView extends ItemView {
 				this.scheduleRender();
 			})
 		);
+		// Dragging the leaf between the sidebar and the main area changes which
+		// styling applies — re-stamp on layout changes, render() reads it fresh.
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.contentEl.toggleClass("nkui-queue-side", this.isSideLeaf());
+			})
+		);
 		await this.reloadAndRender();
 	}
 
@@ -128,6 +143,47 @@ export class QueueView extends ItemView {
 	 * checklist shape applies. */
 	private isUserQueue(): boolean {
 		return this.filePath === this.plugin.settings.userQueuePath;
+	}
+
+	/** True when this leaf lives in a sidebar dock, where the narrow-width
+	 * styling and the mobile unlock gate apply. Tested against the splits
+	 * directly — "not rootSplit" would also catch a desktop popout window,
+	 * which is full-size and wants the normal page treatment. */
+	private isSideLeaf(): boolean {
+		const root = this.leaf.getRoot();
+		const ws = this.app.workspace;
+		return root === ws.leftSplit || root === ws.rightSplit;
+	}
+
+	/** Re-arm the sidebar unlock gate — called by main.ts when the right drawer
+	 * flips open (the swipe), and a no-op everywhere else. */
+	lockForReveal(): void {
+		if (!Platform.isMobile || !this.isSideLeaf() || this.sideLocked) return;
+		this.sideLocked = true;
+		this.renderLockOverlay(this.contentEl);
+	}
+
+	/** The "are you sure?" scrim over a sidebar-hosted queue: every interaction
+	 * waits behind a press-and-hold (the kit's shared commit gesture), so the
+	 * swipe that opened the drawer can't fall through onto a live control. */
+	private renderLockOverlay(c: HTMLElement): void {
+		if (c.querySelector(".nkui-queue-lock")) return;
+		const scrim = c.createDiv("nkui-queue-lock");
+		scrim.createDiv({ cls: "nkui-queue-lock-title", text: "Are you sure?" });
+		scrim.createDiv({
+			cls: "nkui-queue-lock-text",
+			text: "This queue writes for the agents — unlock it to interact.",
+		});
+		const btn = scrim.createEl("button", { cls: "nkui-queue-lock-btn", text: "hold to unlock" });
+		const hint = "Hold to unlock the queue";
+		btn.setAttr("aria-label", hint);
+		btn.setAttr("title", hint);
+		attachHold(btn, {
+			onCommit: () => {
+				this.sideLocked = false;
+				scrim.remove();
+			},
+		});
 	}
 
 	private async reloadAndRender(): Promise<void> {
@@ -160,10 +216,12 @@ export class QueueView extends ItemView {
 		// column (`.nkui-now > *`), the page padding, the stable scrollbar gutter.
 		c.addClass("nkui-now");
 		c.addClass("nkui-queue");
+		// A sidebar dock is narrow — the stylesheet keys compact spacing off this.
+		c.toggleClass("nkui-queue-side", this.isSideLeaf());
 
 		const f = this.file();
 		const user = this.isUserQueue();
-		// Which queue this page is — a hook per surface for the stylesheet.
+		// Which queue this page is — semantic markers (no CSS keys on them yet).
 		c.toggleClass("nkui-queue-user", user);
 		c.toggleClass("nkui-queue-machine", !user);
 		// The queue pages share the theme accent tint (both queues render with
@@ -202,6 +260,8 @@ export class QueueView extends ItemView {
 		const list = c.createDiv("nkui-now-list");
 		if (user) this.renderDecisions(list);
 		else this.renderChecklist(list);
+		// The mobile sidebar gate survives re-renders until its hold commits.
+		if (this.sideLocked) this.renderLockOverlay(c);
 	}
 
 	/** Switch this leaf to the normal markdown view for the file. The path joins
@@ -264,8 +324,10 @@ export class QueueView extends ItemView {
 		await this.reloadAndRender();
 		const box = this.addInput;
 		if (box) {
-			box.focus();
 			autoGrow(box);
+			// Desktop types tasks in a run — re-focus the re-created box. Mobile
+			// must NOT: re-focusing re-summons the just-dismissed iOS keyboard.
+			if (!Platform.isMobile) box.focus();
 		}
 	}
 
@@ -398,7 +460,7 @@ export class QueueView extends ItemView {
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
 		renderReducedRow(list, {
 			title: label,
-			note: "runs next agent pass",
+			note: "awaiting action agent",
 			struck: true,
 			checkbox: {
 				checked: true,

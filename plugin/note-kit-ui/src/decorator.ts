@@ -9,6 +9,8 @@ import type NoteKitUiPlugin from "./main";
  *   data-nkui-uncat    (a2) vault-root item the kit doesn't recognise
  *   data-nkui-empty    (b) empty content — a 0-byte file, or a folder with no
  *                      children (dimmer + smaller, like sink; stylesheet)
+ *   data-nkui-nonmd    (e4) non-markdown file (asset/binary) — diminutive,
+ *                      sink-like dim + small (stylesheet)
  *   data-nkui-type     (c) note type (only for types with a configured colour)
  *   data-nkui-reviewed (d) "false" on unreviewed drafts
  *   data-nkui-weight   (w) frontmatter `weight` > 0, with a w<n> badge and a
@@ -19,19 +21,23 @@ import type NoteKitUiPlugin from "./main";
  * legacy numeric-prefix vaults resolve their roles, but no styling or
  * attribute is keyed on prefixes anymore.
  *
- * Also ORDERS the explorer when float-to-top is on (settings.floatTopTypes):
- * inside each folder the floated types lead (weighted siblings sort by weight
- * desc within their band when settings.sortByWeight is on), then the
- * cover/index note, then the queues; at the vault root the kit folders take
- * their semantic order (inbox →
- * outbox → projects → areas → references → snippets, archive last). Ordering is
- * a physical DOM reorder (insertBefore inside .nav-folder-children) — NEVER a
- * flex/order CSS override on the container, which broke Obsidian's collapse
- * height animation and clipped rows (removed in 0.4.52).
+ * Also ORDERS the explorer when float-to-top is on (settings.floatTopTypes) —
+ * not by moving DOM nodes, but by patching the file-explorer view's internal
+ * `getSortedFolderItems` (see patchExplorerSort) so rows are BORN in kit
+ * order: inside each folder the two configured queue files lead, then the
+ * floated types (weighted siblings sort by weight desc within their band when
+ * settings.sortByWeight is on), then the cover/index note, then everything
+ * else in native order; at the vault root the kit folders take their semantic
+ * order (inbox → outbox → projects → areas → references → snippets, archive
+ * last). The previous mechanism — post-hoc insertBefore moves after Obsidian
+ * rendered — was removed in 0.4.65: the virtualized explorer re-renders rows
+ * in ITS order on every change and moving them afterwards read as the list
+ * shuffling, forever. (CSS flex/order overrides were ruled out even earlier,
+ * in 0.4.52 — they broke the collapse height animation.)
  *
- * All DOM writes are idempotent: re-running on an already-decorated row produces
- * no mutation, and re-running the reorder on an ordered container moves nothing,
- * so the MutationObserver that drives re-decoration cannot loop.
+ * All DOM writes are idempotent: re-running on an already-decorated row
+ * produces no mutation, so the MutationObserver that drives re-decoration
+ * cannot loop.
  */
 export class ExplorerDecorator {
 	private plugin: NoteKitUiPlugin;
@@ -56,10 +62,9 @@ export class ExplorerDecorator {
 	/** Scroll-settle re-decoration — the explorer recycles rows as it scrolls,
 	 * and a reused row can surface carrying another path's decoration (a wash
 	 * that "follows scroll") or none at all (a folder-note index blank until
-	 * scrolled away and back). Decoration-only (no counts, and NO ordering —
-	 * moving rows at scroll-settle read as the list re-sorting under the
-	 * finger, the 0.4.63 snap), debounced trailing so a fling costs ONE pass
-	 * after the scroll settles, not work per frame. */
+	 * scrolled away and back). Decoration-only (no counts; row order is the
+	 * sort patch's, nothing here ever moves a node), debounced trailing so a
+	 * fling costs ONE pass after the scroll settles, not work per frame. */
 	private scrollRedraw: Debouncer<[], void>;
 	/** Containers whose scroll listener is already attached — attachObservers
 	 * re-runs on every layout-change and must not stack duplicate listeners. */
@@ -72,6 +77,20 @@ export class ExplorerDecorator {
 	 * per call — the heaviest per-row cost in decorate — so each pass pays it
 	 * once per unique folder; vault/metadata events invalidate. */
 	private folderColorCache = new Map<string, string | null>();
+	/** Explorer views whose getSortedFolderItems is wrapped → what restores it
+	 * (the saved own-property value, or "delete the wrapper" when the method
+	 * lived on the prototype). Patched per view INSTANCE, never the prototype,
+	 * so another plugin's prototype patch is left alone. */
+	private sortPatched = new Map<Record<string, unknown>, { hadOwn: boolean; original: unknown }>();
+	/** Log the missing-hook warning once per session, not per leaf per layout. */
+	private sortPatchWarned = false;
+	/** path → the metadata the sort rank reads (`type|weight`). 'changed' fires
+	 * continuously while the user types; only an edit that MOVES a row should
+	 * cost a re-sort, so the handler compares against this and nudges the
+	 * explorer only on a real rank-input change. */
+	private rankKeys = new Map<string, string>();
+	/** Debounced explorer re-sort for metadata-driven rank changes. */
+	private sortRefresh: Debouncer<[], void>;
 
 	constructor(plugin: NoteKitUiPlugin) {
 		this.plugin = plugin;
@@ -82,6 +101,7 @@ export class ExplorerDecorator {
 		// the full pass DURING the fling, the exact churn the counts-only fix
 		// removed.
 		this.scrollRedraw = debounce(() => this.decorateRendered(), 100, true);
+		this.sortRefresh = debounce(() => this.resortExplorer(), 250, true);
 	}
 
 	start(): void {
@@ -98,6 +118,14 @@ export class ExplorerDecorator {
 				this.folderColorCache.clear();
 				this.decorateByPath(file.path);
 				this.countsRefresh();
+				// Row ORDER is born in the patched sort, which only reruns when the
+				// explorer is asked — so a type/weight edit (the rank inputs) nudges
+				// it. Body edits leave the key unchanged and never cost a re-sort.
+				const key = this.rankKey(file.path);
+				if (this.rankKeys.get(file.path) !== key) {
+					this.rankKeys.set(file.path, key);
+					this.sortRefresh();
+				}
 			})
 		);
 		this.plugin.registerEvent(app.metadataCache.on("resolved", this.redraw));
@@ -149,8 +177,10 @@ export class ExplorerDecorator {
 		this.redraw.cancel();
 		this.countsRefresh.cancel();
 		this.scrollRedraw.cancel();
+		this.sortRefresh.cancel();
 		this.clearAll();
-		// Hand the row order back to Obsidian — observers are gone, so this can't loop.
+		// Unwrap getSortedFolderItems, then hand the row order back to Obsidian.
+		this.unpatchExplorerSort();
 		this.resortExplorer();
 	}
 
@@ -158,9 +188,10 @@ export class ExplorerDecorator {
 		this.compile();
 		this.attachObservers();
 		this.clearAll();
-		// Ordering just switched off → restore native order; reorderChildren alone
-		// can't, because it only ever moves rows toward the float layout.
-		if (!this.floatEnabled) this.resortExplorer();
+		// Settings may have moved any rank input (float types, queue paths,
+		// weight sorting, ordering off) — re-sort through the patched hook, which
+		// reads floatEnabled live and yields native order when ordering is off.
+		this.resortExplorer();
 		this.decorateAll();
 	}
 
@@ -201,6 +232,17 @@ export class ExplorerDecorator {
 		this.typeOrderMap = new Map(
 			(f?.types?.length ? f.types : (s.floatTopTypes ?? [])).map((t, i) => [t, i])
 		);
+		// Seed the rank-input keys so the FIRST 'changed' per file compares
+		// against reality instead of reading every keystroke as a rank change.
+		this.rankKeys.clear();
+		for (const file of this.plugin.app.vault.getMarkdownFiles()) {
+			this.rankKeys.set(file.path, this.rankKey(file.path));
+		}
+	}
+
+	/** The metadata the sort rank reads for one path, as a comparable key. */
+	private rankKey(path: string): string {
+		return `${this.typeOfPath(path) ?? ""}|${this.weightOfPath(path)}`;
 	}
 
 	private containers(): HTMLElement[] {
@@ -213,6 +255,10 @@ export class ExplorerDecorator {
 	}
 
 	private attachObservers(): void {
+		// Wrap any explorer leaf not yet carrying the sort patch (a new leaf
+		// appears via layout-change, which re-runs this) — and re-sort once when
+		// a wrap landed, so the new leaf's rows take kit order immediately.
+		if (this.patchExplorerSort()) this.resortExplorer();
 		const live = this.containers();
 		// Drop observers whose container is gone; keep ones still attached.
 		this.observers = this.observers.filter((o) => {
@@ -252,46 +298,20 @@ export class ExplorerDecorator {
 	 */
 	private onMutations(muts: MutationRecord[]): void {
 		const s = this.plugin.settings;
-		// A children container inserted this batch (a folder expanding, or a
-		// subtree re-rendering) needs its float order applied — but never HERE:
-		// an insertBefore in the same mutation batch lands inside Obsidian's
-		// expand/collapse height animation and cancels it, and during a fling
-		// the virtualizer's own churn would re-attach reorder work to the
-		// hottest event stream in the plugin. The MOVES wait for the settled
-		// redraw (150ms); decoration stays synchronous below — that's the
-		// no-FOUC requirement (rows appear already-styled, pre-paint).
-		//
-		// ONE exception: the ROOT items container. Obsidian re-renders the root
-		// rows in native order on every folder toggle, and deferring their
-		// reorder to the 150ms redraw let the whole pane visibly snap into kit
-		// order a beat later (Archive jumping back to the top). The root is
-		// never the animating expand container — that's always an inserted
-		// .nav-folder-children — so reordering it synchronously, in this same
-		// pre-paint batch, cannot suppress the folder-open animation.
+		// Row ORDER never runs from here anymore — rows are born sorted via the
+		// patched getSortedFolderItems, so the observer only decorates. (The old
+		// post-hoc move scheduling, including the synchronous root reorder, went
+		// with the DOM-move mechanism in 0.4.65.)
 		let childrenInserted = false;
-		const syncRoots = new Set<HTMLElement>();
-		let roots: Set<HTMLElement> | null = null;
 		for (const m of muts) {
 			if (m.type === "attributes" && m.target instanceof HTMLElement) {
 				if (m.target.matches(".nav-file-title, .nav-folder-title")) {
 					this.decorate(m.target, s);
 					// A data-path swap is a RECYCLED row — re-stamp the settled
-					// rows once the scroll stops. Ordering never runs from this
-					// path: a genuine rename's vault event schedules the full
-					// redraw, which reorders.
+					// rows once the scroll stops.
 					this.scrollRedraw();
 				}
 				continue;
-			}
-			// childList on the root items container → reorder it in this batch
-			// (the set is computed lazily, once per batch that needs it).
-			if (m.target instanceof HTMLElement) {
-				roots ??= new Set(
-					this.containers()
-						.map((c) => this.rootItemsContainer(c))
-						.filter((r): r is HTMLElement => r !== null)
-				);
-				if (roots.has(m.target)) syncRoots.add(m.target);
 			}
 			m.addedNodes.forEach((node) => {
 				if (!(node instanceof HTMLElement)) return;
@@ -304,10 +324,6 @@ export class ExplorerDecorator {
 				}
 			});
 		}
-		// Root reorder rides the same pre-paint batch (after the decoration
-		// above, so the moved rows land already-styled). Idempotent: an ordered
-		// root moves nothing, so the observer converges.
-		for (const r of syncRoots) this.reorderChildren(r);
 		if (childrenInserted) this.redraw();
 		// Counts only — the targeted work above already decorated every touched
 		// row. A full decorateAll per mutation batch made scrolling the
@@ -323,41 +339,39 @@ export class ExplorerDecorator {
 			const el = c.querySelector<HTMLElement>(sel);
 			if (!el) continue;
 			this.decorate(el, s);
-			// A metadata change can change the row's float rank (type edited) —
-			// re-settle its own folder. No-op when the order already holds.
+			// A metadata change can change a sibling's weight heat — refresh the
+			// folder's style pass. Order changes ride the rank-key check in the
+			// 'changed' handler instead (the sort patch).
 			const cc = el.closest<HTMLElement>(".nav-folder-children");
-			if (cc) this.reorderChildren(cc);
+			if (cc) this.applyFolderStyles(cc);
 		}
 	}
 
 	// ── decoration ─────────────────────────────────────────────────────────────
 
 	private decorateAll(): void {
-		this.decorateRendered(true);
+		this.decorateRendered();
 		void this.updateCounts();
 	}
 
 	/** Decoration over every RENDERED row, counts excluded — the virtualized
 	 * explorer only keeps the visible rows in the DOM, so this is cheap, and
 	 * the scroll-settle pass (scrollRedraw) uses it to re-stamp recycled rows
-	 * without re-reading the queue files. Ordering MOVES rows, and a row moving
-	 * at scroll-settle reads as the list re-sorting under the finger — so the
-	 * moves run only when `order` is set (vault/metadata events and the
-	 * explicit redraw), never from scroll. Weight heat refreshes either way:
-	 * it is style-only, no node ever moves for it. */
-	private decorateRendered(order = false): void {
+	 * without re-reading the queue files. The per-folder style pass (weight
+	 * heat) refreshes too: it is style-only, no node ever moves for it. */
+	private decorateRendered(): void {
 		const s = this.plugin.settings;
 		for (const c of this.containers()) {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
 			titles.forEach((el) => this.decorate(el, s));
-			// Settle ordering everywhere — the ROOT items' container first (it is
+			// Weight heat everywhere — the ROOT items' container first (it is
 			// NOT a .nav-folder-children: current Obsidian renders root tree-items
 			// in an unclassed div directly under .nav-files-container), then every
-			// folder's children. Idempotent: an ordered container moves nothing.
+			// folder's children.
 			const root = this.rootItemsContainer(c);
-			if (root) this.reorderChildren(root, order);
+			if (root) this.applyFolderStyles(root);
 			c.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((cc) =>
-				this.reorderChildren(cc, order)
+				this.applyFolderStyles(cc)
 			);
 		}
 	}
@@ -567,6 +581,7 @@ export class ExplorerDecorator {
 					"data-nkui-float",
 					"data-nkui-cover",
 					"data-nkui-weight",
+					"data-nkui-nonmd",
 				]) {
 					el.removeAttribute(a);
 				}
@@ -642,18 +657,24 @@ export class ExplorerDecorator {
 			}
 			this.setAttr(el, "data-nkui-type", typeHit);
 
+			// (e4) non-markdown — an asset/binary file row renders diminutive
+			// (sink-like dim + small; the stylesheet keys on the attribute). The
+			// queue files are markdown, so they can never carry it. Stamped fresh
+			// every pass, so recycling can't carry it onto an md row.
+			this.setAttr(el, "data-nkui-nonmd", /\.md$/i.test(path) ? null : "");
+
 			// (e2) float-to-top — a file whose type is in the configured set sorts to
-			// the top of its folder (DOM reorder; see reorderChildren). The attribute
-			// stays for the stylesheet. Uses the raw type, colour or not.
+			// the top of its folder (the sort patch; see patchExplorerSort). The
+			// attribute stays for the stylesheet. Uses the raw type, colour or not.
 			const rawType = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
 			this.setAttr(el, "data-nkui-float", rawType && this.floatSet.has(rawType) ? "true" : null);
 
 			// (e3) cover note — BOTH conventions: a 00-/01- structural prefix (the
 			// legacy numeric scheme) and the folder-note (basename equals its folder's
 			// name, the plain scheme), plus any explicit index-typed file. Drives
-			// float rank 150 — below the floated typed files, above the queues — and
-			// gives the stylesheet an emphasis hook. Queues are interaction surfaces,
-			// never covers.
+			// float rank 150 — below the floated typed files; the queues sit above
+			// both — and gives the stylesheet an emphasis hook. Queues are
+			// interaction surfaces, never covers.
 			const parentName = path.includes("/") ? path.split("/").slice(-2, -1)[0] : "";
 			const isCover = !isQueue && (this.isCoverName(name, parentName) || rawType === "index");
 			this.setAttr(el, "data-nkui-cover", isCover ? "true" : null);
@@ -691,7 +712,7 @@ export class ExplorerDecorator {
 			} else {
 				badge?.remove();
 				// An unweighted row carries no heat — clear a recycled element's
-				// leftover wash now; reorderChildren re-scales the weighted rows.
+				// leftover wash now; applyFolderStyles re-scales the weighted rows.
 				el.style.removeProperty("--nkui-weight-heat");
 			}
 		}
@@ -758,9 +779,9 @@ export class ExplorerDecorator {
 
 	/**
 	 * Colour an open plain folder borrows: the type colour of its TOP-MOST
-	 * NON-INDEX typed direct child file, by visible order — the same rank the DOM
-	 * reorder applies (floated types, covers, queues, then native order; plain
-	 * name order when ordering is off). The folder reads its kind from the
+	 * NON-INDEX typed direct child file, by visible order — the same rank the
+	 * sort patch applies (queues, floated types, covers, then native order;
+	 * plain name order when ordering is off). The folder reads its kind from the
 	 * content that leads it; only when no other typed child carries a colour does
 	 * it fall back to the cover/index note's own type. Both cover conventions are
 	 * recognised (##-prefix and folder-note basename). Null when nothing typed
@@ -805,27 +826,95 @@ export class ExplorerDecorator {
 	// ── ordering ─────────────────────────────────────────────────────────────
 
 	/**
-	 * Float rows to the top by PHYSICALLY reordering the explorer DOM —
-	 * insertBefore within the .nav-folder-children container, never CSS. (The
-	 * 0.4.52 lesson: display:flex + order on this container fought Obsidian's own
-	 * row layout, broke the collapse/expand height animation, and clipped rows.
-	 * Moving nodes leaves the container's layout — and so the animation — alone.)
+	 * Wrap each file-explorer view's `getSortedFolderItems(folder)` (internal
+	 * API — the method the explorer calls to lay out a folder's child items, the
+	 * same hook the Custom File Explorer Sorting plugin patches) so rows are
+	 * BORN in kit order: the wrapper calls the original, then stable-sorts the
+	 * result with the rank rules (rootRank / subfolderRank / fileRank), ranking
+	 * off the items' TFile/TFolder objects. Patched on the view INSTANCE (an own
+	 * property shadowing the prototype), saved for exact restore on stop().
 	 *
-	 * Inside a folder: floated types, the cover/index note, the queues, then
-	 * everything else in native order. At the vault root (the mod-root wrapper's
-	 * children): the kit's semantic folder order (rootRank). Only .nav-folder /
-	 * .nav-file children ever move — Obsidian's spacer and animation helper nodes
-	 * are never touched, and the container itself is never wrapped or restyled.
+	 * Defensive: if the method is absent (a future Obsidian rebuild), warn once
+	 * and leave the order native — never throw. The wrapper itself reads
+	 * floatEnabled live, so switching ordering off needs no unpatch, just a
+	 * re-sort.
 	 *
-	 * Idempotent by fixed point: the desired sequence is computed first and a
-	 * node is moved only when out of place, so re-running on an ordered container
-	 * performs zero mutations and the MutationObserver converges.
-	 *
-	 * `moves: false` runs the style-only half (weight heat) and skips the DOM
-	 * moves — the scroll-settle pass uses it, because rows moving at settle read
-	 * as the list re-sorting under the finger.
+	 * Returns true when a NEW view got wrapped (the caller then triggers one
+	 * re-sort so the fresh leaf takes kit order immediately).
 	 */
-	private reorderChildren(children: HTMLElement, moves = true): void {
+	private patchExplorerSort(): boolean {
+		let patched = false;
+		for (const leaf of this.plugin.app.workspace.getLeavesOfType("file-explorer")) {
+			const view = leaf.view as unknown as Record<string, unknown>;
+			if (this.sortPatched.has(view)) continue;
+			const original = view["getSortedFolderItems"];
+			if (typeof original !== "function") {
+				if (!this.sortPatchWarned) {
+					this.sortPatchWarned = true;
+					console.warn(
+						"note-kit-ui: file-explorer getSortedFolderItems not found — explorer keeps Obsidian's native order"
+					);
+				}
+				continue;
+			}
+			const hadOwn = Object.prototype.hasOwnProperty.call(view, "getSortedFolderItems");
+			this.sortPatched.set(view, { hadOwn, original });
+			const dec = this; // eslint-disable-line @typescript-eslint/no-this-alias
+			view["getSortedFolderItems"] = function (this: unknown, folder: unknown, ...rest: unknown[]): unknown {
+				const items = (original as (...a: unknown[]) => unknown).call(this, folder, ...rest);
+				try {
+					if (!dec.floatEnabled || !Array.isArray(items) || !(folder instanceof TFolder)) {
+						return items;
+					}
+					return dec.sortFolderItems(folder, items);
+				} catch {
+					return items; // never break the explorer for an ordering nicety
+				}
+			};
+			patched = true;
+		}
+		return patched;
+	}
+
+	/** Restore every wrapped view's original getSortedFolderItems. */
+	private unpatchExplorerSort(): void {
+		for (const [view, p] of this.sortPatched) {
+			if (p.hadOwn) view["getSortedFolderItems"] = p.original;
+			else delete view["getSortedFolderItems"]; // the prototype's own shows again
+		}
+		this.sortPatched.clear();
+	}
+
+	/** Stable-sort one folder's child items (the explorer's tree items, each
+	 * carrying a `file` TFile/TFolder) into kit order. Equal ranks keep
+	 * Obsidian's native order — Array.sort is stable. */
+	private sortFolderItems(folder: TFolder, items: unknown[]): unknown[] {
+		const isRoot = folder.isRoot();
+		const ranks = new Map<unknown, number>();
+		for (const it of items) {
+			const af = (it as { file?: unknown } | null)?.file;
+			let r = isRoot ? 600 : 300;
+			if (af instanceof TFolder) {
+				r = isRoot ? this.rootRank(af.path, true) : this.subfolderRank(af.path);
+			} else if (af instanceof TFile) {
+				// Rank base = the name minus a .md extension ONLY (matching the old
+				// data-path derivation): a non-md file keeps its extension, so e.g.
+				// "Cover.png" can never read as the folder note "Cover".
+				const base = af.extension.toLowerCase() === "md" ? af.basename : af.name;
+				r = isRoot ? this.rootRank(af.path, false) : this.fileRank(af.path, base, folder.name);
+			}
+			ranks.set(it, r);
+		}
+		return [...items].sort((a, b) => (ranks.get(a) ?? 900) - (ranks.get(b) ?? 900));
+	}
+
+	/**
+	 * Per-folder style pass over a children container: weight heat only. Row
+	 * order is never touched here — rows are born sorted via the patched
+	 * getSortedFolderItems (patchExplorerSort); the post-hoc insertBefore walk
+	 * that used to live here made every explorer re-render visibly shuffle.
+	 */
+	private applyFolderStyles(children: HTMLElement): void {
 		const isItem = (n: Node | null): n is HTMLElement =>
 			n instanceof HTMLElement &&
 			(n.classList.contains("nav-folder") || n.classList.contains("nav-file"));
@@ -835,56 +924,22 @@ export class ExplorerDecorator {
 		// scaling against the heaviest sibling costs one metadataCache pass per
 		// folder instead of anything vault-wide. Runs regardless of float ordering.
 		this.applyWeightHeat(items);
-		if (!moves || !this.floatEnabled || items.length < 2) return;
-		// Root = any items container that is NOT a folder's .nav-folder-children
-		// (the unclassed root div), or the legacy mod-root wrapper's children.
-		const isRoot =
-			!children.classList.contains("nav-folder-children") ||
-			(children.parentElement?.classList.contains("mod-root") ?? false);
-		const ranks = new Map(items.map((el) => [el, this.itemRank(el, isRoot)]));
-		// Array.sort is stable: equal ranks keep Obsidian's native order.
-		const desired = [...items].sort((a, b) => (ranks.get(a) ?? 900) - (ranks.get(b) ?? 900));
-		// Minimal-mutation walk: advance a cursor down the live item sequence and
-		// pull forward only the nodes that are out of place.
-		let cursor: HTMLElement | null = items[0];
-		for (const want of desired) {
-			if (want === cursor) {
-				let n: Node | null = cursor.nextSibling;
-				while (n && !isItem(n)) n = n.nextSibling;
-				cursor = n;
-			} else {
-				children.insertBefore(want, cursor);
-			}
-		}
 	}
 
-	/** Rank of one explorer row element for reorderChildren. */
-	private itemRank(el: HTMLElement, isRoot: boolean): number {
-		const title = el.querySelector<HTMLElement>(
-			":scope > .nav-folder-title, :scope > .nav-file-title"
-		);
-		const path = title?.getAttribute("data-path");
-		if (!path) return isRoot ? 600 : 300;
-		if (isRoot) return this.rootRank(path, el.classList.contains("nav-folder"));
-		if (el.classList.contains("nav-folder")) return this.subfolderRank(path);
-		const leaf = path.split("/").pop() ?? path;
-		const base = leaf.replace(/\.md$/i, "");
-		const parentName = path.includes("/") ? path.split("/").slice(-2, -1)[0] : "";
-		return this.fileRank(path, base, parentName);
-	}
-
-	/** Float rank of a file within its folder: 100-band floated types (ordered by
-	 * CONFIG § Types row order, clamped to 100–149) · 150 cover/index — typed
-	 * floats lead, so a project's project-typed file sits ABOVE the folder note —
-	 * · 200 queue file · 300 everything else. When sortByWeight is on, a positive
-	 * frontmatter `weight` subtracts a fraction < 1, ordering weighted siblings
-	 * by weight descending WITHIN their band (a fraction can never cross bands).
-	 * Shared with topChildTypeColor so the borrowed folder colour follows the
-	 * visible order exactly. */
+	/** Float rank of a file within its folder: 50 queue file — the kit's two
+	 * special docs lead everything, floated types and covers included ·
+	 * 100-band floated types (ordered by CONFIG § Types row order, clamped to
+	 * 100–149) · 150 cover/index — typed floats lead, so a project's
+	 * project-typed file sits ABOVE the folder note — · 300 everything else.
+	 * When sortByWeight is on, a positive frontmatter `weight` subtracts a
+	 * fraction < 1, ordering weighted siblings by weight descending WITHIN
+	 * their band (a fraction can never cross bands). Shared with
+	 * topChildTypeColor so the borrowed folder colour follows the visible
+	 * order exactly. */
 	private fileRank(path: string, base: string, parentName: string): number {
 		const s = this.plugin.settings;
 		let rank: number;
-		if (path === s.userQueuePath || path === s.machineQueuePath) rank = 200;
+		if (path === s.userQueuePath || path === s.machineQueuePath) rank = 50;
 		else {
 			const t = this.typeOfPath(path);
 			if (t && this.floatSet.has(t) && t !== "index" && !this.isCoverName(base, parentName)) {
@@ -1017,15 +1072,18 @@ export class ExplorerDecorator {
 	}
 
 	/** Ask the file explorer to re-sort itself (best-effort, internal API) —
-	 * used when ordering is switched off, so the DOM returns to Obsidian's native
-	 * order instead of keeping the last float layout until the next vault event. */
+	 * the rebuild routes through the (patched) getSortedFolderItems, so this is
+	 * both "apply kit order now" (after patching, after a rank change) and
+	 * "return to native order" (ordering off, plugin unloading). The view's
+	 * `requestSort` is the modern trigger; `sort` the older one. */
 	private resortExplorer(): void {
 		for (const leaf of this.plugin.app.workspace.getLeavesOfType("file-explorer")) {
-			const v = leaf.view as unknown as { sort?: () => void };
+			const v = leaf.view as unknown as { requestSort?: () => void; sort?: () => void };
 			try {
-				v.sort?.();
+				if (typeof v.requestSort === "function") v.requestSort();
+				else v.sort?.();
 			} catch {
-				// internal API absent — native order returns on the next vault event
+				// internal API absent — order settles on the next vault event
 			}
 		}
 	}
@@ -1056,6 +1114,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-role");
 				el.removeAttribute("data-nkui-uncat");
 				el.removeAttribute("data-nkui-empty");
+				el.removeAttribute("data-nkui-nonmd");
 				el.removeAttribute("data-nkui-weight");
 				el.style.removeProperty("--nkui-weight-heat");
 				const content = el.querySelector<HTMLElement>(

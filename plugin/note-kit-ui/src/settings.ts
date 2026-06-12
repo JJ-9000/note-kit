@@ -7,10 +7,6 @@ export interface TypeStyle {
 	color: string;
 }
 
-/** What the right-sidebar leaf hosts (see main.applySidebarNow): the For You
- * page (the shipped default), the user queue, or the machine queue. */
-export type SidebarContent = "for-you" | "user-queue" | "machine-queue";
-
 export interface NoteKitUiSettings {
 	/** Derive vault structure (inbox/outbox, queue paths, field names, type
 	 * vocabulary) from the kit's .claude/CONFIG.md at load, so the plugin cannot
@@ -67,11 +63,17 @@ export interface NoteKitUiSettings {
 	machineQueuePath: string; // user → AI checklist (addable from the view)
 	/** Open queue files in the clean queue view instead of the raw note. */
 	queueCleanView: boolean;
-	/** Keep a leaf in the right sidebar (on mobile the swipe-left drawer). */
+	/** Allow the plugin's views in the side docks. OFF detaches them; ON means
+	 * hands off — the panes behave like normal Obsidian panes and the user's
+	 * arrangement stands (see main.applySidebarNow). */
 	sidebarNow: boolean;
-	/** What that right-sidebar leaf hosts — the For You page (default), the
-	 * user queue, or the machine queue. */
-	sidebarContent: SidebarContent;
+	/** One-time default layout has been installed (see main.seedLayout) —
+	 * after it the plugin never forces a pane again. */
+	layoutSeeded: boolean;
+	/** For You vertical placement: a percent-ish shift of the centred position
+	 * (-50..+50 of the screen height; negative = higher). The view adds
+	 * (value / 100) × window.innerHeight to its --nkui-screen-shift target. */
+	nowVerticalBias: number;
 	/** One-time default-palette migration has run (see main.migratePalette). */
 	paletteMigrated: boolean;
 	/** Press-and-hold commit duration in ms (approve / undo holds). */
@@ -129,7 +131,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 		{ type: "design", color: "#ff8d0a" },
 		{ type: "format", color: "#ffae00" },
 		{ type: "addendum", color: "#ff9955" },
-		{ type: "log", color: "#3b3b3b" },
+		// log moved up from #3b3b3b — near-background grey was illegible at row
+		// weight; loadSettings migrates a saved value still on the old default.
+		{ type: "log", color: "#9a9a9a" },
 		{ type: "revision", color: "#709eff" },
 	],
 	applyTypeBodyClass: true,
@@ -153,7 +157,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	machineQueuePath: "Outbox/Machine-Queue.md",
 	queueCleanView: true,
 	sidebarNow: true,
-	sidebarContent: "for-you",
+	layoutSeeded: false,
+	// ≈ "two rows up": content sits a touch above true centre by default.
+	nowVerticalBias: -12,
 	paletteMigrated: false,
 	holdMs: 395,
 	solidIcons: true,
@@ -339,8 +345,10 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				})
 			);
 		new Setting(containerEl)
-			.setName("Show in sidebar")
-			.setDesc("Keep a leaf in the right sidebar (on mobile, the swipe-left drawer) hosting the content chosen below.")
+			.setName("Allow sidebar views")
+			.setDesc(
+				"Allow the plugin's views in the side docks. The panes behave like normal Obsidian panes: place For You or a queue wherever you like (the Open … commands) and your arrangement stands. Off removes the plugin's views from the sidebars."
+			)
 			.addToggle((t) =>
 				t.setValue(s.sidebarNow).onChange(async (v) => {
 					s.sidebarNow = v;
@@ -348,18 +356,17 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				})
 			);
 		new Setting(containerEl)
-			.setName("Sidebar content")
+			.setName("Vertical placement")
 			.setDesc(
-				"What the right sidebar hosts: the For You page, the user queue (decisions for you), or the machine queue (your checklist for the agents). On mobile a queue here sits behind a hold-to-unlock, so a stray swipe never lands a tap on it."
+				"Shift the For You page's centred position, as a percent-ish share of the screen height — negative sits the content higher, positive lower. 0 is true centre."
 			)
-			.addDropdown((d) =>
-				d
-					.addOption("for-you", "For You")
-					.addOption("user-queue", "User queue")
-					.addOption("machine-queue", "Machine queue")
-					.setValue(s.sidebarContent)
+			.addSlider((sl) =>
+				sl
+					.setLimits(-50, 50, 1)
+					.setValue(s.nowVerticalBias)
+					.setDynamicTooltip()
 					.onChange(async (v) => {
-						s.sidebarContent = v as SidebarContent;
+						s.nowVerticalBias = v;
 						await save();
 					})
 			);

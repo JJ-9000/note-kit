@@ -58,15 +58,6 @@ export default class NoteKitUiPlugin extends Plugin {
 	private lastActiveMd: MarkdownView | null = null;
 	/** Markdown views already carrying the clean-queue-view header action. */
 	private cleanViewActioned = new WeakSet<MarkdownView>();
-	/** Sidebar open-state trackers for the mobile swipe discipline — only the
-	 * collapsed→open TRANSITION enforces a reveal, so the user can still switch
-	 * tabs inside an already-open drawer (see enforceSidebars). */
-	private leftWasOpen = false;
-	private rightWasOpen = false;
-	/** True once onLayoutReady seeded the trackers from the real drawer state —
-	 * before that, a startup layout-change with a restored-open drawer would
-	 * read as a fresh swipe and force-switch its tab. */
-	private sidebarsSeeded = false;
 	/** The minimalist-mode exit button mounted in the file-explorer pane —
 	 * minimalist hides the app chrome (stylesheet), so this is the one way
 	 * back out. Null while minimalist is off or the explorer isn't there yet. */
@@ -117,6 +108,22 @@ export default class NoteKitUiPlugin extends Plugin {
 				return true;
 			},
 		});
+		// Place-anywhere queue views (the sidebar philosophy: the plugin never
+		// forces a pane — the user opens any of the three views wherever they
+		// like and Obsidian's own workspace persistence keeps it). Icons, so the
+		// commands carry their glyphs on the mobile toolbar like the For You one.
+		this.addCommand({
+			id: "open-user-queue-view",
+			name: "Open user queue (clean view)",
+			icon: "list-todo",
+			callback: () => void this.openQueueView(this.settings.userQueuePath),
+		});
+		this.addCommand({
+			id: "open-machine-queue-view",
+			name: "Open machine queue (clean view)",
+			icon: "list-checks",
+			callback: () => void this.openQueueView(this.settings.machineQueuePath),
+		});
 
 		this.addSettingTab(new NoteKitUiSettingTab(this.app, this));
 
@@ -163,12 +170,9 @@ export default class NoteKitUiPlugin extends Plugin {
 
 		// Queue routing's reliable trigger: layout-change fires after a new
 		// leaf's view state is committed (file-open fires too early for it).
-		// The same event carries the mobile sidebar discipline: Obsidian exposes
-		// no swipe API, so the drawers' collapsed→open flips are watched here.
 		this.registerEvent(
 			this.app.workspace.on("layout-change", () => {
 				this.routeQueueLeaves();
-				this.enforceSidebars();
 				// Re-mount the minimalist exit if the explorer leaf was rebuilt
 				// (idempotent — a still-connected button is left alone).
 				this.applyMinimalExit();
@@ -204,21 +208,14 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (this.settings.nowOpenOnStartup && this.app.workspace.getLeavesOfType(NOW_VIEW_TYPE).length === 0) {
 				this.activateNowView();
 			}
-			// The RIGHT sidebar's content — For You by default, or a queue (mobile:
-			// swipe left opens it). Installed quietly — never focused or revealed
-			// on startup.
+			// One-time layout seed; after it the panes behave like normal Obsidian
+			// panes — nothing is forced or reinstalled (seedLayout).
+			this.seedLayout();
+			// Honour "show in sidebar" OFF (detach the plugin's side leaves);
+			// otherwise leave the user's arrangement alone.
 			this.applySidebarNow();
-			// Seed the drawer trackers from the real state, so a sidebar already
-			// open at startup doesn't read as a fresh swipe.
-			this.leftWasOpen = !(this.app.workspace.leftSplit?.collapsed ?? true);
-			this.rightWasOpen = !(this.app.workspace.rightSplit?.collapsed ?? true);
-			this.sidebarsSeeded = true;
 			// Collapse any duplicate For You tabs a restored workspace brought back.
 			this.dedupeNowView();
-			// The left dock defaults to the file explorer — never strand a session
-			// in the tag pane (the explorer is the kit's primary navigation).
-			const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
-			if (explorer) this.app.workspace.revealLeaf(explorer);
 		});
 	}
 
@@ -503,17 +500,25 @@ export default class NoteKitUiPlugin extends Plugin {
 
 	async activateNowView(): Promise<void> {
 		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(NOW_VIEW_TYPE)[0];
-		if (!leaf) {
-			this.openingNow = true;
-			try {
-				leaf = workspace.getLeaf("tab");
-				await leaf.setViewState({ type: NOW_VIEW_TYPE, active: true });
-			} finally {
-				this.openingNow = false;
-			}
+		const existing = workspace.getLeavesOfType(NOW_VIEW_TYPE)[0];
+		if (existing) {
+			// Already open AND active → full no-op: any view-state write (or even
+			// a redundant reveal) rebuilds the live page — the quick flash when
+			// the For You button is pressed while the page is showing.
+			if (workspace.activeLeaf === existing) return;
+			// Open but not active → just focus and reveal it; never setViewState.
+			workspace.setActiveLeaf(existing, { focus: true });
+			workspace.revealLeaf(existing);
+			return;
 		}
-		workspace.revealLeaf(leaf);
+		this.openingNow = true;
+		try {
+			const leaf = workspace.getLeaf("tab");
+			await leaf.setViewState({ type: NOW_VIEW_TYPE, active: true });
+			workspace.revealLeaf(leaf);
+		} finally {
+			this.openingNow = false;
+		}
 	}
 
 	applyDynamicCss(): void {
@@ -564,12 +569,19 @@ export default class NoteKitUiPlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 		// Strip retired keys a stale data.json may still carry, so the legacy
-		// numeric-prefix machinery (and the removed Recent section's knob) can't
-		// resurrect in memory (or be re-saved).
-		const DEAD_KEYS = ["prefixStyles", "enablePrefixStyling", "enableHidePrefix", "dimSinkContents", "nowRecentCount"];
+		// numeric-prefix machinery (and the removed Recent section's knob, and
+		// the removed sidebar-content dropdown) can't resurrect in memory (or be
+		// re-saved).
+		const DEAD_KEYS = ["prefixStyles", "enablePrefixStyling", "enableHidePrefix", "dimSinkContents", "nowRecentCount", "sidebarContent"];
 		for (const k of DEAD_KEYS) {
 			delete (this.settings as unknown as Record<string, unknown>)[k];
 		}
+		// 0.4.65: the shipped `log` colour (#3b3b3b) was illegible on a dark
+		// theme. Like the note-colour precedent, a saved value still equal to
+		// the old default was never customised — advance it; a customised
+		// colour is left alone. Idempotent, so no migration flag is needed.
+		const log = this.settings.typeStyles.find((t) => t.type === "log");
+		if (log && log.color.toLowerCase() === "#3b3b3b") log.color = "#9a9a9a";
 	}
 
 	/** One-time palette advance: a saved palette that exactly matches the
@@ -627,57 +639,68 @@ export default class NoteKitUiPlugin extends Plugin {
 		}
 	}
 
-	/** Reconcile the right-sidebar leaf with the sidebar settings: `sidebarNow`
-	 * turns it on/off, `sidebarContent` picks what it hosts — the For You page
-	 * (default), the user queue, or the machine queue. The chosen view installs
-	 * quietly (never focused or revealed); the others detach. Idempotent — safe
-	 * on every settings save. */
-	private applySidebarNow(): void {
+	/** One-time default layout (settings.layoutSeeded): the file explorer leads
+	 * the left sidebar, ONE machine-queue checklist sits in the right sidebar,
+	 * and For You opens in the main area. After this the panes behave like
+	 * normal Obsidian panes — the plugin never forces, reinstalls, or
+	 * detaches-on-content-change again; the user places the three views by
+	 * hand (the open-view commands) and workspace persistence keeps them. */
+	private seedLayout(): void {
+		if (this.settings.layoutSeeded) return;
+		this.settings.layoutSeeded = true;
+		void this.saveData(this.settings);
 		const ws = this.app.workspace;
-		const s = this.settings;
-		// The side For You exists ONLY as a sidebar view, so it is managed
-		// unfiltered — a strict `getRoot() === rightSplit` test misses sidebar
-		// leaves on mobile (the drawer reports a different root), reads the
-		// sidebar as empty, and installs a duplicate on every settings save.
-		const sideNow = ws.getLeavesOfType(NOW_SIDE_VIEW_TYPE);
-		// Queues DO legitimately live in the main area (the routed queue view) —
-		// only sidebar-resident ones are managed. inSidebar() is root-tolerant.
-		const sideQueues = ws.getLeavesOfType(QUEUE_VIEW_TYPE).filter((l) => this.inSidebar(l));
-		if (!s.sidebarNow) {
-			for (const leaf of [...sideNow, ...sideQueues]) leaf.detach();
-			return;
-		}
-		if (s.sidebarContent === "for-you") {
-			for (const leaf of sideQueues) leaf.detach();
-			// Keep exactly one — and sweep any duplicates an earlier
-			// root-mismatch bug piled up.
-			for (const leaf of sideNow.slice(1)) leaf.detach();
-			if (sideNow.length > 0) return;
+		// Left: lead with the file explorer (the kit's primary navigation).
+		const explorer = ws.getLeavesOfType("file-explorer")[0];
+		if (explorer) void ws.revealLeaf(explorer);
+		// Right: one machine-queue checklist, installed quietly (never focused).
+		const hasSideQueue = ws.getLeavesOfType(QUEUE_VIEW_TYPE).some((l) => this.inSidebar(l));
+		if (!hasSideQueue && this.settings.machineQueuePath) {
 			const side = ws.getRightLeaf(false);
-			if (side) void side.setViewState({ type: NOW_SIDE_VIEW_TYPE, active: false });
-			return;
+			if (side) {
+				void side.setViewState({
+					type: QUEUE_VIEW_TYPE,
+					state: { file: this.settings.machineQueuePath },
+					active: false,
+				});
+			}
 		}
-		const path = this.sidebarQueuePath();
-		for (const leaf of sideNow) leaf.detach();
-		let installed = false;
-		for (const leaf of sideQueues) {
-			const file = (leaf.getViewState().state as { file?: string } | undefined)?.file;
-			// Keep one leaf already on the right queue; detach the other queue
-			// (the setting changed) and any duplicate.
-			if (!installed && file === path) installed = true;
-			else leaf.detach();
-		}
-		if (!installed) {
-			const side = ws.getRightLeaf(false);
-			if (side) void side.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: path }, active: false });
-		}
+		// Main: the For You front page.
+		if (ws.getLeavesOfType(NOW_VIEW_TYPE).length === 0) void this.activateNowView();
 	}
 
-	/** The queue file the sidebar hosts when `sidebarContent` names a queue. */
-	private sidebarQueuePath(): string {
-		return this.settings.sidebarContent === "user-queue"
-			? this.settings.userQueuePath
-			: this.settings.machineQueuePath;
+	/** Honour the one remaining sidebar setting: `sidebarNow` OFF detaches the
+	 * plugin's side leaves (the For You sidebar twin and any sidebar-resident
+	 * queue views). ON means hands off — no install, no reveal, no
+	 * detach-on-content-change; the panes are the user's. */
+	private applySidebarNow(): void {
+		if (this.settings.sidebarNow) return;
+		const ws = this.app.workspace;
+		// The side For You exists ONLY as a sidebar view, so it is swept
+		// unfiltered; queues DO legitimately live in the main area (the routed
+		// queue view) — only sidebar-resident ones detach. inSidebar() is
+		// root-tolerant (mobile drawers report odd roots).
+		const sideNow = ws.getLeavesOfType(NOW_SIDE_VIEW_TYPE);
+		const sideQueues = ws.getLeavesOfType(QUEUE_VIEW_TYPE).filter((l) => this.inSidebar(l));
+		for (const leaf of [...sideNow, ...sideQueues]) leaf.detach();
+	}
+
+	/** Open (or reveal) a queue file's clean view — the place-anywhere command
+	 * target. An existing leaf on the same file is revealed wherever the user
+	 * put it; otherwise the view opens as a main-area tab, ready to be dragged
+	 * to a dock. */
+	private async openQueueView(path: string): Promise<void> {
+		if (!path) return;
+		const ws = this.app.workspace;
+		const existing = ws
+			.getLeavesOfType(QUEUE_VIEW_TYPE)
+			.find((l) => (l.getViewState().state as { file?: string } | undefined)?.file === path);
+		if (existing) {
+			await ws.revealLeaf(existing);
+			return;
+		}
+		const leaf = ws.getLeaf("tab");
+		await leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: path }, active: true });
 	}
 
 	/** A leaf living in a side dock. Desktop popout windows are excluded by the
@@ -689,80 +712,6 @@ export default class NoteKitUiPlugin extends Plugin {
 		const root = leaf.getRoot();
 		if (Platform.isMobile) return root !== ws.rootSplit;
 		return root === ws.leftSplit || root === ws.rightSplit;
-	}
-
-	/** Mobile sidebar discipline. A swipe-right opens the LEFT drawer: it must
-	 * always land on the file pane, never a plugin view. A swipe-left opens the
-	 * RIGHT drawer: it lands on the configured sidebar content, and a queue
-	 * there re-arms its hold-to-unlock gate. Obsidian gives no swipe event, so
-	 * the collapsed→open flip of each split (observed via layout-change) stands
-	 * in for the gesture; only the TRANSITION acts, so switching tabs inside an
-	 * already-open drawer stays free. */
-	private enforceSidebars(): void {
-		if (!Platform.isMobile || !this.sidebarsSeeded) return;
-		const ws = this.app.workspace;
-		const leftOpen = !(ws.leftSplit?.collapsed ?? true);
-		const rightOpen = !(ws.rightSplit?.collapsed ?? true);
-		// Update the trackers BEFORE acting: revealLeaf fires layout-change
-		// synchronously, and a re-entry reading the stale "was closed" state
-		// would act twice on one swipe.
-		const leftFlipped = leftOpen && !this.leftWasOpen;
-		const rightFlipped = rightOpen && !this.rightWasOpen;
-		this.leftWasOpen = leftOpen;
-		this.rightWasOpen = rightOpen;
-		if (leftFlipped) {
-			const explorer = ws.getLeavesOfType("file-explorer")[0];
-			if (explorer) void ws.revealLeaf(explorer);
-		}
-		if (rightFlipped) this.revealSidebarContent();
-	}
-
-	/** Land the just-opened right drawer on the configured content — unless the
-	 * user already navigated the drawer to one of the plugin's views. The drawer
-	 * stops FORCING its configured content: a queue or For You the user left on
-	 * top stands across opens; only a drawer showing none of the plugin's views
-	 * gets the configured content revealed. A queue is a write surface for the
-	 * agents, so whenever a queue view IS what the swipe reveals — configured or
-	 * standing — it re-locks behind the "are you sure?" hold-to-unlock first,
-	 * and a stray swipe can never land a tap on a live checkbox. */
-	private revealSidebarContent(): void {
-		if (!this.settings.sidebarNow) return;
-		const ws = this.app.workspace;
-		const standing = this.shownSidebarPluginLeaf();
-		if (standing) {
-			if (standing.view instanceof QueueView) standing.view.lockForReveal();
-			return;
-		}
-		if (this.settings.sidebarContent === "for-you") {
-			const leaf = ws.getLeavesOfType(NOW_SIDE_VIEW_TYPE)[0];
-			if (leaf) void ws.revealLeaf(leaf);
-			return;
-		}
-		const path = this.sidebarQueuePath();
-		for (const leaf of ws.getLeavesOfType(QUEUE_VIEW_TYPE)) {
-			if (!this.inSidebar(leaf)) continue;
-			const file = (leaf.getViewState().state as { file?: string } | undefined)?.file;
-			if (file !== path) continue;
-			if (leaf.view instanceof QueueView) leaf.view.lockForReveal();
-			void ws.revealLeaf(leaf);
-			return;
-		}
-	}
-
-	/** The plugin-owned sidebar leaf the right drawer is currently showing, if
-	 * any — the drawer just opened, so its active tab is the only sidebar leaf
-	 * actually laid out (isShown distinguishes it from the tabs stacked behind
-	 * it). Null when the drawer sits on a core tab (backlinks, tags, …) or
-	 * hosts no plugin view at all. */
-	private shownSidebarPluginLeaf(): WorkspaceLeaf | null {
-		const ws = this.app.workspace;
-		for (const type of [NOW_SIDE_VIEW_TYPE, QUEUE_VIEW_TYPE]) {
-			for (const leaf of ws.getLeavesOfType(type)) {
-				if (!this.inSidebar(leaf)) continue;
-				if (leaf.view.containerEl.isShown()) return leaf;
-			}
-		}
-		return null;
 	}
 
 	async saveSettings(): Promise<void> {

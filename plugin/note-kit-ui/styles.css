@@ -12,6 +12,10 @@
 	   in a snippet by setting this once. Circles (type/draft dots) stay 50% — they
 	   are markers, not boxes. */
 	--nkui-radius: 0px;
+	/* Pill tier — single-line chips (count pills, badges, hold buttons) may round
+	   fully while multi-line surfaces stay capped. Deliberately UNSET here: every
+	   border-radius: var(--nkui-radius-pill, var(--nkui-radius)) falls through to
+	   the shared token (sharp default); rounded mode declares the split. */
 	/* ── Motion — every plugin duration in one place, so a timing change is one
 	   edit. JS twins (keep in sync by hand): HOLD_MS in holds.ts pairs with
 	   --nkui-hold; CLOSE_OFFER_MS in holds.ts pairs with --nkui-count. */
@@ -20,6 +24,7 @@
 	--nkui-fade: 120ms; /* hover / opacity micro-fades */
 	--nkui-arm: 100ms; /* arming wash while a hold is in progress */
 	--nkui-settle: 170ms; /* a resolved card softening before re-render */
+	--nkui-grow: 240ms; /* open-head grow — title size, head padding, count pill (slow, deliberate) */
 	/* Unroll/collapse scales with the section's length: the view sets --nkui-rows
 	   (child row count) on the unrolling container; duration is one step per row,
 	   clamped, so short and long sections feel the same speed per row.
@@ -242,13 +247,12 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content b
 }
 
 /* The TAB is seamless and shares the open file's faint BACKGROUND tint — it reads
-   as an extension of the note's tinted surface, not a separately-coloured chip. The
-   title keeps the normal text colour (a bright type-coloured title clashed with
-   theme tab styling and read as a doubled/overlaid glyph); the type association
-   comes from the background wash alone. The decorator stamps the leaf's tab-header
-   with the nkui-type-<type> class + colour. Active tab a touch stronger than the
-   rest; the wash overrides minimalChrome's transparent-!important at equal
-   specificity. */
+   as an extension of the note's tinted surface, not a separately-coloured chip.
+   Under type-tint the title TEXT and icon now follow the type too (rules in the
+   0.4.65 wave at the file end): full colour active, muted mix inactive. The
+   decorator stamps the leaf's tab-header with the nkui-type-<type> class +
+   colour. Active tab a touch stronger than the rest; the wash overrides
+   minimalChrome's transparent-!important at equal specificity. */
 /* Seamless on ANY theme (not only when minimalChrome is on): the tab bar and its
    tabs share the EDITOR'S background-primary, so there's no secondary-surface seam
    between the tab and the note — and no border/shadow to draw a line. */
@@ -363,7 +367,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	justify-content: center;
 	box-sizing: border-box;
 	padding: 0 6px;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: var(--nkui-draft-color);
 	color: var(--text-on-accent, #fff);
 	font-size: var(--font-ui-smaller, 11px);
@@ -478,6 +482,10 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
 	user-select: none;
+	/* Open-head grow ANIMATES — the band's block step eases on the slow grow
+	   clock instead of snapping. Inline padding/margins are state-identical
+	   (open changes padding-BLOCK only), so nothing moves horizontally. */
+	transition: padding var(--nkui-grow) ease;
 }
 /* The count pill fills the head band's full height — flush with the highlight,
    the number evenly margined inside its own box (negative block margin eats
@@ -528,7 +536,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	margin-block: calc(-1 * var(--nkui-gap-2xs, 4px));
 	padding: 0 0.6em;
 	border: none;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: transparent;
 	box-shadow: none;
 	color: var(--nkui-tm, var(--interactive-accent));
@@ -609,6 +617,13 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	min-height: 0;
 	overflow: hidden;
 }
+/* First rows stop hugging the header band — a small top inset under the head.
+   A margin on the first child (not list padding): a padded list would stay a
+   few px tall when the 0fr track collapses. The band-stacking stays seamless;
+   the TEXT gets the room. */
+.nkui-now-foldwrap > .nkui-now-list > :first-child {
+	margin-top: var(--nkui-gap-2xs);
+}
 
 /* The Active/unread divider draws NO line and adds NO gap — colour and the
    header bands do the separating; the element stays in the DOM as a landmark. */
@@ -622,6 +637,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	text-transform: capitalize;
 	letter-spacing: -0.01em;
 	color: var(--text-normal);
+	/* The open-step size change eases on the grow clock — no snap. */
+	transition: font-size var(--nkui-grow) ease;
 }
 /* count as a notification bubble; background colour is set inline to the type colour.
    Fixed box (height + inline-flex centring + tabular digits) so a 1→2 digit count
@@ -639,13 +656,22 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	min-width: max(1.7em, calc(2ch + 1em));
 	height: 1.7em;
 	padding: 0 0.5em;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: var(--text-faint);
 	color: var(--text-on-accent, #fff);
 	font-size: var(--font-ui-smaller, 12px);
 	font-weight: 700;
 	font-variant-numeric: tabular-nums;
 	line-height: 1;
+	/* Grows WITH the open band on the same slow clock: squareHeadPills writes
+	   inline min-width/min-height — a transition still animates inline-style
+	   changes — and the digit's open font step + flush negative margins ride
+	   along. */
+	transition:
+		min-width var(--nkui-grow) ease,
+		min-height var(--nkui-grow) ease,
+		font-size var(--nkui-grow) ease,
+		margin var(--nkui-grow) ease;
 }
 .nkui-now-count-neutral {
 	background: var(--background-modifier-border);
@@ -693,9 +719,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	align-items: center;
 	gap: var(--nkui-gap-s);
 	min-height: 26px;
-	/* A step more block padding than the original 0.12em — the lists read snug;
-	   text gets its gutter inside the row band. */
-	padding: 0.2em 0.5em;
+	/* A 2xs step over the round-6 0.2em — the lists read snug; text gets its
+	   gutter inside the row band. */
+	padding: calc(0.2em + var(--nkui-gap-2xs)) 0.5em;
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
@@ -790,8 +816,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	color: var(--text-muted);
 	font-size: 0.95em;
 }
-/* "gate" — no pill: colour-only text in the row's type colour, same lighter shade
-   and italic treatment as "approve all?" and "draft". */
+/* "gate" — no pill: colour-only text, muted-plus so the +N is findable: type
+   tone on tinted rows, muted (never faint) elsewhere, a semibold step. Passive
+   text — no cursor of its own. */
 .nkui-now-gatepill {
 	display: inline-flex;
 	align-items: center;
@@ -799,10 +826,10 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	padding: 0;
 	border: none;
 	background: transparent;
-	color: var(--nkui-tm, var(--interactive-accent));
+	color: var(--nkui-tm, var(--text-muted));
 	font-size: var(--font-ui-smaller, 11px);
 	font-style: italic;
-	font-weight: var(--font-normal, 400);
+	font-weight: 600;
 	line-height: 1.3;
 }
 /* DEAD after whole-row hold — integrator: remove once Stream A lands (waiting
@@ -836,10 +863,13 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	padding-inline-end: 0.18em;
 	padding-block-end: 0.12em;
 }
-/* quiet "+N" marking a folded working-set behind its gate row */
+/* "+N" marking a folded working-set behind its gate row — muted-plus (was
+   faint): visible at a glance, still passive (no cursor). Tinted rows lend it
+   their type tone via --nkui-tm. */
 .nkui-now-setcount {
 	font-size: var(--font-ui-smaller, 11px);
-	color: var(--text-faint);
+	color: var(--nkui-tm, var(--text-muted));
+	font-weight: 600;
 	font-variant-numeric: tabular-nums;
 }
 /* The gate trio — wait note, +N, pill — in measured slot columns, packed to the
@@ -882,7 +912,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	display: flex;
 	align-items: flex-start;
 	gap: var(--nkui-gap-s);
-	padding: 0.18em calc(0.5em + var(--nkui-gap-s)) 0.18em 1.55em;
+	padding: calc(0.18em + var(--nkui-gap-2xs)) calc(0.5em + var(--nkui-gap-s)) calc(0.18em + var(--nkui-gap-2xs)) 1.55em;
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 }
@@ -962,7 +992,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	height: 22px;
 	padding: 0;
 	border: none !important;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: transparent !important;
 	box-shadow: none !important;
 	cursor: pointer;
@@ -1136,7 +1166,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-ackbtn {
 	flex: 0 0 auto;
 	padding: 0.12em 0.7em;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	border: 1px solid var(--background-modifier-border);
 	background: transparent;
 	color: var(--text-muted);
@@ -1314,8 +1344,8 @@ body.is-mobile .nkui-now-qrow {
 }
 body.is-mobile .nkui-now-row,
 body.is-mobile .nkui-now-qrow {
-	padding-top: 0.45em;
-	padding-bottom: 0.45em;
+	padding-top: calc(0.45em + var(--nkui-gap-2xs));
+	padding-bottom: calc(0.45em + var(--nkui-gap-2xs));
 }
 body.is-mobile .nkui-now-qcheck {
 	width: 20px;
@@ -1393,7 +1423,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	display: flex;
 	align-items: flex-start;
 	gap: var(--nkui-gap-s);
-	padding: 0.08em calc(0.5em + var(--nkui-gap-s)) 0.08em 1.55em;
+	padding: calc(0.08em + var(--nkui-gap-2xs)) calc(0.5em + var(--nkui-gap-s)) calc(0.08em + var(--nkui-gap-2xs)) 1.55em;
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 	/* Recessed but legible — a lower opacity here multiplies against the already
@@ -1467,6 +1497,12 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	font-weight: 600;
 	color: var(--text-muted);
 }
+/* The Waiting list's last row keeps clear of the Active head below — the
+   checkboxes were touching the next band. A margin (additive over each row
+   variant's own block padding), clipped harmlessly when the section folds. */
+.nkui-now-group-waiting .nkui-now-foldwrap > .nkui-now-list > :last-child {
+	margin-block-end: var(--nkui-gap-s);
+}
 
 /* ── Emphasis is COLOUR ONLY — no accent bars. A section's title takes a colour
    when it warrants attention, so you can see what's open / what's live; nothing
@@ -1504,8 +1540,19 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	filter: brightness(1.08);
 }
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-group-title {
-	font-size: 1.45em; /* 1.3em × ~1.12 — the open step */
+	font-size: 1.6em; /* the 1.45em open step, grown a further ~10% */
 	color: var(--text-on-accent, #fff);
+}
+/* The count pill on an OPEN solid band goes TRANSPARENT — its opaque inline
+   type colour otherwise paints over the sweeping hold fill and reads as a
+   stuck square during press-and-hold. The band tone shows through; the digit
+   stays in on-accent ink (pill content sits above the z:-1 fill, the fill
+   above the band background). Collapsed heads keep the solid pill. The digit
+   also grows a step with the open band, on the same slow clock as the title. */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
+	background: transparent !important;
+	color: var(--text-on-accent, #fff);
+	font-size: calc(var(--font-ui-smaller, 12px) * 1.15);
 }
 /* DEAD after whole-row hold — integrator: remove once Stream A lands (the
    head-band fill twin lives in the .nkui-row-hold block below). */
@@ -1619,8 +1666,8 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 /* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */
 body.is-mobile .nkui-now-reducedrow {
 	min-height: 40px;
-	padding-top: 0.4em;
-	padding-bottom: 0.4em;
+	padding-top: calc(0.4em + var(--nkui-gap-2xs));
+	padding-bottom: calc(0.4em + var(--nkui-gap-2xs));
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1750,7 +1797,7 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	cursor: pointer;
 	touch-action: none;
 	user-select: none;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	display: inline-flex;
 	align-items: center;
 	/* Flush with the row band: generous even block padding reaches the band
@@ -1776,13 +1823,13 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	transition: transform var(--nkui-hold) linear;
 }
 
-/* Quiet pill texts (+N gated, draft) read a stop fainter at rest — less opaque,
-   so they recede until the section arms — and go full while arming.
+/* Quiet pill texts (draft) read a stop fainter at rest — less opaque, so they
+   recede until the section arms — and go full while arming. The +N gatepill
+   left this group: it steps to muted-plus and stays fully opaque (visibility).
    PARTLY DEAD after whole-row hold — integrator: once Stream A lands, the
    .nkui-now-approveall / .nkui-now-gateapprove / .nkui-now-unapprove selectors
-   here are dead; .nkui-now-gatepill and .nkui-now-draftpill stay live. */
+   here are dead; .nkui-now-draftpill stays live. */
 .nkui-now-approveall,
-.nkui-now-gatepill,
 .nkui-now-gateapprove,
 .nkui-now-unapprove,
 .nkui-now-draftpill {
@@ -1814,6 +1861,13 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
    list, so the rows don't squash or grow on open. The hold fills still sweep.
    With animations OFF, the fold jumps instantly. */
 body:not(.nkui-anim) .nkui-now-foldwrap {
+	transition: none !important;
+}
+/* Animations off → the open-head grow snaps too (head padding, title size,
+   count pill sizes all ride --nkui-grow). */
+body:not(.nkui-anim) .nkui-now-group-head,
+body:not(.nkui-anim) .nkui-now-group-title,
+body:not(.nkui-anim) .nkui-now-count {
 	transition: none !important;
 }
 /* DEAD after whole-row hold — integrator: remove once Stream A lands (the
@@ -1869,7 +1923,7 @@ body:not(.nkui-anim) .nkui-now .is-settling {
 	/* Even padding, sharp corners (radius token) — a comfortable flush box, not
 	   a skinny inset chip. */
 	padding: 0.3em 0.5em;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	opacity: 1;
 }
 .nkui-close-offer::before {
@@ -2099,7 +2153,7 @@ body.is-mobile .nkui-cols > .nkui-col-meta > * + * {
 	height: 22px;
 	padding: 0;
 	border: none !important;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: transparent !important;
 	box-shadow: none !important;
 	cursor: pointer;
@@ -2263,7 +2317,7 @@ body.nkui-type-tint .nav-file-title[data-nkui-type][data-nkui-weight] .nav-file-
 	align-self: center;
 	margin-left: var(--nkui-gap-s);
 	padding: 0.1em 0.4em;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: color-mix(in srgb, var(--text-faint) 12%, transparent);
 	color: var(--text-faint);
 	font-family: var(--font-monospace, monospace);
@@ -2332,7 +2386,7 @@ body.is-mobile .nkui-weight-badge-short {
 	flex: 0 0 auto;
 	box-sizing: border-box;
 	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	width: 22px;
 	height: 22px;
 	padding: 0;
@@ -2710,7 +2764,7 @@ body.is-mobile .nkui-queue-lock {
 	user-select: none;
 	-webkit-user-select: none;
 	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: transparent;
 	color: var(--text-normal);
 	padding: 0.45em 1.1em;
@@ -2857,8 +2911,20 @@ body.is-mobile .workspace-leaf-content .view-content.nkui-now {
    top spacer grows for a positive shift, the bottom for a negative one — and
    the bottom spacer's floor stays the navbar + safe-area clearance, so long
    content still scrolls clear of the navbar. */
-body.is-mobile .nkui-now::before {
+/* UN-GATED: the shift works on any platform — with the var absent the spacers
+   resolve to 0px-tall blocks and desktop behaviour is byte-identical. On
+   mobile these same pseudos are the flex spacers above; display:block is
+   harmless there (flex items blockify). Only the navbar-clearance floor below
+   stays mobile-gated. */
+.nkui-now::before {
+	content: "";
+	display: block;
 	min-height: max(0px, var(--nkui-screen-shift, 0px));
+}
+.nkui-now::after {
+	content: "";
+	display: block;
+	min-height: max(0px, calc(-1 * var(--nkui-screen-shift, 0px)));
 }
 body.is-mobile .nkui-now::after {
 	min-height: max(
@@ -2953,7 +3019,12 @@ body.is-mobile .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not
    below gives every tight box enough inline gutter that no glyph sits inside
    an end curve — a full-pill end eats roughly half the band's height. ──────── */
 body.nkui-rounded {
-	--nkui-radius: 999px;
+	/* Two tiers, not one: a 999px radius on a MULTI-LINE container (queue rows
+	   with wrapped text, decision cards, the add-task textarea) clips content
+	   through overflow:hidden — the "buggy mask" crop. Surfaces cap at a soft
+	   16px; single-line chips keep the full pill via --nkui-radius-pill. */
+	--nkui-radius: 16px;
+	--nkui-radius-pill: 999px;
 }
 body.nkui-rounded .nkui-now-count {
 	padding-inline: 0.85em;
@@ -2982,12 +3053,25 @@ body.nkui-rounded .nkui-now-group-head {
 	--nkui-head-pad-r: max(0.9em, var(--nkui-edge-r, 0px));
 }
 /* iOS breathing room — pills don't stack seamless the way sharp bands do: a
-   modest token gap between list rows, a step between dropdown sections. */
+   row-step gap between list rows, a block-step between dropdown sections, so
+   rounded surfaces never touch. */
 body.nkui-rounded .nkui-now-group {
-	margin-block-end: var(--nkui-gap-s);
+	margin-block-end: var(--nkui-gap-m);
 }
 body.nkui-rounded .nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-gatemember) {
-	margin-block-end: var(--nkui-gap-2xs);
+	margin-block-end: var(--nkui-gap-s);
+}
+/* Rounded on a phone: bands FLOAT off the glass edges (the iOS list language)
+   instead of running full-bleed into them — a small inline margin on every
+   band the full-bleed wave pinned to the screen edge. Outranks the mobile
+   margin-inline: 0 rules on class count; the explorer pair needs the same
+   !important its full-bleed twin carries. */
+body.nkui-rounded.is-mobile .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
+	margin-inline: var(--nkui-gap-s);
+}
+body.nkui-rounded.is-mobile .nav-file-title,
+body.nkui-rounded.is-mobile .nav-folder-title {
+	margin-inline: var(--nkui-gap-s) !important;
 }
 
 /* ── Minimalist mode (body.nkui-minimal) — DEEP silence: everything but the
@@ -3049,7 +3133,7 @@ body.nkui-minimal .nkui-queue-explain {
 	min-height: 40px;
 	padding: 0.3em 0.6em;
 	border: none !important;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: color-mix(in srgb, var(--background-primary) 80%, transparent) !important;
 	box-shadow: none !important;
 	color: var(--text-faint);
@@ -3128,4 +3212,53 @@ body.is-mobile div:has(> .setting-item .nkui-settings-version) .setting-item:has
 	.nkui-weight-badge-short {
 		display: inline;
 	}
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   0.4.65 wave — large mouths · tinted tab titles · non-md diminutives
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Large inbox/outbox toggle (body.nkui-large-mouths) — the vault's two
+   mouths render a step larger in the tree: bigger title, a taller band. The
+   flush inbox pill needs no size rule of its own — it anchors inset-block: 0,
+   so the taller row makes a bigger square automatically; only its DIGIT steps
+   up to match, and the row's reserved square widens to keep long names
+   ellipsizing clear of the bigger pill. ─────────────────────────────────────── */
+body.nkui-large-mouths .nav-folder-title[data-nkui-role="inbox"] .nav-folder-title-content,
+body.nkui-large-mouths .nav-folder-title[data-nkui-role="outbox"] .nav-folder-title-content {
+	font-size: 1.15em;
+}
+body.nkui-large-mouths .nav-folder-title[data-nkui-role="inbox"],
+body.nkui-large-mouths .nav-folder-title[data-nkui-role="outbox"] {
+	/* A 2xs step over the theme's own row padding (--size-4-1 is its base). */
+	padding-top: calc(var(--size-4-1, 4px) + var(--nkui-gap-2xs));
+	padding-bottom: calc(var(--size-4-1, 4px) + var(--nkui-gap-2xs));
+}
+body.nkui-large-mouths .nkui-inbox-count {
+	font-size: calc(var(--font-ui-smaller, 11px) * 1.15);
+}
+/* Same selector strength as the base/mobile reserve rules, declared later, so
+   it wins on both platforms; the max() keeps the device's safe edge. */
+body.nkui-large-mouths .nav-folder-title:has(> .nkui-inbox-count) {
+	padding-right: calc(3em + max(var(--size-4-2, 8px), env(safe-area-inset-right, 0px)));
+}
+
+/* ── Tab TITLE text tinted to type (body.nkui-type-tint) — the main-area tab
+   headers already wash by type; the title and icon now carry the colour too:
+   full type colour on the active tab, a muted mix on inactive ones. ─────────── */
+body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-title,
+body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-icon {
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-muted));
+}
+body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-title,
+body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-icon {
+	color: var(--nkui-type-color);
+}
+
+/* ── Non-md diminutives — a non-markdown file row (data-nkui-nonmd, stamped by
+   the decorator) takes the sink look. Opacity dims hue-true, so a typed row's
+   colour (dot, tinted name) keeps its kind — same contract as data-nkui-empty. */
+.nav-file-title[data-nkui-nonmd] {
+	opacity: 0.55;
+	font-size: 0.7em;
 }

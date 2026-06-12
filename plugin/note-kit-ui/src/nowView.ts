@@ -93,6 +93,13 @@ const BUCKET_CAP = 50;
  * sidebar twins, reset only by an app restart. */
 const expandedGates = new Set<string>();
 
+/** Last measured head-pill square side (px) — module scope, per plugin
+ * session, shared by the main and sidebar twins. bucketHead seeds NEW pills'
+ * inline min-width/min-height from it at BUILD time, so the very first paint
+ * is already square instead of popping from the skinny CSS minimum; the
+ * measured pass (squareHeadPills) then corrects if the band changed. */
+let lastPillSide = 0;
+
 /** A loose file (or folder) dropped in the outbox folder — queued work in file
  * form, surfaced as a Queue row. `open` is what a click opens: the file itself,
  * or a folder's first file. */
@@ -183,14 +190,19 @@ export class NowView extends ItemView {
 		this.contentEl.empty();
 	}
 
-	/** Re-render now (used when settings change, which fires no vault event). */
+	/** Re-render now (used when settings change, which fires no vault event).
+	 * Forced: a settings change can alter presentation (colours, bias) without
+	 * moving anything the render signature tracks. */
 	refresh(): void {
-		void this.reloadAndRender();
+		void this.reloadAndRender(true);
 	}
 
-	private async reloadAndRender(): Promise<void> {
+	/** `force` bypasses the no-change signature bail (render) — for callers
+	 * that destroyed DOM they need rebuilt (a cancelled inline edit) or whose
+	 * change is invisible to the signature (settings). */
+	private async reloadAndRender(force = false): Promise<void> {
 		await this.loadQueues();
-		this.render();
+		this.render(force);
 	}
 
 	/**
@@ -239,14 +251,50 @@ export class NowView extends ItemView {
 
 	// ── rendering ──────────────────────────────────────────────────────────────
 
-	private render(): void {
+	/** Last rendered page's signature (renderSig) — the no-change bail. */
+	private lastSig: string | null = null;
+
+	/** Cheap digest of everything the page actually shows. Equal signatures
+	 * mean a rebuild would paint the identical page — so the broad event
+	 * listeners (resolved/changed fire on plenty that this view doesn't show,
+	 * e.g. whatever a folder-open touches) can bail instead of tearing the
+	 * DOM down and re-shuffling it under the user. Real changes — paths,
+	 * types, draft/approved flags, mtimes (the rendered ages), queue text and
+	 * states, drops, the date title — all move the signature. */
+	private renderSig(needs: Entry[], active: Entry[], waiting: Entry[], drops: OutboxDrop[]): string {
+		const ent = (e: Entry): string =>
+			`${e.file.path}|${e.type ?? ""}|${e.draft ? 1 : 0}|${e.setCount ?? 0}|${
+				e.awaitingFiling ? 1 : 0
+			}|${e.activity ?? e.file.stat.mtime}`;
+		const dec = (d: Decision): string =>
+			`${d.title ?? ""}|${d.context}|${d.options.map((o) => o.state + o.text).join(",")}`;
+		return [
+			formatToday(),
+			needs.map(ent).join(";"),
+			active.map(ent).join(";"),
+			waiting.map(ent).join(";"),
+			this.decisions.map(dec).join(";"),
+			this.machineItems.map((i) => `${i.done ? 1 : 0}${i.text}`).join(";"),
+			drops.map((d) => `${d.name}|${d.folder ? 1 : 0}|${d.type ?? ""}`).join(";"),
+		].join("\n");
+	}
+
+	private render(force = false): void {
 		const s = this.plugin.settings;
+		const { needs, active, waiting } = this.collect();
+		const drops = this.collectOutboxDrops();
+		// No-change bail: nothing the view shows moved, so keep the live DOM —
+		// rebuilding it anyway is what made the list visibly shuffle on broad
+		// events (every fold state, scroll position and row identity survives).
+		const sig = this.renderSig(needs, active, waiting, drops);
+		if (!force && sig === this.lastSig) return;
+		this.lastSig = sig;
+
 		const c = this.contentEl;
 		c.empty();
 		this.machineAddInput = null; // re-set when the Queue bucket renders
 		c.addClass("nkui-now");
 
-		const { needs, active, waiting } = this.collect();
 		const openDecisions = this.decisions.filter(isOpenDecision);
 		const resolvedDecisions = this.decisions.filter(isResolvedDecision);
 
@@ -272,7 +320,6 @@ export class NowView extends ItemView {
 
 		const groups = this.groupEntries(needs);
 		const machineFile = this.app.vault.getAbstractFileByPath(s.machineQueuePath);
-		const drops = this.collectOutboxDrops();
 
 		// Queues first — the configured user-interaction surfaces. Decide shows
 		// only OPEN decisions; resolved ones drop to the Waiting section below.
@@ -393,8 +440,20 @@ export class NowView extends ItemView {
 		const pane = this.contentEl.getBoundingClientRect();
 		// Phase 3 — assign (writes only).
 		this.applyScreenShift(pane);
-		if (!heights.length) return; // hidden view — the next onResize re-measures
+		if (!heights.length) {
+			// Hidden view — the next onResize re-measures. Phase 1 stripped the
+			// build-time seeds, so put the cached square back rather than leaving
+			// the pills skinny for the reveal paint.
+			if (lastPillSide > 0) {
+				for (const p of pills) {
+					p.style.minWidth = `${lastPillSide}px`;
+					p.style.minHeight = `${lastPillSide}px`;
+				}
+			}
+			return;
+		}
 		const side = Math.max(...heights);
+		lastPillSide = side; // seed for the next render's first paint
 		for (const p of pills) {
 			p.style.minWidth = `${side}px`;
 			p.style.minHeight = `${side}px`;
@@ -407,16 +466,23 @@ export class NowView extends ItemView {
 	 * sits from the SCREEN's center as --nkui-screen-shift on contentEl:
 	 * 2 × (screen center − pane center) px, positive when the pane's center is
 	 * above the screen's and the content must move DOWN. The stylesheet turns
-	 * the var into spacer min-heights. Desktop clears the var; a hidden pane
-	 * (height 0) keeps its last value and the next onResize re-measures. */
+	 * the var into spacer min-heights.
+	 *
+	 * The user's vertical-placement bias (settings.nowVerticalBias, a
+	 * percent-ish share of the screen height; negative = higher) adds straight
+	 * into the shift target. Desktop has no navbar offset to correct but still
+	 * emits the BIAS as the same var, so the spacers honour the setting
+	 * everywhere; a hidden pane (height 0) keeps its last value and the next
+	 * onResize re-measures. */
 	private applyScreenShift(pane: DOMRect): void {
+		const bias = ((this.plugin.settings.nowVerticalBias ?? 0) / 100) * window.innerHeight;
 		if (!Platform.isMobile) {
-			this.contentEl.style.removeProperty("--nkui-screen-shift");
+			this.contentEl.style.setProperty("--nkui-screen-shift", `${bias}px`);
 			return;
 		}
 		if (pane.height <= 0) return;
 		const shift = window.innerHeight / 2 - (pane.top + pane.height / 2);
-		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift}px`);
+		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift + bias}px`);
 	}
 
 	private renderBucket(
@@ -842,6 +908,13 @@ export class NowView extends ItemView {
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");
 		const cnt = gh.createSpan({ cls: "nkui-now-count", text: String(count) });
+		// Seed the square from the last measured side, so the FIRST paint is
+		// already square (no skinny-pill pop); squareHeadPills re-measures and
+		// corrects if the head band changed.
+		if (lastPillSide > 0) {
+			cnt.style.minWidth = `${lastPillSide}px`;
+			cnt.style.minHeight = `${lastPillSide}px`;
+		}
 		if (color) cnt.style.background = color;
 		else cnt.addClass("nkui-now-count-neutral");
 		gh.createSpan({ cls: "nkui-now-group-title", text: label });
@@ -1402,7 +1475,9 @@ export class NowView extends ItemView {
 			done = true;
 			const v = ta.value.trim();
 			if (v && v !== item.text) void this.updateMachineItem(item.text, v);
-			else void this.reloadAndRender();
+			// Nothing changed in the FILE, but the row's DOM was emptied for the
+			// editor — force past the signature bail to rebuild it.
+			else void this.reloadAndRender(true);
 		};
 		ta.addEventListener("keydown", (ev) => {
 			if (ev.key === "Enter" && !ev.shiftKey) {
@@ -1411,7 +1486,7 @@ export class NowView extends ItemView {
 			} else if (ev.key === "Escape") {
 				ev.preventDefault();
 				done = true;
-				void this.reloadAndRender();
+				void this.reloadAndRender(true); // same: restore the emptied row
 			}
 		});
 		ta.addEventListener("blur", save);
@@ -1448,7 +1523,9 @@ export class NowView extends ItemView {
 			if (k === "untyped") return 9002;
 			return 9001;
 		};
-		return keys.sort((a, b) => rank(a) - rank(b));
+		// Name tiebreak: several types outside CONFIG all rank 9001 — without it
+		// their section order depended on map insertion order (a shuffle source).
+		return keys.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 	}
 
 	/** type → CONFIG § Types row index (palette order when CONFIG is absent). */
@@ -1569,7 +1646,12 @@ export class NowView extends ItemView {
 					...gate,
 					isGate: true,
 					setCount: count - 1,
-					setFiles: members.filter((m) => m.entry !== gate).map((m) => m.entry.file),
+					// Path-sorted: vault iteration order is not guaranteed stable, and
+					// the member list renders (the gate unfold) — keep it deterministic.
+					setFiles: members
+						.filter((m) => m.entry !== gate)
+						.map((m) => m.entry.file)
+						.sort((a, b) => a.path.localeCompare(b.path)),
 				};
 				if (gateMember?.approved) waiting.push({ ...head, awaitingFiling: true });
 				else needs.push(head);
@@ -1639,9 +1721,14 @@ export class NowView extends ItemView {
 			}
 		}
 
-		const byMtime = (a: Entry, b: Entry) => b.file.stat.mtime - a.file.stat.mtime;
+		// Every comparator ends on the path — a DETERMINISTIC tiebreaker, so two
+		// files sharing an mtime (a sync batch stamps many at once) can never
+		// swap places between renders (the FYP shuffle).
+		const byPath = (a: Entry, b: Entry) => a.file.path.localeCompare(b.file.path);
+		const byMtime = (a: Entry, b: Entry) =>
+			b.file.stat.mtime - a.file.stat.mtime || byPath(a, b);
 		const byActivity = (a: Entry, b: Entry) =>
-			(b.activity ?? b.file.stat.mtime) - (a.activity ?? a.file.stat.mtime);
+			(b.activity ?? b.file.stat.mtime) - (a.activity ?? a.file.stat.mtime) || byPath(a, b);
 		// Mixed-type lists sort type-major in CONFIG § Types row order (the
 		// same order the explorer floats by and the sections stack in), recency
 		// within a type — so every surface tells one ordering story. Needs-you

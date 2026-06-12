@@ -47,6 +47,15 @@ body {
 .nav-files-container .nav-folder-title {
 	margin-bottom: 0;
 }
+/* A long name trails off with an ellipsis — never a hard mid-glyph cut at a
+   narrow pane edge. */
+.nav-files-container .nav-file-title-content,
+.nav-files-container .nav-folder-title-content {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 
 /* ── (c) per-type dot on explorer rows ─────────────────────────────────────── */
 .nav-file-title[data-nkui-type]::before {
@@ -288,6 +297,11 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
 	/* Selection follows the type too — the editor reads --text-selection for the
 	   CodeMirror selection layer; ::selection covers reading mode and plain DOM. */
 	--text-selection: color-mix(in srgb, var(--nkui-type-color) 30%, transparent);
+	/* Tertiary tones follow the type as well: quote-bar accents and the focus
+	   ring a clicked tag pill / property field draws — no theme-neutral leaks
+	   inside a typed page. */
+	--blockquote-border-color: var(--nkui-type-color);
+	--background-modifier-border-focus: color-mix(in srgb, var(--nkui-type-color) 65%, transparent);
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] ::selection {
 	background: color-mix(in srgb, var(--nkui-type-color) 30%, transparent);
@@ -666,7 +680,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	align-items: center;
 	gap: var(--nkui-gap-s);
 	min-height: 26px;
-	padding: 0.12em 0.5em;
+	/* A step more block padding than the original 0.12em — the lists read snug;
+	   text gets its gutter inside the row band. */
+	padding: 0.2em 0.5em;
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
@@ -891,7 +907,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	display: flex;
 	align-items: flex-end;
 	gap: var(--nkui-gap-s);
-	padding: 0.25em 0.5em 0.1em 1.55em;
+	/* Breathing room above AND below the input — it only renders inside an
+	   open dropdown, so the gutter appears exactly when the list is open. */
+	padding: 0.5em 0.5em 0.45em 1.55em;
 }
 .nkui-now-qadd .nkui-now-qaddinput {
 	flex: 1 1 auto;
@@ -1540,6 +1558,13 @@ body.nkui-type-tint .nav-file-title[data-nkui-type].has-focus,
 body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus {
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 55%, transparent) !important;
 }
+/* Top-level (PARA root) typed folders carry a faint resting tone even while
+   collapsed, so the tree's skeleton reads in colour at a glance; opening a
+   folder steps the wash up (the rule below wins by order). The inbox/outbox
+   role washes already rest-on (0.4.42 block). */
+body.nkui-type-tint .nav-folder-title[data-nkui-folder-type]:not([data-path*="/"]) {
+	background: color-mix(in srgb, var(--nkui-folder-color) 6%, transparent);
+}
 body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] {
 	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
 }
@@ -1864,6 +1889,7 @@ body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
 	font-style: normal;
 	letter-spacing: 0.02em;
 	color: var(--text-faint);
+	opacity: 0.7; /* a stamp, not a footer line — recedes until looked for */
 	user-select: text; /* a version is for copying into a bug report */
 }
 /* Footer placement: its own centred line below the last section. */
@@ -1887,6 +1913,19 @@ body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
    type/age/pill columns align across rows. A waiting row (`.nkui-now-waitgate`)
    carries one status cell (track 4) with the undo control outermost (track 5).
    Spacing is owned by the cells' padding — no track gap. */
+/* Every single-line label in the For You lists trails off with an ellipsis when
+   its column runs out — text is never hard-cut at a skinny pane edge. (Task and
+   decision body text wraps by design and is untouched.) */
+.nkui-now-group-title,
+.nkui-now-containercap,
+.nkui-now-metatype,
+.nkui-now-waitnote,
+.nkui-now-setcount,
+.nkui-now-dropname {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
 .nkui-now-colgrid {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) max-content max-content max-content max-content;

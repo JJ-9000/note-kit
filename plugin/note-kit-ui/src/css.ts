@@ -23,6 +23,11 @@ function attr(v: string): string {
 export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): string {
 	const out: string[] = [];
 
+	// The configured hold duration drives the fill animation (paired with
+	// configureHolds in main.ts); the close-offer keeps the shipped 5x ratio.
+	const hold = Number.isFinite(s.holdMs) && s.holdMs > 0 ? s.holdMs : 303;
+	out.push(`:root { --nkui-hold: ${hold}ms; --nkui-count: ${Math.round(hold * 5)}ms; }`);
+
 	if (s.enablePrefixStyling) {
 		for (const p of s.prefixStyles) {
 			const sel = `.nav-folder-title[data-nkui-prefix="${attr(p.prefix)}"], .nav-file-title[data-nkui-prefix="${attr(p.prefix)}"]`;

@@ -27,7 +27,7 @@ The **seven top-level roots** the kit creates and routes to. Everything else is 
 
 A kit folder manually renamed off its `literal` is reverted by `audit.py` and the attempt logged (`folder-reverted`); the analyst proposes adopting a repeated rename here rather than fighting it on disk.
 
-**Explorer order is presentation, never load-bearing.** With the optional UI plugin installed (§ Optional UI plugin), the file explorer sorts the roots semantically — Inbox, Outbox, Projects, Areas, References, Snippets, …, Archive last; without it they sort plain-alphabetically. Nothing reads, routes, or files by position — only the literals above carry meaning.
+**Explorer order is presentation, never load-bearing.** With the optional UI plugin installed (§ Optional UI plugin), the file explorer displays things in **table-row order**: the folders table above sets the root order (Inbox first, Archive last, because that is how the rows are written), § Subfolders sets the subfolder order, and § Types sets the order of floated files inside a folder — reorder the rows to reorder the explorer. Without the plugin everything sorts plain-alphabetically. Nothing reads, routes, or files by position — only the literals above carry meaning.
 
 | token             | resolves to                                                                                                                            |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |

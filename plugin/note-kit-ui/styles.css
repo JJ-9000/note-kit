@@ -245,9 +245,36 @@ body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"],
 body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner {
 	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary)) !important;
 }
+/* The ACTIVE tab uses the IDENTICAL 4% mix as the note surface below it — any
+   stronger wash (9% was tried) reads as a seam exactly at the tab/note
+   boundary. Active emphasis comes from the title weight, not the wash. */
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"],
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner {
-	background: color-mix(in srgb, var(--nkui-type-color) 9%, var(--background-primary)) !important;
+	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary)) !important;
+}
+/* The view-header (title bar) sits between the tab and the content — it must
+   carry the same wash or it draws a plain band through the tinted surface. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-header {
+	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary));
+	border-bottom: none;
+}
+/* Tab tops sharp: route the tab shape through the shared radius token (themes
+   round them; sharp quads are the kit default). */
+.mod-root .workspace-tab-header,
+.mod-root .workspace-tab-header .workspace-tab-header-inner {
+	border-radius: var(--nkui-radius) !important;
+	--tab-radius: var(--nkui-radius);
+	--tab-curve: var(--nkui-radius);
+}
+/* With tinting on, the THEME's accent inside a typed note follows the note's
+   type — links, link hovers, interactive accents — so no body accent is left
+   on the theme's own colour while everything around it is tinted. Scoped to
+   the leaf content; the app chrome keeps the theme accent. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
+	--text-accent: var(--nkui-type-ink);
+	--text-accent-hover: var(--nkui-ts);
+	--interactive-accent: var(--nkui-type-color);
+	--interactive-accent-hover: var(--nkui-ts);
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
@@ -322,6 +349,14 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	   (which disables Windows ClearType and looks like the text resizing). */
 	--nkui-hover: color-mix(in srgb, var(--background-primary), var(--text-normal) 6%);
 }
+
+/* A tinted row's hover wash follows its TYPE colour (applyTint stamps the
+   class + --nkui-row-color); colour-less rows keep the neutral --nkui-hover.
+   Opaque mix for the same ClearType reason as --nkui-hover. */
+body.nkui-type-tint .nkui-now .nkui-tinted:hover,
+body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
+	background: color-mix(in srgb, var(--nkui-row-color, var(--text-normal)) 10%, var(--background-primary));
+}
 /* ── Spacing standard ─────────────────────────────────────────────────────────
    One four-step scale for ALL chrome spacing, in fixed px so a gap renders the
    same size regardless of the local font size (em-based gaps shrink inside
@@ -376,11 +411,24 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	display: flex;
 	align-items: center;
 	gap: var(--nkui-gap-s);
-	padding: 0.25em 0.4em;
-	margin-inline: -0.4em;
+	/* Same inset as the rows beneath (-0.5em), so the head's wash band and a
+	   row's wash band are the SAME width and stack with no step — connected
+	   highlights read as one surface. */
+	padding: 0.25em 0.5em;
+	margin-inline: -0.5em;
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
 	user-select: none;
+}
+/* The count pill fills the head band's full height — flush with the highlight,
+   the number evenly margined inside its own box (negative block margin eats
+   the band padding; stretch covers taller titles). */
+.nkui-now-group-head .nkui-now-count {
+	align-self: stretch;
+	height: auto;
+	margin-block: -0.25em;
+	margin-left: -0.5em;
+	padding-inline: 0.6em;
 }
 .nkui-now-group-head:hover {
 	background: var(--nkui-hover);
@@ -1277,12 +1325,15 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	color: var(--text-muted);
 }
 /* un-approve — same pressable language as "edit?" / "approve all?" (small italic,
-   underline on hover), in the action accent. Alignment across waiting rows is
-   owned by the shared column grid (track 5), not a fixed width. */
+   underline on hover), in the action accent. The min-width reserves room for the
+   widest variant ("undo +N") so a gated row's wider label doesn't displace the
+   column the plain "undo" rows share. */
 .nkui-now-unapprove {
 	color: var(--text-accent, var(--interactive-accent));
 	font-style: italic;
 	cursor: pointer;
+	min-width: 4.5em;
+	text-align: right;
 }
 .nkui-now-unapprove:hover {
 	text-decoration: underline;
@@ -1373,6 +1424,14 @@ body.nkui-type-tint .nav-file-title[data-nkui-type].is-active {
 }
 body.nkui-type-tint .nav-file-title[data-nkui-type]:hover {
 	background: color-mix(in srgb, var(--nkui-type-color) 12%, transparent) !important;
+}
+/* Shift/ctrl-click multi-select takes the same type wash as the active row —
+   the theme's neutral selection grey otherwise breaks the tint language. */
+body.nkui-type-tint .nav-file-title[data-nkui-type].is-selected,
+body.nkui-type-tint .nav-file-title[data-nkui-type].has-focus,
+body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].is-selected,
+body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus {
+	background: color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 18%, transparent) !important;
 }
 body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] {
 	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
@@ -1981,51 +2040,64 @@ input.nkui-type-grid-swatch {
 	padding: 0.3em 0;
 }
 
-/* ── Condensed For You (sidebar) — Decide stays live; everything else is a
-   count line that opens the full page. ──────────────────────────────────────── */
-.nkui-now-condensed {
-	padding: 1em 0.9em 2em;
+/* ── Solid icons — minimal filled shapes replace the outline control glyphs,
+   via CSS mask in currentColor (the staged plan in the icon-options note: mask
+   the existing <svg>, hide only its child paths, so an uncovered glyph keeps
+   its original icon instead of going blank). Toggled by the "Solid icons"
+   setting (body.nkui-solid-icons). ──────────────────────────────────────────── */
+body.nkui-solid-icons :is(
+	.lucide-search, .lucide-bookmark, .lucide-pencil, .lucide-square-pen,
+	.lucide-folder-plus, .lucide-arrow-up-narrow-wide, .lucide-chevrons-down-up,
+	.lucide-x, .lucide-settings, .lucide-sun
+) {
+	background-color: currentColor;
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+	-webkit-mask-position: center;
+	mask-position: center;
+	-webkit-mask-size: contain;
+	mask-size: contain;
 }
-.nkui-now-condensed .nkui-now-title {
-	font-size: 1.25em;
+body.nkui-solid-icons :is(
+	.lucide-search, .lucide-bookmark, .lucide-pencil, .lucide-square-pen,
+	.lucide-folder-plus, .lucide-arrow-up-narrow-wide, .lucide-chevrons-down-up,
+	.lucide-x, .lucide-settings, .lucide-sun
+) > * {
+	display: none;
 }
-.nkui-now-condensed .nkui-now-head {
-	margin-bottom: var(--nkui-gap-m);
+body.nkui-solid-icons .lucide-search {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2zm0 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2zm0 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10z'/%3E%3C/svg%3E");
 }
-.nkui-now-condline {
-	display: flex;
-	align-items: center;
-	gap: var(--nkui-gap-s);
-	min-height: 28px;
-	padding: 0.18em 0.4em;
-	margin: 0 -0.4em;
-	border-radius: var(--nkui-radius);
-	cursor: pointer;
+body.nkui-solid-icons .lucide-bookmark {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2h12a1 1 0 0 1 1 1v19l-7-5-7 5V3a1 1 0 0 1 1-1z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2h12a1 1 0 0 1 1 1v19l-7-5-7 5V3a1 1 0 0 1 1-1z'/%3E%3C/svg%3E");
 }
-.nkui-now-condline:hover {
-	background: var(--nkui-hover);
+body.nkui-solid-icons :is(.lucide-pencil, .lucide-square-pen) {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M17.3 2.3a2.4 2.4 0 0 1 3.4 3.4l-1.4 1.4-3.4-3.4 1.4-1.4zM14.5 5.1l3.4 3.4L8 18.4 3.6 19.9a.5.5 0 0 1-.63-.63L4.6 15 14.5 5.1z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M17.3 2.3a2.4 2.4 0 0 1 3.4 3.4l-1.4 1.4-3.4-3.4 1.4-1.4zM14.5 5.1l3.4 3.4L8 18.4 3.6 19.9a.5.5 0 0 1-.63-.63L4.6 15 14.5 5.1z'/%3E%3C/svg%3E");
 }
-.nkui-now-condline-label {
-	min-width: 0;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	text-transform: capitalize;
-	font-size: var(--font-ui-small, 13px);
-	color: var(--text-normal);
+body.nkui-solid-icons .lucide-folder-plus {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 4h6l2 2h10a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm8 6v3H8v2h3v3h2v-3h3v-2h-3v-3h-2z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 4h6l2 2h10a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm8 6v3H8v2h3v3h2v-3h3v-2h-3v-3h-2z'/%3E%3C/svg%3E");
 }
-/* An empty count line (count 0) recedes like the full view's empty section
-   (.nkui-now-group-empty): the line fades, the label lightens, and the count
-   bubble shrinks — colour/opacity only, no bars. */
-.nkui-now-condline.is-empty {
-	opacity: 0.5;
+body.nkui-solid-icons .lucide-arrow-up-narrow-wide {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 3l4 5H8v13H6V8H3l4-5zm6 14h8v2h-8v-2zm0-5h6v2h-6v-2zm0-5h4v2h-4V7z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 3l4 5H8v13H6V8H3l4-5zm6 14h8v2h-8v-2zm0-5h6v2h-6v-2zm0-5h4v2h-4V7z'/%3E%3C/svg%3E");
 }
-.nkui-now-condline.is-empty .nkui-now-condline-label {
-	font-weight: var(--font-normal, 400);
-	color: var(--text-muted);
+body.nkui-solid-icons .lucide-chevrons-down-up {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6.4 2.6L12 8.2l5.6-5.6L19 4 12 11 5 4l1.4-1.4zM12 13l7 7-1.4 1.4L12 15.8l-5.6 5.6L5 20l7-7z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6.4 2.6L12 8.2l5.6-5.6L19 4 12 11 5 4l1.4-1.4zM12 13l7 7-1.4 1.4L12 15.8l-5.6 5.6L5 20l7-7z'/%3E%3C/svg%3E");
 }
-.nkui-now-condline.is-empty .nkui-now-count {
-	min-width: 1.4em;
-	height: 1.2em;
-	font-size: var(--font-ui-smaller, 11px);
+body.nkui-solid-icons .lucide-x {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5.4 4L12 10.6 18.6 4 20 5.4 13.4 12l6.6 6.6-1.4 1.4-6.6-6.6L5.4 20 4 18.6 10.6 12 4 5.4 5.4 4z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5.4 4L12 10.6 18.6 4 20 5.4 13.4 12l6.6 6.6-1.4 1.4-6.6-6.6L5.4 20 4 18.6 10.6 12 4 5.4 5.4 4z'/%3E%3C/svg%3E");
+}
+body.nkui-solid-icons .lucide-settings {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10.3 2h3.4l.5 2.6 1.7.7 2.2-1.5 2.4 2.4-1.5 2.2.7 1.7 2.6.5v3.4l-2.6.5-.7 1.7 1.5 2.2-2.4 2.4-2.2-1.5-1.7.7-.5 2.6h-3.4l-.5-2.6-1.7-.7-2.2 1.5-2.4-2.4 1.5-2.2-.7-1.7L2 13.7v-3.4l2.6-.5.7-1.7-1.5-2.2 2.4-2.4 2.2 1.5 1.7-.7.5-2.6zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10.3 2h3.4l.5 2.6 1.7.7 2.2-1.5 2.4 2.4-1.5 2.2.7 1.7 2.6.5v3.4l-2.6.5-.7 1.7 1.5 2.2-2.4 2.4-2.2-1.5-1.7.7-.5 2.6h-3.4l-.5-2.6-1.7-.7-2.2 1.5-2.4-2.4 1.5-2.2-.7-1.7L2 13.7v-3.4l2.6-.5.7-1.7-1.5-2.2 2.4-2.4 2.2 1.5 1.7-.7.5-2.6zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'/%3E%3C/svg%3E");
+}
+body.nkui-solid-icons .lucide-sun {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm-1-6h2v4h-2V1zm0 18h2v4h-2v-4zM1 11h4v2H1v-2zm18 0h4v2h-4v-2zM3.5 4.9L4.9 3.5l2.9 2.8-1.5 1.5-2.8-2.9zm12.7 12.7l1.5-1.5 2.8 2.9-1.4 1.4-2.9-2.8zM3.5 19.1l2.8-2.9 1.5 1.5-2.9 2.8-1.4-1.4zM16.2 6.3l2.9-2.8 1.4 1.4-2.8 2.9-1.5-1.5z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm-1-6h2v4h-2V1zm0 18h2v4h-2v-4zM1 11h4v2H1v-2zm18 0h4v2h-4v-2zM3.5 4.9L4.9 3.5l2.9 2.8-1.5 1.5-2.8-2.9zm12.7 12.7l1.5-1.5 2.8 2.9-1.4 1.4-2.9-2.8zM3.5 19.1l2.8-2.9 1.5 1.5-2.9 2.8-1.4-1.4zM16.2 6.3l2.9-2.8 1.4 1.4-2.8 2.9-1.5-1.5z'/%3E%3C/svg%3E");
 }

@@ -2,14 +2,29 @@
  * approve all, undo) runs through attachHold so the arming rules — the fill, the
  * swallowed tap, the keyboard shortcut — stay identical everywhere. */
 
-/** Press-and-hold duration (ms) for every commit affordance — gate approve, approve
- * all, draft approve, undo. ~3x faster than the original 700ms: a quick, deliberate
- * press. The stylesheet's fill transitions must match this. */
+/** Shipped press-and-hold duration (ms). The LIVE value is the "Hold duration"
+ * setting — main.ts calls configureHolds(settings.holdMs) on load and on every
+ * save, and css.ts emits the matching --nkui-hold so the fill animation always
+ * tracks the configured commit time. */
 export const HOLD_MS = 303;
 
 /** "close tab?" offer countdown (ms) — the hold fill run in reverse (see
- * main.ts injectCloseButton and the .nkui-close-offer transitions). */
+ * main.ts injectCloseButton and the .nkui-close-offer transitions). Scales
+ * with the configured hold (5x) so the pair keeps its shipped ratio. */
 export const CLOSE_OFFER_MS = 1517;
+
+let liveHoldMs = HOLD_MS;
+
+/** Set the live hold duration from settings (clamped to the settings range). */
+export function configureHolds(ms: number): void {
+	liveHoldMs = Number.isFinite(ms) && ms > 0 ? ms : HOLD_MS;
+}
+
+/** The live "close tab?" countdown — 5x the configured hold, matching the
+ * shipped 303/1517 ratio. */
+export function closeOfferMs(): number {
+	return Math.round(liveHoldMs * 5);
+}
 
 export interface HoldOpts {
 	/** Runs when the press is held the full duration (or on keyboard Enter/Space). */
@@ -31,7 +46,7 @@ export interface HoldOpts {
  * swallowed). Keyboard Enter/Space commits directly — a keyboard can't "hold".
  */
 export function attachHold(el: HTMLElement, opts: HoldOpts): void {
-	const hold = opts.holdMs ?? HOLD_MS;
+	const hold = opts.holdMs ?? liveHoldMs;
 	let timer: number | undefined;
 	let holding = false;
 	let committed = false;

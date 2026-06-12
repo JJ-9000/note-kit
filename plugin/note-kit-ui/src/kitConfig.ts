@@ -21,8 +21,13 @@ export interface KitFacts {
 	 * harmless on plain installs (no name starts with a token, so they style
 	 * nothing) and keeps legacy installs styled. May be empty. */
 	prefixes: string[];
-	/** the type vocabulary from § Types */
+	/** the type vocabulary from § Types, in table-row order */
 	types: string[];
+	/** § Folders literals in table-row order — CONFIG row order IS the explorer
+	 * root order under the plugin's semantic ordering */
+	rootOrder: string[];
+	/** § Subfolders literals in table-row order — subfolder display order */
+	subfolderOrder: string[];
 }
 
 const CONFIG_PATH = ".claude/CONFIG.md";
@@ -70,6 +75,21 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 		if (m[1] !== "type" && !types.includes(m[1])) types.push(m[1]);
 	}
 
+	// Section-scoped literal rows, in table order. CONFIG table row order is the
+	// canonical display order (explorer roots from § Folders, subfolders from
+	// § Subfolders) — the plugin orders by it rather than keeping its own list.
+	const sectionLiterals = (heading: string): string[] => {
+		const sec = text.split(new RegExp(`^## ${heading}\\b`, "m"))[1]?.split(/\n## /m)[0] ?? "";
+		const out: string[] = [];
+		for (const m of sec.matchAll(/^\|[^|]*\|\s*`([^`<][^`]*)`\s*\|/gm)) {
+			const lit = m[1].trim().replace(/\/+$/, "");
+			if (lit && !out.includes(lit)) out.push(lit);
+		}
+		return out;
+	};
+	const rootOrder = sectionLiterals("Folders").filter((l) => !l.includes("/"));
+	const subfolderOrder = sectionLiterals("Subfolders");
+
 	return {
 		inboxLiteral: inbox,
 		outboxLiteral: outbox,
@@ -78,5 +98,7 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 		machineQueuePath: resolve(mq),
 		prefixes,
 		types,
+		rootOrder,
+		subfolderOrder,
 	};
 }

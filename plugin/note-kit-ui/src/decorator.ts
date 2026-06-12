@@ -33,10 +33,20 @@ export class ExplorerDecorator {
 	private floatSet = new Set<string>();
 	private floatEnabled = false;
 	private hideRe: RegExp | null = null;
+	/** name (and prefix-stripped name) → CONFIG table-row index. Row order in
+	 * § Folders / § Subfolders / § Types IS the display order. */
+	private rootOrderMap = new Map<string, number>();
+	private subOrderMap = new Map<string, number>();
+	private typeOrderMap = new Map<string, number>();
+	/** Counts-only refresh — much cheaper than decorateAll; the explorer is a
+	 * virtualized list, so scroll fires mutation batches constantly and a full
+	 * decorate+reorder pass per batch reads as dropped frames. */
+	private countsRefresh: () => void;
 
 	constructor(plugin: NoteKitUiPlugin) {
 		this.plugin = plugin;
 		this.redraw = debounce(() => this.decorateAll(), 150, false);
+		this.countsRefresh = debounce(() => void this.updateCounts(), 600, false);
 	}
 
 	start(): void {
@@ -48,8 +58,10 @@ export class ExplorerDecorator {
 		// vault note on decorating in the MutationObserver callback).
 		this.plugin.registerEvent(
 			app.metadataCache.on("changed", (file) => {
+				// Targeted row + counts only — "changed" fires continuously while the
+				// user types; a debounced FULL pass here cost visible frame drops.
 				this.decorateByPath(file.path);
-				this.redraw();
+				this.countsRefresh();
 			})
 		);
 		this.plugin.registerEvent(app.metadataCache.on("resolved", this.redraw));
@@ -119,6 +131,25 @@ export class ExplorerDecorator {
 		// One gate for ALL explorer ordering (per-folder float AND the root's
 		// semantic folder order): the "Float types to top" setting, off when empty.
 		this.floatEnabled = this.floatSet.size > 0;
+		// CONFIG table-row order drives display order. Each literal maps by its
+		// exact name AND its prefix-stripped form, so 00-Inbox and Inbox both
+		// resolve on either scheme.
+		const orderMap = (literals: string[] | undefined): Map<string, number> => {
+			const m = new Map<string, number>();
+			(literals ?? []).forEach((lit, i) => {
+				m.set(lit.toLowerCase(), i);
+				m.set(lit.replace(/^\d{2,}[-_ ]+/, "").toLowerCase(), i);
+			});
+			return m;
+		};
+		const f = this.plugin.kitFacts;
+		this.rootOrderMap = orderMap(f?.rootOrder);
+		this.subOrderMap = orderMap(f?.subfolderOrder);
+		// Floated types order: § Types row order when CONFIG is read, else the
+		// manual floatTopTypes list order.
+		this.typeOrderMap = new Map(
+			(f?.types?.length ? f.types : (s.floatTopTypes ?? [])).map((t, i) => [t, i])
+		);
 		if (s.enableHidePrefix && this.prefixSet.size) {
 			const alt = [...this.prefixSet].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 			this.hideRe = new RegExp(`^(?:${alt})[ _-]+`);
@@ -182,6 +213,13 @@ export class ExplorerDecorator {
 			if (m.target instanceof HTMLElement) {
 				const cc = m.target.closest<HTMLElement>(".nav-folder-children");
 				if (cc) toOrder.add(cc);
+				else {
+					// A root-level change (the root items live in an unclassed div,
+					// not a .nav-folder-children) — settle the root container.
+					const host = m.target.closest<HTMLElement>(".nav-files-container");
+					const root = host && this.rootItemsContainer(host);
+					if (root && (m.target === root || root.contains(m.target))) toOrder.add(root);
+				}
 			}
 			m.addedNodes.forEach((node) => {
 				if (!(node instanceof HTMLElement)) return;
@@ -194,7 +232,10 @@ export class ExplorerDecorator {
 			});
 		}
 		for (const cc of toOrder) this.reorderChildren(cc);
-		this.redraw();
+		// Counts only — the targeted work above already decorated every touched
+		// row. A full decorateAll per mutation batch made scrolling the
+		// virtualized explorer (which churns childList constantly) drop frames.
+		this.countsRefresh();
 	}
 
 	/** Synchronous, targeted decoration of one row by its data-path. */
@@ -219,14 +260,33 @@ export class ExplorerDecorator {
 		for (const c of this.containers()) {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
 			titles.forEach((el) => this.decorate(el, s));
-			// Settle ordering everywhere (root included — the mod-root wrapper has a
-			// .nav-folder-children like any other folder). Idempotent: an ordered
-			// container moves nothing.
+			// Settle ordering everywhere — the ROOT items' container first (it is
+			// NOT a .nav-folder-children: current Obsidian renders root tree-items
+			// in an unclassed div directly under .nav-files-container), then every
+			// folder's children. Idempotent: an ordered container moves nothing.
+			const root = this.rootItemsContainer(c);
+			if (root) this.reorderChildren(root);
 			c.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((cc) =>
 				this.reorderChildren(cc)
 			);
 		}
 		void this.updateCounts();
+	}
+
+	/** The element whose direct children are the vault root's tree-items.
+	 * Older DOMs wrap them in `.nav-folder.mod-root > .nav-folder-children`;
+	 * current ones put them in an unclassed div under .nav-files-container. */
+	private rootItemsContainer(c: HTMLElement): HTMLElement | null {
+		const legacy = c.querySelector<HTMLElement>(".nav-folder.mod-root > .nav-folder-children");
+		if (legacy) return legacy;
+		const div = c.firstElementChild;
+		if (
+			div instanceof HTMLElement &&
+			div.querySelector(":scope > .nav-folder, :scope > .nav-file")
+		) {
+			return div;
+		}
+		return null;
 	}
 
 	/** Queue files aren't coloured (a coloured row reads as an open folder); each
@@ -540,10 +600,14 @@ export class ExplorerDecorator {
 			(n.classList.contains("nav-folder") || n.classList.contains("nav-file"));
 		const items = Array.from(children.children).filter(isItem);
 		if (items.length < 2) return;
-		const isRoot = children.parentElement?.classList.contains("mod-root") ?? false;
+		// Root = any items container that is NOT a folder's .nav-folder-children
+		// (the unclassed root div), or the legacy mod-root wrapper's children.
+		const isRoot =
+			!children.classList.contains("nav-folder-children") ||
+			(children.parentElement?.classList.contains("mod-root") ?? false);
 		const ranks = new Map(items.map((el) => [el, this.itemRank(el, isRoot)]));
 		// Array.sort is stable: equal ranks keep Obsidian's native order.
-		const desired = [...items].sort((a, b) => (ranks.get(a) ?? 9) - (ranks.get(b) ?? 9));
+		const desired = [...items].sort((a, b) => (ranks.get(a) ?? 900) - (ranks.get(b) ?? 900));
 		// Minimal-mutation walk: advance a cursor down the live item sequence and
 		// pull forward only the nodes that are out of place.
 		let cursor: HTMLElement | null = items[0];
@@ -564,40 +628,57 @@ export class ExplorerDecorator {
 			":scope > .nav-folder-title, :scope > .nav-file-title"
 		);
 		const path = title?.getAttribute("data-path");
-		if (!path) return isRoot ? 6 : 3;
+		if (!path) return isRoot ? 600 : 300;
 		if (isRoot) return this.rootRank(path, el.classList.contains("nav-folder"));
-		if (el.classList.contains("nav-folder")) return 3; // subfolders keep native order
+		if (el.classList.contains("nav-folder")) return this.subfolderRank(path);
 		const leaf = path.split("/").pop() ?? path;
 		const base = leaf.replace(/\.md$/i, "");
 		const parentName = path.includes("/") ? path.split("/").slice(-2, -1)[0] : "";
 		return this.fileRank(path, base, parentName);
 	}
 
-	/** Float rank of a file within its folder: 0 cover/index · 1 floated type ·
-	 * 2 queue file · 3 everything else. Shared with topChildTypeColor so the
-	 * borrowed folder colour follows the visible order exactly. */
+	/** Float rank of a file within its folder: 0 cover/index · 100-band floated
+	 * types (ordered by CONFIG § Types row order) · 200 queue file · 300
+	 * everything else. Shared with topChildTypeColor so the borrowed folder
+	 * colour follows the visible order exactly. */
 	private fileRank(path: string, base: string, parentName: string): number {
 		const s = this.plugin.settings;
-		if (path === s.userQueuePath || path === s.machineQueuePath) return 2;
+		if (path === s.userQueuePath || path === s.machineQueuePath) return 200;
 		const t = this.typeOfPath(path);
 		if (t === "index" || this.isCoverName(base, parentName)) return 0;
-		if (t && this.floatSet.has(t)) return 1;
-		return 3;
+		if (t && this.floatSet.has(t)) return 100 + (this.typeOrderMap.get(t) ?? 99);
+		return 300;
 	}
 
-	/** Semantic rank for the vault root's direct children: Inbox 0 · Outbox 1 ·
-	 * Projects 2 · Areas 3 · References 4 · Snippets 5 · anything unrecognised 6
-	 * (kept in native order) · Archive 8, always last. Names resolve through the
-	 * kit's CONFIG literals first (so 00-Inbox and plain Inbox both rank), then
-	 * by the prefix-stripped, singularised folder name. */
+	/** Subfolders order by CONFIG § Subfolders row order (a typed subfolder —
+	 * Notes, Sessions, Plans … — sits where its table row sits); folders the
+	 * table doesn't name keep native order after them, in the same band as
+	 * plain files. */
+	private subfolderRank(path: string): number {
+		const name = (path.split("/").pop() ?? path).toLowerCase();
+		const idx =
+			this.subOrderMap.get(name) ??
+			this.subOrderMap.get(name.replace(/^\d{2,}[-_ ]+/, ""));
+		return idx == null ? 300 : 250 + Math.min(idx, 49);
+	}
+
+	/** Rank for the vault root's direct children: CONFIG § Folders table-row
+	 * order when CONFIG is read (the table IS the order — Inbox first, Archive
+	 * last, because that's how the rows are written); unrecognised folders and
+	 * root-level files keep native order after the configured set. Falls back
+	 * to the fixed semantic order for CONFIG-less installs. */
 	private rootRank(path: string, isFolder: boolean): number {
-		if (!isFolder) return 6; // root-level files keep native order
+		if (!isFolder) return 600; // root-level files keep native order
 		const f = this.plugin.kitFacts;
 		if (f) {
 			if (path === f.inboxLiteral) return 0;
 			if (path === f.outboxLiteral) return 1;
 		}
-		const key = path.replace(/^\d{2,}[-_ ]+/, "").toLowerCase();
+		const lower = path.toLowerCase();
+		const fromConfig = this.rootOrderMap.get(lower) ?? this.rootOrderMap.get(lower.replace(/^\d{2,}[-_ ]+/, ""));
+		if (fromConfig != null) return fromConfig;
+		if (this.rootOrderMap.size) return 600; // configured order exists; unknown → native band
+		const key = lower.replace(/^\d{2,}[-_ ]+/, "");
 		const k = key.endsWith("s") ? key.slice(0, -1) : key;
 		switch (k) {
 			case "inbox":
@@ -613,9 +694,9 @@ export class ExplorerDecorator {
 			case "snippet":
 				return 5;
 			case "archive":
-				return 8;
+				return 800;
 			default:
-				return 6;
+				return 600;
 		}
 	}
 

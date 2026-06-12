@@ -72,10 +72,15 @@ export interface NoteKitUiSettings {
 	machineQueuePath: string; // user → AI checklist (addable from the view)
 	/** Open queue files in the clean queue view instead of the raw note. */
 	queueCleanView: boolean;
-	/** Show the condensed For You view in the sidebar. */
+	/** Show the For You view in the sidebar (the same full page; on mobile the
+	 * swipe-left drawer). */
 	sidebarNow: boolean;
 	/** One-time default-palette migration has run (see main.migratePalette). */
 	paletteMigrated: boolean;
+	/** Press-and-hold commit duration in ms (approve / undo holds). */
+	holdMs: number;
+	/** Replace Obsidian's outline control icons with minimal solid shapes. */
+	solidIcons: boolean;
 }
 
 /** Defaults seeded from the kit's CONFIG vocabulary (types, inbox path). */
@@ -118,7 +123,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 		{ type: "snippet", color: "#5bd8e1" },
 		{ type: "source", color: "#5c6bc0" },
 		{ type: "index", color: "#ffffff" },
-		{ type: "note", color: "#3b4261" },
+		// note sits brighter than the old #3b4261 — a near-background indigo read
+		// as "a little dark" at h1/full-colour weight on the default theme.
+		{ type: "note", color: "#8e9bd8" },
 		{ type: "voice", color: "#ffea00" },
 		{ type: "design", color: "#ff8d0a" },
 		{ type: "format", color: "#ffae00" },
@@ -149,6 +156,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	queueCleanView: true,
 	sidebarNow: true,
 	paletteMigrated: false,
+	holdMs: 303,
+	solidIcons: true,
 };
 
 /** Sanitize a type value into a CSS class suffix. Shared by css + noteClass. */
@@ -304,7 +313,7 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			);
 		new Setting(containerEl)
 			.setName("Show in sidebar")
-			.setDesc("Show the condensed For You view in the sidebar.")
+			.setDesc("Keep the For You page in the sidebar too (the same full page; on mobile it lives in the swipe-left drawer).")
 			.addToggle((t) =>
 				t.setValue(s.sidebarNow).onChange(async (v) => {
 					s.sidebarNow = v;
@@ -319,6 +328,19 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					s.queueCleanView = v;
 					await save();
 				})
+			);
+		new Setting(containerEl)
+			.setName("Hold duration")
+			.setDesc("How long a press-and-hold (approve, undo) takes to commit, in milliseconds.")
+			.addSlider((sl) =>
+				sl
+					.setLimits(150, 800, 10)
+					.setValue(s.holdMs)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						s.holdMs = v;
+						await save();
+					})
 			);
 		new Setting(containerEl)
 			.setName("Recent items")
@@ -505,7 +527,7 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Float types to top")
 			.setDesc(
-				"Order folder contents semantically — comma-separated note types whose files sort first in their folder (cover index first, then plans, queues)."
+				"Order folder contents semantically — comma-separated note types whose files sort first in their folder (cover index first, then floated types, then queues). With CONFIG sync on, display order follows the kit's .claude/CONFIG.md table rows — § Folders for the root folders, § Subfolders for subfolders, § Types for floated files — so reordering the table rows reorders the explorer. Empty disables all ordering."
 			)
 			.addText((t) =>
 				t.setValue(s.floatTopTypes.join(", ")).onChange(async (v) => {
@@ -567,6 +589,15 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.minimalChrome).onChange(async (v) => {
 					s.minimalChrome = v;
+					await save();
+				})
+			);
+		new Setting(explorerAdv)
+			.setName("Solid icons")
+			.setDesc("Replace the outline control icons (folder, search, sort, close …) with minimal solid shapes. A glyph the replacement doesn't cover keeps its original icon.")
+			.addToggle((t) =>
+				t.setValue(s.solidIcons).onChange(async (v) => {
+					s.solidIcons = v;
 					await save();
 				})
 			);

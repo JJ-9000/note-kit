@@ -184,6 +184,13 @@ function hslToRgb([h, s, l]: [number, number, number]): Rgb {
 	return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
 }
 
+/** A deterministic colour for a type CONFIG names but no palette covers:
+ * golden-angle hue spacing keeps any number of generated colours visually
+ * distinct, in the same saturation/lightness band as the curated defaults. */
+export function autoColor(index: number): string {
+	return hex(hslToRgb([(index * 137.508) % 360, 0.6, 0.55]));
+}
+
 /** A hue-preserving tone of `hex`: lightness shifted by `dL` (capped so it never
  * washes to white), saturation scaled by `sMul`. Hue is untouched. */
 export function tone(hexStr: string, dL: number, sMul = 1): string {
@@ -204,10 +211,16 @@ export function tone(hexStr: string, dL: number, sMul = 1): string {
  * boost raises chroma at the SAME hue (project red reads as a stronger red,
  * never pink — pink is what desaturating toward white produces). */
 export function toneVars(hexStr: string): Record<string, string> {
+	// Emphasis (`--nkui-tb`) is contrast-aware but hue-true: on a dark theme it
+	// pushes LIGHTER, on a light theme DARKER — widening the lightness spectrum
+	// away from the washed background — with the same-hue saturation boost. The
+	// theme is read off body (theme-dark/theme-light), the one global the
+	// palette legitimately depends on.
+	const dark = typeof document !== "undefined" && document.body?.classList?.contains("theme-dark");
 	return {
 		"--nkui-ts": tone(hexStr, 0.06),
 		"--nkui-tm": tone(hexStr, 0.13),
 		"--nkui-tk": tone(hexStr, 0.09, 0.92),
-		"--nkui-tb": tone(hexStr, 0.04, 1.15),
+		"--nkui-tb": tone(hexStr, dark ? 0.18 : -0.18, 1.3),
 	};
 }

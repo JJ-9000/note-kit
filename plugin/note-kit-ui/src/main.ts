@@ -5,9 +5,9 @@ import { ExplorerDecorator } from "./decorator";
 import { NoteClassApplier } from "./noteClass";
 import { NowView, NOW_VIEW_TYPE, NOW_SIDE_VIEW_TYPE } from "./nowView";
 import { QueueView, QUEUE_VIEW_TYPE, rawEscapes } from "./queueView";
-import { CLOSE_OFFER_MS } from "./holds";
+import { closeOfferMs, configureHolds } from "./holds";
 import { KitFacts, readKitFacts } from "./kitConfig";
-import { deriveThemePalette } from "./palette";
+import { autoColor, deriveThemePalette } from "./palette";
 import { syncGraphColors } from "./graph";
 
 /** The default palette shipped BEFORE 0.4.49 (recovered from git, 0.4.46) —
@@ -51,12 +51,20 @@ export default class NoteKitUiPlugin extends Plugin {
 	/** True while we're opening the For You view — keeps the new-tab→For-You handler
 	 * from racing the brief empty leaf `getLeaf("tab")` creates for it. */
 	private openingNow = false;
+	/** Session memory of each file's last view mode (source = live preview,
+	 * preview = reading) — recorded when a markdown view is left, restored when
+	 * its file reopens, so the mode persists across close/reopen. */
+	private viewModes = new Map<string, string>();
+	private lastActiveMd: MarkdownView | null = null;
+	/** Markdown views already carrying the clean-queue-view header action. */
+	private cleanViewActioned = new WeakSet<MarkdownView>();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		await this.migratePalette();
 		await this.applyKitFacts();
 		this.refreshPalette();
+		configureHolds(this.settings.holdMs);
 
 		this.styleEl = document.head.createEl("style");
 		this.styleEl.id = "nkui-dynamic";
@@ -107,6 +115,12 @@ export default class NoteKitUiPlugin extends Plugin {
 		// Turn a new empty main-area tab into the For You page (a Home button).
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
+				// Leaving a markdown view records its mode, so reopening its file
+				// restores live-preview/reading the way the user left it.
+				if (this.lastActiveMd?.file) {
+					this.viewModes.set(this.lastActiveMd.file.path, this.lastActiveMd.getMode());
+				}
+				this.lastActiveMd = this.app.workspace.getActiveViewOfType(MarkdownView);
 				this.maybeReplaceEmpty(leaf);
 				this.dedupeNowView();
 			})
@@ -123,6 +137,10 @@ export default class NoteKitUiPlugin extends Plugin {
 				// Queue files open in the clean queue view (unless the user escaped
 				// to the raw editor this session) — after the dedupe settles.
 				this.maybeRouteQueue(file);
+				// A raw-escaped queue editor gets a header action back to the
+				// clean view (the command alone wasn't discoverable).
+				this.maybeAddCleanViewAction(file);
+				this.restoreViewMode(file);
 			})
 		);
 
@@ -178,12 +196,14 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-calm-reading");
 		document.body.removeClass("nkui-type-tint");
 		document.body.removeClass("nkui-anim");
+		document.body.removeClass("nkui-solid-icons");
 	}
 
 	private applyBodyClasses(): void {
 		document.body.toggleClass("nkui-calm-reading", this.settings.calmReading);
 		document.body.toggleClass("nkui-type-tint", this.settings.typeTint);
 		document.body.toggleClass("nkui-anim", this.settings.animations);
+		document.body.toggleClass("nkui-solid-icons", this.settings.solidIcons);
 	}
 
 	/** Close a just-opened duplicate of a file already open in another main tab. */
@@ -237,6 +257,40 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (!p || !queues.includes(p) || rawEscapes.has(p)) continue;
 			void leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: p }, active: true });
 		}
+	}
+
+	/** Put a "Reopen clean queue view" action in the header of a queue file's
+	 * raw markdown editor — the visible way back after "edit raw" (the command
+	 * palette route alone wasn't discoverable). */
+	private maybeAddCleanViewAction(file: TFile | null): void {
+		if (!file) return;
+		if (file.path !== this.settings.userQueuePath && file.path !== this.settings.machineQueuePath) {
+			return;
+		}
+		const v = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!v || v.file?.path !== file.path || this.cleanViewActioned.has(v)) return;
+		this.cleanViewActioned.add(v);
+		v.addAction("list-checks", "Reopen clean queue view", () => {
+			rawEscapes.delete(file.path);
+			void v.leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: file.path }, active: true });
+		});
+	}
+
+	/** Restore the file's remembered view mode once the markdown view settles —
+	 * only when it differs, so an untouched open stays on the global default. */
+	private restoreViewMode(file: TFile | null): void {
+		if (!file) return;
+		const want = this.viewModes.get(file.path);
+		if (!want) return;
+		window.setTimeout(() => {
+			const v = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!v || v.file?.path !== file.path || v.getMode() === want) return;
+			const st = v.leaf.getViewState();
+			void v.leaf.setViewState({
+				...st,
+				state: { ...(st.state ?? {}), mode: want },
+			});
+		}, 0);
 	}
 
 	private maybeReplaceEmpty(leaf: WorkspaceLeaf | null): void {
@@ -307,11 +361,12 @@ export default class NoteKitUiPlugin extends Plugin {
 			btn.remove();
 			value.style.display = ""; // the checked reviewed box returns
 		};
-		// The fill depletes over CLOSE_OFFER_MS (the hold animation, run in reverse);
-		// when it empties the offer expires. Hovering pauses it — the button holds full
-		// and the countdown restarts on leave — so it's reachable while you're over it.
+		// The fill depletes over the close-offer window (the hold animation in
+		// reverse, 5x the configured hold); when it empties the offer expires.
+		// Hovering pauses it — the button holds full and the countdown restarts
+		// on leave — so it's reachable while you're over it.
 		const arm = (): void => {
-			timer = window.setTimeout(restore, CLOSE_OFFER_MS);
+			timer = window.setTimeout(restore, closeOfferMs());
 		};
 		btn.addEventListener("click", (ev) => {
 			ev.preventDefault();
@@ -484,6 +539,15 @@ export default class NoteKitUiPlugin extends Plugin {
 				s.prefixStyles.push({ prefix: p, weight: 400, size: 1, opacity: 1, color: "" });
 			}
 		}
+		// A type CONFIG names but the colour list doesn't gets a row on every
+		// sync (load and the Re-sync button), so the kit vocabulary is always
+		// fully colourable: the shipped default where one exists, else a
+		// deterministic spaced hue. Existing rows are never overwritten.
+		for (const [i, t] of f.types.entries()) {
+			if (s.typeStyles.some((r) => r.type === t)) continue;
+			const shipped = DEFAULT_SETTINGS.typeStyles.find((r) => r.type === t);
+			s.typeStyles.push(shipped ? { ...shipped } : { type: t, color: autoColor(i) });
+		}
 	}
 
 	/** Reconcile the right-sidebar For You leaf with the `sidebarNow` setting:
@@ -502,6 +566,7 @@ export default class NoteKitUiPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+		configureHolds(this.settings.holdMs);
 		this.refreshPalette();
 		this.applyDynamicCss();
 		this.applyBodyClasses();

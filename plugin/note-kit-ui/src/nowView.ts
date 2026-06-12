@@ -7,7 +7,9 @@ import { CHECKBOX_RE, HEADING_RE, SKIP_MARK_RE, EXEC_MARK_RE } from "./queueWrit
 import type NoteKitUiPlugin from "./main";
 
 export const NOW_VIEW_TYPE = "note-kit-now";
-/** The condensed sidebar twin — same view class, condensed render. */
+/** The sidebar twin — the SAME full For You page, registered under a second
+ * view type so one instance can live in the dock (mobile swipe-left) while
+ * the main tab keeps its own. The sidebar never gets a lesser version. */
 export const NOW_SIDE_VIEW_TYPE = "note-kit-now-side";
 
 interface Entry {
@@ -114,14 +116,14 @@ export class NowView extends ItemView {
 	 * addMachineItem can restore focus after its immediate re-render. */
 	private machineAddInput: HTMLTextAreaElement | null = null;
 
-	/** Condensed (sidebar) mode: Decide stays live; the heavier sections collapse
-	 * to count lines that open the full page. */
-	private condensed: boolean;
+	/** True when this instance is the sidebar twin — same full render, second
+	 * registered view type (the only difference is where the leaf lives). */
+	private side: boolean;
 
-	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin, condensed = false) {
+	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin, side = false) {
 		super(leaf);
 		this.plugin = plugin;
-		this.condensed = condensed;
+		this.side = side;
 		this.scheduleRender = debounce(() => {
 			// Never wipe a field the user is typing in (add a task, edit one, pick an
 			// option): a background vault change must not blow away in-progress text.
@@ -140,7 +142,7 @@ export class NowView extends ItemView {
 	}
 
 	getViewType(): string {
-		return this.condensed ? NOW_SIDE_VIEW_TYPE : NOW_VIEW_TYPE;
+		return this.side ? NOW_SIDE_VIEW_TYPE : NOW_VIEW_TYPE;
 	}
 	getDisplayText(): string {
 		return "For You";
@@ -181,10 +183,6 @@ export class NowView extends ItemView {
 	// ── rendering ──────────────────────────────────────────────────────────────
 
 	private render(): void {
-		if (this.condensed) {
-			this.renderCondensed();
-			return;
-		}
 		const s = this.plugin.settings;
 		const c = this.contentEl;
 		c.empty();
@@ -293,66 +291,6 @@ export class NowView extends ItemView {
 		// extra reflow for nothing.
 		if (document.fonts && document.fonts.status !== "loaded") {
 			void document.fonts.ready.then(() => this.onResize());
-		}
-	}
-
-	/** Condensed sidebar render — Decide keeps its full interactions (picking
-	 * from the sidebar works); Queue, the Needs-you groups, and Active collapse
-	 * to count lines that open the full For You page. */
-	private renderCondensed(): void {
-		const c = this.contentEl;
-		c.empty();
-		this.machineAddInput = null;
-		c.addClass("nkui-now");
-		c.addClass("nkui-now-condensed");
-
-		const { needs, active } = this.collect();
-		const openDecisions = this.decisions.filter(isOpenDecision);
-
-		const head = c.createDiv("nkui-now-head");
-		const tb = head.createDiv("nkui-now-titleblock");
-		tb.createDiv({ cls: "nkui-now-title", text: "For You" });
-		tb.createDiv({
-			cls: "nkui-now-subtitle",
-			text: summary(needs.length, active.length, openDecisions.length),
-		});
-
-		if (openDecisions.length) this.renderDecideBucket(c, openDecisions);
-
-		const openFull = () => void this.plugin.activateNowView();
-		const line = (label: string, count: number, color: string | null): void => {
-			const row = c.createDiv("nkui-now-condline");
-			// An empty control recedes — the stylesheet fades is-empty lines.
-			row.toggleClass("is-empty", count <= 0);
-			row.setAttr("role", "button");
-			row.setAttr("tabindex", "0");
-			row.setAttr("aria-label", `${label} — open the full For You page`);
-			const cnt = row.createSpan({ cls: "nkui-now-count", text: String(count) });
-			if (color && count > 0) cnt.style.background = color;
-			else cnt.addClass("nkui-now-count-neutral");
-			row.createSpan({ cls: "nkui-now-condline-label", text: label });
-			row.addEventListener("click", openFull);
-			attachKeyActivate(row, openFull);
-		};
-
-		// Queue count — open machine items plus outbox drops, like the bucket bubble.
-		const openQueue =
-			this.machineItems.filter((i) => !i.done).length + this.collectOutboxDrops().length;
-		line("Queue", openQueue, "var(--interactive-accent)");
-
-		// Needs-you summary — one count line per type group.
-		const groups = this.groupEntries(needs);
-		for (const key of this.groupOrder([...groups.keys()])) {
-			const items = groups.get(key);
-			if (!items) continue;
-			const needsUser = items.filter((e) => !e.awaitingFiling).length;
-			line(pluralLabel(key, needsUser), needsUser, this.colorFor(key));
-		}
-
-		// Active, collapsed to its count.
-		if (active.length) {
-			const activeColor = active[0].type ? this.colorFor(active[0].type) : null;
-			line("Active", active.length, activeColor);
 		}
 	}
 
@@ -980,6 +918,9 @@ export class NowView extends ItemView {
 	private applyTint(el: HTMLElement, type: string | null | undefined): void {
 		const rc = type ? this.colorFor(type) : null;
 		if (!rc) return;
+		// The class keys the tinted hover wash (the stylesheet cannot select on
+		// an inline custom property); a colour-less row keeps the neutral hover.
+		el.addClass("nkui-tinted");
 		el.style.setProperty("--nkui-row-color", rc);
 		for (const [k, v] of Object.entries(toneVars(rc))) el.style.setProperty(k, v);
 	}

@@ -16,3 +16,7 @@ plugin/note-kit-ui/data.json
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Sync logs written when sync_config runs inside the repo working tree
+/Archive/
+/99-Archive/

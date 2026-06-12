@@ -180,6 +180,50 @@ export class NowView extends ItemView {
 		this.render();
 	}
 
+	/**
+	 * THE way a For You row/member/drop opens its file. Never this view's own
+	 * leaf: replacing it tore the page down and visibly flashed before the file
+	 * appeared. Reuse the most recently active main-area markdown leaf; with
+	 * none (or on a ctrl/meta press), a fresh tab. `subpath` ("#Heading") lands
+	 * a queue open on the item itself, like the old openLinkText fragment.
+	 */
+	private openPath(path: string, newTab: boolean, subpath?: string): void {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return;
+		const ws = this.app.workspace;
+		let leaf: WorkspaceLeaf | null = null;
+		if (!newTab) {
+			// Most recently used markdown leaf in the MAIN area (activeTime is the
+			// workspace's own recency stamp). The For You leaf is never markdown,
+			// so it can't be picked; the sidebar twin is excluded by root.
+			let best = -1;
+			for (const l of ws.getLeavesOfType("markdown")) {
+				if (l.getRoot() !== ws.rootSplit) continue;
+				const t = (l as unknown as { activeTime?: number }).activeTime ?? 0;
+				if (t > best) {
+					best = t;
+					leaf = l;
+				}
+			}
+		}
+		if (!leaf) leaf = ws.getLeaf("tab");
+		void leaf.openFile(file, {
+			active: true,
+			eState: subpath ? { subpath } : undefined,
+		});
+	}
+
+	/** Brief exit beat after a hold commit: mark the element settling (the
+	 * stylesheet fades/folds `.is-settling` over --nkui-settle) and wait that
+	 * beat, so committed rows visibly leave BEFORE the re-render removes them —
+	 * no instant snap under a still-pressed cursor. No-op with animations off
+	 * (body.nkui-anim absent). */
+	private async settle(el: HTMLElement | null | undefined): Promise<void> {
+		if (!el || !document.body.hasClass("nkui-anim")) return;
+		el.addClass("is-settling");
+		await new Promise((r) => setTimeout(r, settleMs()));
+	}
+
 	// ── rendering ──────────────────────────────────────────────────────────────
 
 	private render(): void {
@@ -467,7 +511,7 @@ export class NowView extends ItemView {
 					await this.reloadAndRender();
 				},
 			},
-			onOpen: () => this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false),
+			onOpen: (newLeaf) => this.openPath(path, newLeaf, d.title ? `#${d.title}` : undefined),
 			ariaLabel: "Approved — the agent executes and clears this on its next pass. Uncheck to re-open.",
 		});
 	}
@@ -477,8 +521,7 @@ export class NowView extends ItemView {
 		const card = list.createDiv("nkui-now-decision");
 		// Open the queue at this decision's heading, so a long queue lands you on
 		// the item itself rather than the top of the file.
-		const openQueue = () =>
-			this.app.workspace.openLinkText(d.title ? `${path}#${d.title}` : path, "", false);
+		const openQueue = () => this.openPath(path, false, d.title ? `#${d.title}` : undefined);
 		if (d.title) {
 			const title = card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
 			title.addEventListener("click", openQueue);
@@ -624,10 +667,8 @@ export class NowView extends ItemView {
 		if (!open) return;
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
-		row.addEventListener("click", (ev) =>
-			this.app.workspace.openLinkText(open.path, "", ev.ctrlKey || ev.metaKey)
-		);
-		attachKeyActivate(row, () => this.app.workspace.openLinkText(open.path, "", false));
+		row.addEventListener("click", (ev) => this.openPath(open.path, ev.ctrlKey || ev.metaKey));
+		attachKeyActivate(row, () => this.openPath(open.path, false));
 		this.attachPreview(row, open, d.type);
 	}
 
@@ -675,9 +716,20 @@ export class NowView extends ItemView {
 	): HTMLElement {
 		// An empty section (count 0 — an all-approved drafts bucket, a queue with
 		// nothing open, only-resolved decisions) carries nothing the user must act
-		// on. Tag it so the stylesheet recedes it (smaller, faded): a quiet "0" that
-		// never competes with a live count for attention.
+		// on. Tag it so the stylesheet recedes it (the group dims; the count pill
+		// keeps its full size — only the GROUP class changes, never a pill class):
+		// a quiet "0" that never competes with a live count for attention.
 		bucket.toggleClass("nkui-now-group-empty", count <= 0);
+		// A COLLAPSED quiet surface (the Waiting group, or a closed queue-ish
+		// section — Decide / Queue) renders diminished like an empty one; the
+		// stylesheet keys the look off `is-diminished`. Re-synced on every fold
+		// toggle below.
+		const syncDiminished = (): void => {
+			const quiet =
+				bucket.hasClass("nkui-now-group-queue") || bucket.hasClass("nkui-now-group-waiting");
+			bucket.toggleClass("is-diminished", quiet && bucket.hasClass("is-collapsed"));
+		};
+		syncDiminished();
 		// Open-section emphasis colour: the section's own pill (type) colour. The
 		// stylesheet applies it only while the section is unfolded. When it's a real
 		// type hex, derive its sub-tones too, so the section header + "approve all"
@@ -697,6 +749,7 @@ export class NowView extends ItemView {
 		const toggle = () => {
 			const collapsed = bucket.classList.toggle("is-collapsed");
 			this.setCollapsed(id, collapsed, defaultOpen);
+			syncDiminished();
 		};
 		gh.addEventListener("click", toggle);
 		gh.addEventListener("keydown", (ev) => {
@@ -710,7 +763,7 @@ export class NowView extends ItemView {
 
 	/**
 	 * Per-section "approve all?": a pressable in the section header (the shared
-	 * pressable language — small italic text, like "edit?" / "un-approve"), coloured
+	 * pressable language — small italic text, like "edit?" / "undo"), coloured
 	 * like the section it belongs to. Press and HOLD ~700ms to commit; while held a
 	 * fill animates and the candidate rows light up in their type colour (the section
 	 * gains `is-arming`), so an accidental tap does nothing. Click stops propagation
@@ -725,20 +778,25 @@ export class NowView extends ItemView {
 		// While held the section gains `is-arming`, lighting the candidate rows in
 		// their type colour; the swallowed tap keeps the header from folding.
 		attachHold(btn, {
-			onCommit: () => this.approveAll(drafts),
+			onCommit: () => this.approveAll(drafts, bucket),
 			armClass: "is-arming",
 			armTarget: bucket,
 		});
 	}
 
-	/** Stamp reviewed: true on each draft via the frontmatter-safe API, then repaint. */
-	private async approveAll(drafts: Entry[]): Promise<void> {
+	/** Stamp reviewed: true on each draft via the frontmatter-safe API. Then the
+	 * exit beat: the section folds its list closed (`is-settling`, the foldwrap's
+	 * grid-rows pattern at --nkui-settle pace) so the committed rows visibly
+	 * leave before the repaint removes them — not an instant snap that shoves
+	 * the next section up under the cursor. */
+	private async approveAll(drafts: Entry[], bucket: HTMLElement | null): Promise<void> {
 		const field = this.plugin.settings.reviewedField;
 		for (const e of drafts) {
 			await this.app.fileManager.processFrontMatter(e.file, (fm) => {
 				fm[field] = true;
 			});
 		}
+		await this.settle(bucket);
 		await this.reloadAndRender();
 	}
 
@@ -761,13 +819,13 @@ export class NowView extends ItemView {
 	}
 
 	/** An approved waiting set: the gate (or lone approved file), folded with its
-	 * "+N", an "approved — awaiting filing" note, and an "un-approve" affordance that
+	 * "+N", an "approved — awaiting filing" note, and an undo-review affordance that
 	 * sends the gate and its members back to drafts (Needs-you). */
 	private renderWaitingGate(list: HTMLElement, e: Entry): void {
 		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate nkui-cols");
 		// A waiting child keeps its kind's tint, like every top-level row.
 		this.applyTint(row, e.type);
-		const aria = "Approved — the filing-agent files this set next pass. Un-approve to send it back.";
+		const aria = "Approved — the filing-agent files this set next pass. Undo review to send it back.";
 		row.setAttr("aria-label", aria);
 		row.setAttr("title", aria);
 		// Subject and status share ONE line: the subject truncates with an ellipsis
@@ -777,10 +835,8 @@ export class NowView extends ItemView {
 			cls: "nkui-now-reducedtitle nkui-now-reducedrow-click nkui-col-main",
 			text: this.displayName(e.file),
 		});
-		title.addEventListener("click", (ev) =>
-			this.app.workspace.openLinkText(e.file.path, "", ev.ctrlKey || ev.metaKey)
-		);
-		// No leading "gate +N": it's redundant with the "un-approve gate +N" at the
+		title.addEventListener("click", (ev) => this.openPath(e.file.path, ev.ctrlKey || ev.metaKey));
+		// No leading "gate +N": it's redundant with the "undo gate +N" at the
 		// end of the line. Status and undo are grid cells (nkui-cols) — the list grid
 		// aligns them across waiting rows, gate or lone file, on any pane width.
 		row.createSpan({ cls: "nkui-now-fatenote nkui-now-waittext nkui-col-meta", text: "awaiting filing" });
@@ -797,7 +853,7 @@ export class NowView extends ItemView {
 		undo.setAttr("role", "button");
 		undo.setAttr("tabindex", "0");
 		attachHold(undo, {
-			onCommit: () => this.unapproveSet(e),
+			onCommit: () => this.unapproveSet(e, row),
 			onTap: () => this.toggleGateMembers(row, e),
 		});
 		this.attachPreview(row, e.file, e.type);
@@ -805,8 +861,9 @@ export class NowView extends ItemView {
 
 	/** Send an approved waiting set back to Needs-you: clear `reviewed` on the gate
 	 * and every member it gated, dropping the `auto-reviewed` tag the cascade added.
-	 * Members still drafts are left as-is. */
-	private async unapproveSet(e: Entry): Promise<void> {
+	 * Members still drafts are left as-is. The committed row settles for a beat
+	 * before the repaint moves it. */
+	private async unapproveSet(e: Entry, row?: HTMLElement): Promise<void> {
 		const field = this.plugin.settings.reviewedField;
 		for (const f of [e.file, ...(e.setFiles ?? [])]) {
 			await this.app.fileManager.processFrontMatter(f, (fm) => {
@@ -817,6 +874,7 @@ export class NowView extends ItemView {
 				}
 			});
 		}
+		await this.settle(row);
 		await this.reloadAndRender();
 	}
 
@@ -885,7 +943,7 @@ export class NowView extends ItemView {
 	private toggleGateMembers(row: HTMLElement, e: Entry): void {
 		const next = row.nextElementSibling;
 		if (next instanceof HTMLElement && next.hasClass("nkui-now-gatemembers")) {
-			next.remove();
+			this.foldGateMembers(next);
 			return;
 		}
 		const files = e.setFiles ?? [];
@@ -893,23 +951,47 @@ export class NowView extends ItemView {
 		const box = createDiv("nkui-now-gatemembers");
 		// The stylesheet scales the unroll duration by the row count.
 		box.style.setProperty("--nkui-rows", String(files.length));
+		// The grid-rows fold pattern (the foldwrap's 0fr ⇄ 1fr) needs an inner
+		// box to clip: members live in it, the outer element animates the track.
+		const inner = box.createDiv("nkui-now-gatemembers-inner");
 		for (const f of files) {
 			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
 			const type = fm?.[this.plugin.settings.typeField] != null
 				? String(fm[this.plugin.settings.typeField])
 				: null;
-			const m = box.createDiv("nkui-now-gatemember");
+			const m = inner.createDiv("nkui-now-gatemember");
 			this.applyTint(m, type);
 			m.setAttr("role", "button");
 			m.setAttr("tabindex", "0");
 			m.createSpan({ cls: "nkui-now-gatemember-name", text: this.displayName(f) });
-			m.addEventListener("click", (ev) =>
-				this.app.workspace.openLinkText(f.path, "", ev.ctrlKey || ev.metaKey)
-			);
-			attachKeyActivate(m, () => this.app.workspace.openLinkText(f.path, "", false));
+			m.addEventListener("click", (ev) => this.openPath(f.path, ev.ctrlKey || ev.metaKey));
+			attachKeyActivate(m, () => this.openPath(f.path, false));
 			this.attachPreview(m, f, type);
 		}
 		row.insertAdjacentElement("afterend", box);
+		// Unfold on the NEXT frame so the inserted box transitions 0fr → 1fr
+		// instead of appearing at full height; with animations off the
+		// stylesheet's body:not(.nkui-anim) gate makes the same flip instant.
+		window.requestAnimationFrame(() => box.addClass("is-open"));
+	}
+
+	/** Fold an open member list with the same grid-rows transition, detaching it
+	 * only after the close has played (transitionend, with a timeout fallback —
+	 * a hidden pane fires no transition events). Animations off → instant. */
+	private foldGateMembers(box: HTMLElement): void {
+		if (!document.body.hasClass("nkui-anim") || !box.hasClass("is-open")) {
+			box.remove();
+			return;
+		}
+		box.removeClass("is-open");
+		let detached = false;
+		const detach = (): void => {
+			if (detached) return;
+			detached = true;
+			box.remove();
+		};
+		box.addEventListener("transitionend", detach, { once: true });
+		window.setTimeout(detach, 600);
 	}
 
 	/** Stamp an element with its type tint — --nkui-row-color plus the derived
@@ -926,12 +1008,14 @@ export class NowView extends ItemView {
 	}
 
 	/** Approve a gate (stamp reviewed: true) — group approval cascades to its peers
-	 * via the filing-agent; the set drops to Waiting next render. */
-	private async approveGate(e: Entry): Promise<void> {
+	 * via the filing-agent; the set drops to Waiting next render. The committed
+	 * row settles (fades) for a beat before the repaint moves it. */
+	private async approveGate(e: Entry, row?: HTMLElement): Promise<void> {
 		const field = this.plugin.settings.reviewedField;
 		await this.app.fileManager.processFrontMatter(e.file, (fm) => {
 			fm[field] = true;
 		});
+		await this.settle(row);
 		await this.reloadAndRender();
 	}
 
@@ -947,7 +1031,7 @@ export class NowView extends ItemView {
 		if (e.draft) row.addClass("nkui-now-row-draft");
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
-		const open = (newLeaf: boolean) => this.app.workspace.openLinkText(e.file.path, "", newLeaf);
+		const open = (newLeaf: boolean) => this.openPath(e.file.path, newLeaf);
 		row.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
 		attachKeyActivate(row, () => open(false));
 		this.attachPreview(row, e.file, e.type);
@@ -1027,7 +1111,7 @@ export class NowView extends ItemView {
 				gate.setAttr("role", "button");
 				gate.setAttr("tabindex", "0");
 				attachHold(gate, {
-					onCommit: () => this.approveGate(e),
+					onCommit: () => this.approveGate(e, row),
 					onTap: () => this.toggleGateMembers(row, e),
 				});
 			} else if (canApproveDraft) {
@@ -1042,7 +1126,7 @@ export class NowView extends ItemView {
 				appr.setAttr("title", hint);
 				appr.setAttr("role", "button");
 				appr.setAttr("tabindex", "0");
-				attachHold(appr, { onCommit: () => this.approveGate(e) });
+				attachHold(appr, { onCommit: () => this.approveGate(e, row) });
 			}
 		}
 
@@ -1444,16 +1528,12 @@ export class NowView extends ItemView {
 		return t?.color || null;
 	}
 
+	/** Row display name — the basename minus a structural numeric prefix
+	 * ("00-Cover" → "Cover"). Exactly two digits, the kit's § Numbering shape
+	 * (the per-prefix styling rules were retired with settings.prefixStyles):
+	 * a date-named file (2026-06-12-…) keeps its date. */
 	private displayName(file: TFile): string {
-		let name = file.basename;
-		for (const p of this.plugin.settings.prefixStyles) {
-			const re = new RegExp(`^${p.prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ _-]+`);
-			if (re.test(name)) {
-				name = name.replace(re, "");
-				break;
-			}
-		}
-		return name;
+		return file.basename.replace(/^\d{2}[-_ ]+/, "");
 	}
 }
 
@@ -1616,7 +1696,9 @@ export function renderMachineItemRow(list: HTMLElement, item: QueueItem, h: Mach
  * Enter submits, Shift+Enter breaks a line. Returns the textarea so the host
  * can re-focus it after a render. Exported for the standalone queue view. */
 export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => void): HTMLTextAreaElement {
-	const add = parent.createDiv("nkui-now-qadd");
+	// `nkui-now-qadd-live` exempts the box from the empty-group fade: an empty
+	// Queue section dims, but the way INTO it (add a task) stays full-strength.
+	const add = parent.createDiv("nkui-now-qadd nkui-now-qadd-live");
 	const input = add.createEl("textarea", {
 		cls: "nkui-now-qaddinput",
 		attr: { rows: "1", placeholder: "Add a task…" },
@@ -1711,6 +1793,17 @@ export function plainText(s: string): string {
 		.replace(/\*\*(.+?)\*\*/g, "$1")
 		.replace(/`([^`]+)`/g, "$1")
 		.replace(/(^|\s)[*_]{1,2}(\S.*?\S|\S)[*_]{1,2}(?=\s|$)/g, "$1$2");
+}
+
+/** The stylesheet's --nkui-settle token in ms — the exit-animation beat the
+ * settling waits out. Read live so a token change stays one edit; falls back
+ * to the shipped 170ms when unset (e.g. the stylesheet not yet injected). */
+function settleMs(): number {
+	const raw = getComputedStyle(document.body).getPropertyValue("--nkui-settle").trim();
+	const v = parseFloat(raw);
+	if (!Number.isFinite(v) || v <= 0) return 170;
+	// "170ms" parses to 170; a bare seconds value ("0.17s") scales up.
+	return raw.endsWith("ms") ? v : v < 10 ? v * 1000 : v;
 }
 
 /** Primary title line — today's date, e.g. "Sunday, June 7". */

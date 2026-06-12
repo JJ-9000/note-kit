@@ -1,7 +1,7 @@
 /* Note-Kit UI — static presentation.
-   Per-prefix weights and per-type colours are emitted at runtime (see css.ts);
-   this file holds the structural rules that reference them. Override any value
-   in a CSS snippet or Style Settings without touching the plugin. */
+   Per-type colours are emitted at runtime (see css.ts); this file holds the
+   structural rules that reference them. Override any value in a CSS snippet
+   or Style Settings without touching the plugin. */
 
 :root {
 	--nkui-dot-size: 8px;
@@ -275,6 +275,12 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
 	--text-accent-hover: var(--nkui-ts);
 	--interactive-accent: var(--nkui-type-color);
 	--interactive-accent-hover: var(--nkui-ts);
+	/* Selection follows the type too — the editor reads --text-selection for the
+	   CodeMirror selection layer; ::selection covers reading mode and plain DOM. */
+	--text-selection: color-mix(in srgb, var(--nkui-type-color) 30%, transparent);
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] ::selection {
+	background: color-mix(in srgb, var(--nkui-type-color) 30%, transparent);
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
@@ -316,8 +322,11 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	min-width: 1.35em;
-	height: 1.4em;
+	/* Square below 3 digits: min-width equals the height (em so it scales);
+	   wider counts grow with the constant inline padding preserved. */
+	box-sizing: border-box;
+	min-width: 1.6em;
+	height: 1.6em;
 	padding: 0 6px;
 	border-radius: var(--nkui-radius);
 	background: var(--nkui-draft-color);
@@ -403,9 +412,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-refresh {
 	flex: 0 0 auto;
 }
-/* each bucket is a foldable, type-coloured header with its items beneath */
+/* each bucket is a foldable, type-coloured header with its items beneath.
+   Sections TOUCH: zero bottom margin, so a washed section's last row band and
+   the next section's header band stack with no gap — one seamless column. */
 .nkui-now-group {
-	margin-bottom: var(--nkui-gap-s);
+	margin-bottom: 0;
 }
 .nkui-now-group-head {
 	display: flex;
@@ -452,7 +463,14 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	isolation: isolate;
 	overflow: hidden;
 	flex: 0 0 auto;
-	padding: 0 0.35em;
+	/* Flush with the head band, like the count pill: stretch to the band height,
+	   negative block margin eats the band padding, the label centres in its own
+	   evenly-padded box — the hold fill sweeps the full band height. */
+	align-self: stretch;
+	display: inline-flex;
+	align-items: center;
+	margin-block: -0.25em;
+	padding: 0 0.6em;
 	border: none;
 	border-radius: var(--nkui-radius);
 	background: transparent;
@@ -533,12 +551,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	overflow: hidden;
 }
 
-/* rule separating Active from the unread buckets above.
-   Only set vertical margins — horizontal stays `auto` (from .nkui-now > *) so the
-   divider centres with the rest instead of hugging the left. */
+/* The Active/unread divider draws NO line and adds NO gap — colour and the
+   header bands do the separating; the element stays in the DOM as a landmark. */
 .nkui-now-divider {
-	border-top: 1px solid var(--background-modifier-border);
-	margin-block: var(--nkui-gap-m);
+	border: none;
+	margin-block: 0;
 }
 .nkui-now-group-title {
 	font-size: 1.3em;
@@ -549,7 +566,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 }
 /* count as a notification bubble; background colour is set inline to the type colour.
    Fixed box (height + inline-flex centring + tabular digits) so a 1→2 digit count
-   never changes the bubble's height and the header doesn't jump on fold. */
+   never changes the bubble's height and the header doesn't jump on fold.
+   Square below 3 digits: min-width equals the height (em so it scales); from
+   3 digits the box widens while the inline padding stays constant. */
 .nkui-now-count {
 	flex: 0 0 auto;
 	box-sizing: border-box;
@@ -557,7 +576,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	align-items: center;
 	justify-content: center;
 	min-width: 1.7em;
-	height: 1.45em;
+	height: 1.7em;
 	padding: 0 0.5em;
 	border-radius: var(--nkui-radius);
 	background: var(--text-faint);
@@ -571,20 +590,37 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	background: var(--background-modifier-border);
 	color: var(--text-muted);
 }
-/* An empty section — count 0, nothing here needs the user. It recedes: the whole
-   group fades, the title drops to body weight, and the count bubble shrinks, so a
-   "0" reads as "clear" rather than borrowing the visual urgency of a live count. */
-.nkui-now-group-empty {
+/* An empty section — count 0, nothing here needs the user. It recedes: the head
+   and the section's settled contents fade and the title drops to body weight —
+   but the count pill keeps its geometry (it dims with the head; a "0" reads as
+   "clear" by tone, never by a shrunken box). The dim is applied to the head and
+   to each list child rather than the whole group, so a live add-task box
+   (.nkui-now-qadd-live, stamped by the view) can stay at full strength inside
+   an otherwise-empty Queue group. */
+.nkui-now-group-empty > .nkui-now-group-head {
+	opacity: 0.5;
+}
+.nkui-now-group-empty .nkui-now-foldwrap > .nkui-now-list > :not(.nkui-now-qadd-live) {
 	opacity: 0.5;
 }
 .nkui-now-group-empty .nkui-now-group-title {
 	font-size: 1em;
 	font-weight: 600;
 }
-.nkui-now-group-empty .nkui-now-count {
-	min-width: 1.4em;
-	height: 1.2em;
-	font-size: var(--font-ui-smaller, 11px);
+/* The add-task box stays bright inside an empty Queue group. */
+.nkui-now-group-empty .nkui-now-qadd-live {
+	opacity: 1;
+}
+/* A collapsed, low-urgency section (the view stamps is-diminished on collapsed
+   Waiting/queue groups) renders small like the empty treatment — title to body
+   scale, the whole head a stop dimmer (the pill dims with it) — but the pill's
+   GEOMETRY never shrinks: boxes keep their size; tone does the talking. */
+.nkui-now-group.is-diminished > .nkui-now-group-head {
+	opacity: 0.6;
+}
+.nkui-now-group.is-diminished > .nkui-now-group-head .nkui-now-group-title {
+	font-size: 1em;
+	font-weight: 600;
 }
 .nkui-now-empty {
 	color: var(--text-faint);
@@ -877,7 +913,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	border: none;
 	border-bottom: 1px solid var(--background-modifier-border);
 	border-radius: var(--nkui-radius) var(--nkui-radius) 0 0; /* top corners follow the shared radius token (sharp by default); never the theme's text-clipping pill */
-	padding: 0.3em 0.5em; /* breathing room so text/placeholder and the focus highlight aren't flush */
+	min-height: 1.8em; /* a comfortable box, never a skinny rectangle */
+	padding: 0.4em 0.5em; /* even breathing room so text/placeholder and the focus highlight aren't flush */
 	color: var(--text-normal);
 	font-family: inherit;
 	font-size: var(--font-ui-small, 13px);
@@ -957,9 +994,27 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
    Sized to sit in the option row at the kit's 8px gap step. */
 .nkui-now-fillin {
 	flex: 1 1 auto;
+	box-sizing: border-box;
 	min-width: 8em;
+	min-height: 1.8em; /* comfortable box, never a skinny field */
 	font-size: var(--font-ui-small);
-	padding: 0.1em 0.4em;
+	padding: 0.25em 0.5em;
+	border-radius: var(--nkui-radius);
+}
+
+/* ── Control language — sharp, flush, comfortable minimums ────────────────────
+   Every interactive control inside the plugin's surfaces follows the shared
+   radius token (sharp by default): checkboxes included — a theme's rounded
+   checkbox otherwise breaks the square language mid-row. */
+.nkui-now input[type="checkbox"],
+.nkui-queue input[type="checkbox"] {
+	border-radius: var(--nkui-radius);
+}
+.nkui-now input[type="text"]:not(.nkui-now-qaddinput),
+.nkui-now textarea:not(.nkui-now-qaddinput),
+.nkui-queue input[type="text"]:not(.nkui-now-qaddinput),
+.nkui-queue textarea:not(.nkui-now-qaddinput) {
+	border-radius: var(--nkui-radius);
 }
 
 .nkui-now-optrow {
@@ -1371,6 +1426,18 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 10%, transparent);
 }
+/* …and its CHILD rows carry a LIGHTER wash of the same colour at rest (folder →
+   child tonal step: the header keeps its 10%, children sit at ~6%), so the open
+   section reads as one washed block. Opaque mixes (over background-primary) keep
+   ClearType crisp; hover steps a stop stronger than rest. A row stamped with its
+   own --nkui-row-color washes in its type colour; colour-less rows fall back to
+   the section colour. */
+body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) .nkui-now-foldwrap :is(.nkui-now-row, .nkui-now-reducedrow, .nkui-now-gatemember) {
+	background: color-mix(in srgb, var(--nkui-row-color, var(--nkui-section-color, var(--interactive-accent))) 6%, var(--background-primary));
+}
+body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) .nkui-now-foldwrap :is(.nkui-now-row, .nkui-now-reducedrow, .nkui-now-gatemember):hover {
+	background: color-mix(in srgb, var(--nkui-row-color, var(--nkui-section-color, var(--interactive-accent))) 12%, var(--background-primary));
+}
 
 /* Square highlights — dropdown headers, For You rows, and the explorer selection
    follow the shared radius token (sharp by default), so a highlight reads as a
@@ -1480,9 +1547,6 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 }
 
 /* ── Quiet separators / no notches (tabs + lists) ───────────────────────────── */
-.nkui-now-divider {
-	border-top-color: color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
-}
 .nkui-now-decision + .nkui-now-decision {
 	border-top-color: color-mix(in srgb, var(--background-modifier-border) 50%, transparent);
 }
@@ -1535,10 +1599,6 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	color: var(--text-normal) !important;
 	font-weight: var(--font-normal, 400) !important;
 }
-/* Queue files don't inherit the 00- prefix's large size — they're controls. */
-.nav-file-title[data-nkui-queue][data-nkui-prefix] {
-	font-size: var(--font-ui-small, 13px) !important;
-}
 /* Plain number (no pill, theme-neutral) on a queue file — its open-item count. */
 .nkui-queue-count {
 	margin-left: auto;
@@ -1561,8 +1621,13 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	touch-action: none;
 	user-select: none;
 	border-radius: var(--nkui-radius);
-	/* Room around the label so the depleting timer fill doesn't crowd the text. */
-	padding: 0.1em 0.55em;
+	display: inline-flex;
+	align-items: center;
+	/* Flush with the row band: generous even block padding reaches the band
+	   edges; the matching negative margin keeps the row height unchanged — so
+	   the hold fill sweeps a band-height box, not an inset chip. */
+	padding: 0.45em 0.55em;
+	margin-block: -0.45em;
 }
 .nkui-now-gateapprove:hover {
 	text-decoration: underline;
@@ -1626,6 +1691,34 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	transition: none !important;
 }
 
+/* Exit animation — a committed row gets `is-settling` for the settle window
+   before the re-render removes it: it fades, and its band collapses (keyframes,
+   not a transition, so no base max-height needs to exist on every row — rows
+   here are at most a few lines tall, so the 4em cap is safe). No transform:
+   resolved work softens and closes; it never slides. */
+.nkui-now .is-settling {
+	opacity: 0;
+	transform: none;
+	pointer-events: none;
+	overflow: hidden;
+	transition: opacity var(--nkui-settle) ease;
+	animation: nkui-settle-collapse var(--nkui-settle) ease forwards;
+}
+@keyframes nkui-settle-collapse {
+	from {
+		max-height: 4em;
+	}
+	to {
+		max-height: 0;
+		padding-block: 0;
+		margin-block: 0;
+	}
+}
+body:not(.nkui-anim) .nkui-now .is-settling {
+	transition: none !important;
+	animation: none !important;
+}
+
 /* "close tab?" — replaces the reviewed checkbox once the box is checked (after a
    ~1/4s beat). A fill DEPLETES over ~3.5s — the press-and-hold animation run in
    reverse — marking the window; when it empties the checkbox returns. Hover holds
@@ -1641,7 +1734,9 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	font-style: italic;
 	font-size: var(--font-ui-small, 13px);
 	cursor: pointer;
-	padding: 0 0.4em;
+	/* Even padding, sharp corners (radius token) — a comfortable flush box, not
+	   a skinny inset chip. */
+	padding: 0.3em 0.5em;
 	border-radius: var(--nkui-radius);
 	opacity: 1;
 }
@@ -1875,11 +1970,36 @@ body.is-mobile .nkui-cols > .nkui-col-meta > * + * {
 	height: 14px;
 }
 /* Gate members — the transient peek list a tap on "+N gated" / "undo +N" unfolds
-   beneath its row. The box is inserted/removed synchronously, so the unfold is
-   intentionally instant — no transition. */
+   beneath its row. Same fold language as the section foldwrap: rows animate
+   0fr→1fr, one --nkui-row-ms step per member (the view stamps --nkui-rows),
+   clamped. JS contract: members live inside one .nkui-now-gatemembers-inner
+   clip box; the container gets `is-open` a frame after insert; on close the
+   class is removed and the box leaves the DOM after the transition. With
+   animations off (body lacks nkui-anim) the box renders open instantly. */
 .nkui-now-gatemembers {
+	display: grid;
+	grid-template-rows: 1fr;
+}
+.nkui-now-gatemembers > .nkui-now-gatemembers-inner {
+	min-height: 0;
+	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+}
+body.nkui-anim .nkui-now-gatemembers {
+	grid-template-rows: 0fr;
+	opacity: 0;
+	transition-property: grid-template-rows, opacity;
+	transition-timing-function: ease;
+	transition-duration: clamp(
+		var(--nkui-unroll-min),
+		calc(var(--nkui-rows, 1) * var(--nkui-row-ms)),
+		var(--nkui-unroll-max)
+	);
+}
+body.nkui-anim .nkui-now-gatemembers.is-open {
+	grid-template-rows: 1fr;
+	opacity: 1;
 }
 .nkui-now-gatemember {
 	display: flex;
@@ -1932,11 +2052,59 @@ body.nkui-type-tint .nkui-now-waitgate .nkui-now-reducedtitle {
 	color: var(--nkui-tm, var(--text-muted));
 }
 
-/* Plain-name scheme cover emphasis — a cover note with no numeric prefix still
-   reads as its folder's heading (the 00- prefix rule covers legacy installs). */
-.nav-file-title[data-nkui-cover]:not([data-nkui-prefix]) .nav-file-title-content {
+/* Cover emphasis — a folder's cover note reads as its folder's heading. */
+.nav-file-title[data-nkui-cover] .nav-file-title-content {
 	font-weight: 800;
 	font-size: 1.2em;
+}
+
+/* ── Explorer role decorations — sink / uncategorised / weight (the decorator
+   stamps data-nkui-sink / data-nkui-uncat / data-nkui-weight + --nkui-weight-heat
+   on the title rows). ─────────────────────────────────────────────────────────── */
+/* SINK (archive and similar): the whole subtree recedes — title row dimmed, the
+   children container faded and a step smaller, so an expanded sink never reads
+   as live work (the static twin of the old dimSinkContents emission: opacity on
+   the children container so the subtree fades as one group, font-size inherited
+   once down the tree). :has() is supported by Obsidian's Chromium. */
+.nav-folder-title[data-nkui-sink] {
+	opacity: 0.55;
+}
+.nav-folder:has(> .nav-folder-title[data-nkui-sink]) > .nav-folder-children {
+	opacity: 0.55;
+	font-size: 0.95em;
+}
+/* UNCATEGORISED — the middle diminish: present, quieter than live work, louder
+   than a sink. */
+.nav-file-title[data-nkui-uncat],
+.nav-folder-title[data-nkui-uncat] {
+	opacity: 0.75;
+}
+/* WEIGHT — tint intensity rides --nkui-weight-heat (0..1): heat 0 sits at a 40%
+   lean toward the type colour, heat 1 is the full colour. The tinted variant
+   carries the extra attribute so it outranks the base tint rule. */
+.nav-file-title[data-nkui-weight] .nav-file-title-content,
+body.nkui-type-tint .nav-file-title[data-nkui-type][data-nkui-weight] .nav-file-title-content {
+	color: color-mix(
+		in srgb,
+		var(--nkui-type-color, var(--text-accent)) calc(40% + 60% * var(--nkui-weight-heat, 0)),
+		var(--text-normal)
+	);
+}
+/* The w<n> badge — a tiny quiet mono stamp (the version marker's language):
+   sharp, evenly padded, faint. */
+.nkui-weight-badge {
+	flex: 0 0 auto;
+	align-self: center;
+	margin-left: var(--nkui-gap-s);
+	padding: 0.1em 0.4em;
+	border-radius: var(--nkui-radius);
+	background: color-mix(in srgb, var(--text-faint) 12%, transparent);
+	color: var(--text-faint);
+	font-family: var(--font-monospace, monospace);
+	font-size: var(--font-ui-smaller, 10px);
+	font-weight: var(--font-normal, 400);
+	font-variant-numeric: tabular-nums;
+	line-height: 1.4;
 }
 
 /* Settings polish — the advanced <details> groups and compact rows. */

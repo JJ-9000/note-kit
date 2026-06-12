@@ -1,11 +1,23 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   Note-Kit theme — STARTER (v0.1.0)
+   Note-Kit theme — v0.2.0
    Vibedose colours (dark + vibrant) on a Minimal-clean base: Minimal's low-noise
    borders / outlines / highlights, Vibedose's dark palette and saturated hues.
    Supplemental to the note-kit-ui plugin — the plugin reads --color-* / theme
    accents from here, so the For You view and explorer follow the theme.
-   This is a foundation to build on; tune the variables below.
+   Design language: seamless square boxes, even padding, colour does the
+   talking, minimal separators. The theme never rounds what the plugin keeps
+   sharp, and never paints over the plugin's icon masks or type washes.
    ════════════════════════════════════════════════════════════════════════════ */
+
+/* @settings
+name: Note-Kit
+id: note-kit-theme
+settings:
+  - id: nkui-amoled
+    title: AMOLED true black
+    description: True-black surfaces for OLED screens (dark mode only).
+    type: class-toggle
+*/
 
 .theme-dark {
 	/* ── Surfaces — near-black, few steps (Minimal: flat, low contrast between
@@ -54,12 +66,50 @@
 	--h3-color: var(--text-normal);
 	--h4-color: var(--text-muted);
 
-	/* Tighter radii, soft shadows (Minimal). */
-	--radius-s: 5px;
-	--radius-m: 8px;
-	--radius-l: 12px;
+	/* Dividers as faint as the surfaces allow — colour separates, lines don't. */
+	--divider-color: #14141c;
+	--divider-width: 1px;
+
 	--shadow-s: none;
 	--shadow-l: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Square boxes — the kit's corner language, theme-wide ─────────────────────
+   Sharp quads on every surface the theme controls: tabs (the plugin forces
+   them too, but the theme never rounds them in the first place), buttons,
+   inputs, checkboxes, pills-as-boxes. Markers that are circles by meaning
+   (dots) are untouched — they are markers, not boxes. */
+body {
+	--radius-s: 0px;
+	--radius-m: 0px;
+	--radius-l: 0px;
+	--radius-xl: 0px;
+	--tab-radius: 0px;
+	--tab-curve: 0px;
+	--button-radius: 0px;
+	--input-radius: 0px;
+	--checkbox-radius: 0px;
+	--toggle-radius: 0px;
+	--toggle-thumb-radius: 0px;
+	--clickable-icon-radius: 0px;
+	--pill-radius: 0px;
+	--tag-radius: 0px;
+	--callout-radius: 0px;
+	--modal-radius: 0px;
+	--slider-thumb-radius: 0px;
+}
+
+/* ── AMOLED true black (class toggle: body.nkui-amoled, via Style Settings or
+   a snippet) — pure-black primary, the remaining steps barely off black so the
+   plugin's faint type washes still read against them. Dark mode only. ───────── */
+body.nkui-amoled.theme-dark {
+	--background-primary: #000000;
+	--background-primary-alt: #07070b;
+	--background-secondary: #050507;
+	--background-secondary-alt: #0b0b10;
+	--background-modifier-form-field: #0a0a0f;
+	--background-modifier-border: #15151d;
+	--divider-color: #0e0e13;
 }
 
 /* ── Minimal: strip borders / outlines / notches / visual noise ─────────────── */
@@ -95,14 +145,14 @@ hr,
 	opacity: 0.6;
 }
 
-/* Quiet scrollbars. */
+/* Quiet scrollbars — square thumb, matching the corner language. */
 ::-webkit-scrollbar {
 	width: 8px;
 	height: 8px;
 }
 ::-webkit-scrollbar-thumb {
 	background: var(--background-modifier-border);
-	border-radius: 4px;
+	border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover {
 	background: var(--background-modifier-border-hover);
@@ -123,7 +173,10 @@ textarea,
 }
 
 /* Smaller, lighter control icons (less outline noise — the explicit ask). The
-   note-kit-ui plugin thins these too; the theme reinforces it globally. */
+   note-kit-ui plugin thins these too; the theme reinforces it globally.
+   Stroke-width only — never background, filter, or mask on .svg-icon, which
+   would fight the plugin's solid-icon masks (they paint background-color
+   through a mask and hide the child paths). */
 .svg-icon {
 	stroke-width: 1.6;
 }

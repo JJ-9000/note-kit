@@ -121,8 +121,12 @@ export default class NoteKitUiPlugin extends Plugin {
 					this.viewModes.set(this.lastActiveMd.file.path, this.lastActiveMd.getMode());
 				}
 				this.lastActiveMd = this.app.workspace.getActiveViewOfType(MarkdownView);
-				this.maybeReplaceEmpty(leaf);
-				this.dedupeNowView();
+				// A single new-tab press is handled by exactly one pass: when
+				// maybeReplaceEmpty acts on the leaf (refocus or convert), the
+				// dedupe sweep is skipped this tick so the same leaf can't be
+				// replaced AND deduped at once. Genuine duplicates (a restored
+				// workspace) still get swept on the next ordinary event.
+				if (!this.maybeReplaceEmpty(leaf)) this.dedupeNowView();
 			})
 		);
 
@@ -293,26 +297,36 @@ export default class NoteKitUiPlugin extends Plugin {
 		}, 0);
 	}
 
-	private maybeReplaceEmpty(leaf: WorkspaceLeaf | null): void {
-		if (!leaf || this.openingNow) return;
-		if (leaf.view?.getViewType() !== "empty") return;
+	/** Turn a new empty main-area tab into the For You page. Returns true when it
+	 * acted on the leaf (so the caller skips the dedupe sweep this tick). */
+	private maybeReplaceEmpty(leaf: WorkspaceLeaf | null): boolean {
+		if (!leaf || this.openingNow) return false;
+		if (leaf.view?.getViewType() !== "empty") return false;
 		// Main area only — leave empty side-panel leaves alone.
-		if (leaf.getRoot() !== this.app.workspace.rootSplit) return;
-		if (!this.settings.nowReplaceNewTab) return;
-		// One For You at a time: if one is already open, focus it and drop this
-		// empty tab instead of opening a second — the Home button reuses its page.
+		if (leaf.getRoot() !== this.app.workspace.rootSplit) return false;
+		if (!this.settings.nowReplaceNewTab) return false;
+		// One For You at a time: if one is already open, reuse its page instead of
+		// opening a second. Order matters for a flash-free hand-off: focus the
+		// existing leaf FIRST, then detach the no-longer-active empty leaf — all
+		// in this same synchronous tick. Detaching the ACTIVE leaf first (the old
+		// order) made Obsidian activate a neighbouring tab before our refocus
+		// landed, which painted an intermediate state (the stutter). Detaching an
+		// inactive leaf triggers no focus juggling, so the only paint after this
+		// handler shows the final state: existing For You focused, empty tab gone.
+		// This also keeps the existing view instance (scroll/fold state) and its
+		// tab position, which converting the empty leaf in place would discard.
 		if (this.settings.dedupeTabs) {
 			const existing = this.app.workspace
 				.getLeavesOfType(NOW_VIEW_TYPE)
 				.find((l) => l.getRoot() === this.app.workspace.rootSplit);
 			if (existing) {
-				leaf.detach();
-				this.app.workspace.revealLeaf(existing);
 				this.app.workspace.setActiveLeaf(existing, { focus: true });
-				return;
+				leaf.detach();
+				return true;
 			}
 		}
 		void leaf.setViewState({ type: NOW_VIEW_TYPE });
+		return true;
 	}
 
 	/** Record a file's current `reviewed` value without offering to close — called on
@@ -484,9 +498,11 @@ export default class NoteKitUiPlugin extends Plugin {
 
 	async loadSettings(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-		// Migrate rules saved before `size` existed so the field is always present.
-		for (const p of this.settings.prefixStyles) {
-			if (typeof p.size !== "number") p.size = 1;
+		// Strip retired keys a stale data.json may still carry, so the legacy
+		// numeric-prefix machinery can't resurrect in memory (or be re-saved).
+		const DEAD_KEYS = ["prefixStyles", "enablePrefixStyling", "enableHidePrefix", "dimSinkContents"];
+		for (const k of DEAD_KEYS) {
+			delete (this.settings as unknown as Record<string, unknown>)[k];
 		}
 	}
 
@@ -532,13 +548,8 @@ export default class NoteKitUiPlugin extends Plugin {
 		s.nowQueueFolders = [f.outboxLiteral];
 		s.userQueuePath = f.userQueuePath;
 		s.machineQueuePath = f.machineQueuePath;
-		// Prefix tokens come from CONFIG § Numbering; their styling stays user-set.
-		// A kit prefix with no styling row gets a neutral one; extra rows are kept.
-		for (const p of f.prefixes) {
-			if (!s.prefixStyles.some((r) => r.prefix === p)) {
-				s.prefixStyles.push({ prefix: p, weight: 400, size: 1, opacity: 1, color: "" });
-			}
-		}
+		// CONFIG § Numbering prefixes are still parsed (kitConfig) but no longer
+		// consumed — the legacy numeric-prefix styling was retired.
 		// A type CONFIG names but the colour list doesn't gets a row on every
 		// sync (load and the Re-sync button), so the kit vocabulary is always
 		// fully colourable: the shipped default where one exists, else a

@@ -1,15 +1,6 @@
 import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type NoteKitUiPlugin from "./main";
 
-/** One numeric-prefix rule (legacy installs). `prefix` is the literal leading token, e.g. "00". */
-export interface PrefixStyle {
-	prefix: string;
-	weight: number;
-	size: number; // font-size multiplier in em; 1 = inherit explorer size
-	opacity: number;
-	color: string; // "" = inherit
-}
-
 /** One note-type rule (feature c). `type` matches the frontmatter `type` value. */
 export interface TypeStyle {
 	type: string;
@@ -17,16 +8,13 @@ export interface TypeStyle {
 }
 
 export interface NoteKitUiSettings {
-	/** Derive vault structure (inbox/outbox, queue paths, field names, prefix
-	 * tokens, type vocabulary) from the kit's .claude/CONFIG.md at load, so the
-	 * plugin cannot drift from the kit. Off (or no CONFIG present) = the manual
-	 * fields below apply. */
+	/** Derive vault structure (inbox/outbox, queue paths, field names, type
+	 * vocabulary) from the kit's .claude/CONFIG.md at load, so the plugin cannot
+	 * drift from the kit. Off (or no CONFIG present) = the manual fields below
+	 * apply. */
 	useKitConfig: boolean;
 
 	// Feature toggles
-	enablePrefixStyling: boolean; // a — legacy numeric-prefix installs
-	dimSinkContents: boolean; // fade + shrink everything inside a sink folder (archive and similar)
-	enableHidePrefix: boolean; // b — legacy numeric-prefix installs
 	enableTypeStyling: boolean; // c
 	enableReviewFlags: boolean; // d
 	hideFolderArrows: boolean; // explorer minimalism — hide collapse chevrons
@@ -36,8 +24,12 @@ export interface NoteKitUiSettings {
 	dedupeTabs: boolean; // one tab per document — focus the existing tab instead of opening twins
 	animations: boolean; // enable the view's animations (fold grow/shrink, hold fills, check pulse)
 
-	// a / b — numeric prefix scheme (legacy; also drives which prefixes get hidden)
-	prefixStyles: PrefixStyle[];
+	/** Folders that render small and dim with all their contents — cold storage
+	 * (the decorator marks them; the static stylesheet carries the look). */
+	sinkFolders: string[];
+	/** Files carrying a `weight` frontmatter value sort and tint heaviest-first
+	 * among their siblings. */
+	sortByWeight: boolean;
 
 	// c — per-type styling
 	typeField: string;
@@ -86,9 +78,6 @@ export interface NoteKitUiSettings {
 /** Defaults seeded from the kit's CONFIG vocabulary (types, inbox path). */
 export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	useKitConfig: true,
-	enablePrefixStyling: true,
-	dimSinkContents: true,
-	enableHidePrefix: true,
 	enableTypeStyling: true,
 	enableReviewFlags: true,
 	hideFolderArrows: true,
@@ -98,14 +87,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	dedupeTabs: true,
 	animations: true,
 
-	prefixStyles: [
-		{ prefix: "00", weight: 800, size: 1.2, opacity: 1, color: "" },
-		{ prefix: "01", weight: 600, size: 1, opacity: 1, color: "" },
-		{ prefix: "02", weight: 500, size: 1, opacity: 1, color: "" },
-		{ prefix: "03", weight: 500, size: 1, opacity: 1, color: "" },
-		{ prefix: "04", weight: 500, size: 1, opacity: 1, color: "" },
-		{ prefix: "99", weight: 400, size: 0.95, opacity: 0.55, color: "" },
-	],
+	sinkFolders: ["Archive"],
+	sortByWeight: true,
 
 	typeField: "type",
 	// Curated per-type palette tuned for a near-black background (applies when
@@ -156,7 +139,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	queueCleanView: true,
 	sidebarNow: true,
 	paletteMigrated: false,
-	holdMs: 303,
+	holdMs: 395,
 	solidIcons: true,
 };
 
@@ -539,6 +522,29 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				})
 			);
 
+		new Setting(containerEl)
+			.setName("Sink folders")
+			.setDesc("Folders that render small and dim with all their contents — cold storage.")
+			.addText((t) =>
+				t.setValue(s.sinkFolders.join(", ")).onChange(async (v) => {
+					s.sinkFolders = v
+						.split(",")
+						.map((x) => x.trim())
+						.filter(Boolean);
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Sort by weight")
+			.setDesc("Files carrying a `weight` frontmatter value sort and tint heaviest-first among their siblings.")
+			.addToggle((t) =>
+				t.setValue(s.sortByWeight).onChange(async (v) => {
+					s.sortByWeight = v;
+					await save();
+				})
+			);
+
 		const explorerAdv = advancedGroup(containerEl, "Advanced — explorer & note options");
 		new Setting(explorerAdv)
 			.setName("Accent the open note")
@@ -669,128 +675,5 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				});
 		});
 
-		// ── Legacy: numeric prefixes ──────────────────────────────────────────
-		const legacy = advancedGroup(containerEl, "Legacy — numeric folder prefixes");
-		legacy.createEl("p", {
-			text: "Older installs name structural folders with numeric tokens (00-Inbox, 01-Projects). The kit now uses plain type-derived names (Inbox, Projects, …) — plain-name installs don't need anything in this group.",
-			cls: "setting-item-description",
-		});
-
-		new Setting(legacy)
-			.setName("Prefix styling")
-			.setDesc("Weight/fade file-explorer rows by their leading numeric token, per the rules below.")
-			.addToggle((t) =>
-				t.setValue(s.enablePrefixStyling).onChange(async (v) => {
-					s.enablePrefixStyling = v;
-					await save();
-				})
-			);
-
-		new Setting(legacy)
-			.setName("Show plain names")
-			.setDesc(
-				"Strip the structural numeric token from displayed names (00-Inbox shows as Inbox). Files on disk keep their names, so wikilinks still resolve. Date-named notes (2026-…) are never touched."
-			)
-			.addToggle((t) =>
-				t.setValue(s.enableHidePrefix).onChange(async (v) => {
-					s.enableHidePrefix = v;
-					await save();
-				})
-			);
-
-		new Setting(legacy)
-			.setName("Dim sink-folder contents")
-			.setDesc(
-				"When a faded “sink” folder (a rule set below 100% opacity, e.g. the archive) is expanded, shrink and fade everything inside it too, so its contents don't read as live work."
-			)
-			.addToggle((t) =>
-				t.setValue(s.dimSinkContents).onChange(async (v) => {
-					s.dimSinkContents = v;
-					await save();
-				})
-			);
-
-		legacy.createEl("p", {
-			text: "Rules: each row styles one token — controls are, left to right: weight, text size, opacity.",
-			cls: "setting-item-description",
-		});
-
-		const WEIGHTS: Record<string, string> = {
-			"300": "Light",
-			"400": "Normal",
-			"500": "Medium",
-			"600": "Semibold",
-			"700": "Bold",
-			"800": "Extra-bold",
-			"900": "Black",
-		};
-
-		s.prefixStyles.forEach((rule, i) => {
-			const row = new Setting(legacy);
-			row.setClass("nkui-compact-row");
-			row.setName(`Token "${rule.prefix || "?"}"`);
-
-			row.addText((t) => {
-				t.setValue(rule.prefix)
-					.setPlaceholder("00")
-					.onChange(async (v) => {
-						rule.prefix = v.trim();
-						row.setName(`Token "${rule.prefix || "?"}"`);
-						await save();
-					});
-				t.inputEl.size = 4;
-				t.inputEl.setAttr("aria-label", "Prefix token");
-			});
-
-			row.addDropdown((d) => {
-				d.addOptions(WEIGHTS)
-					.setValue(String(rule.weight))
-					.onChange(async (v) => {
-						rule.weight = Number(v);
-						await save();
-					});
-				d.selectEl.setAttr("aria-label", "Font weight");
-			});
-
-			row.addSlider((sl) => {
-				sl.setLimits(0.8, 1.6, 0.05)
-					.setValue(rule.size ?? 1)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						rule.size = v;
-						await save();
-					});
-				sl.sliderEl.setAttr("aria-label", "Text size (×)");
-			});
-
-			row.addSlider((sl) => {
-				sl.setLimits(0.3, 1, 0.05)
-					.setValue(rule.opacity ?? 1)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						rule.opacity = v;
-						await save();
-					});
-				sl.sliderEl.setAttr("aria-label", "Opacity");
-			});
-
-			row.addExtraButton((b) => {
-				b.setIcon("trash-2")
-					.setTooltip("Remove this rule")
-					.onClick(async () => {
-						s.prefixStyles.splice(i, 1);
-						await save();
-						this.display();
-					});
-			});
-		});
-
-		new Setting(legacy).setClass("nkui-compact-row").addButton((b) => {
-			b.setButtonText("Add rule").onClick(async () => {
-				s.prefixStyles.push({ prefix: "", weight: 400, size: 1, opacity: 1, color: "" });
-				await save();
-				this.display();
-			});
-		});
 	}
 }

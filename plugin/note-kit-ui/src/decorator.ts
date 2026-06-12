@@ -3,16 +3,25 @@ import type NoteKitUiPlugin from "./main";
 
 /**
  * Decorates file-explorer rows with data attributes the stylesheet keys off:
- *   data-nkui-prefix   (a) numeric structural prefix
+ *   data-nkui-sink     (a) declared sink folder (settings.sinkFolders) — the
+ *                      title AND its wrapping .nav-folder carry it, so the
+ *                      stylesheet can dim the whole subtree
+ *   data-nkui-uncat    (a2) vault-root item the kit doesn't recognise
  *   data-nkui-type     (c) note type (only for types with a configured colour)
  *   data-nkui-reviewed (d) "false" on unreviewed drafts
- * Also rewrites displayed names to hide the prefix (b) and injects the live
- * "needs you" pill on inbox folder rows (d) — drafts awaiting a decision, not
- * sets already approved and waiting on the filing-agent.
+ *   data-nkui-weight   (w) frontmatter `weight` > 0, with a w<n> badge and a
+ *                      per-folder --nkui-weight-heat custom property (0..1)
+ * Also injects the live "needs you" pill on inbox folder rows (d) — drafts
+ * awaiting a decision, not sets already approved and waiting on the
+ * filing-agent. Folder-role matching still strips a leading `NN-` token so
+ * legacy numeric-prefix vaults resolve their roles, but no styling or
+ * attribute is keyed on prefixes anymore.
  *
  * Also ORDERS the explorer when float-to-top is on (settings.floatTopTypes):
- * inside each folder the cover/index note leads, then floated types, then the
- * queues; at the vault root the kit folders take their semantic order (inbox →
+ * inside each folder the floated types lead (weighted siblings sort by weight
+ * desc within their band when settings.sortByWeight is on), then the
+ * cover/index note, then the queues; at the vault root the kit folders take
+ * their semantic order (inbox →
  * outbox → projects → areas → references → snippets, archive last). Ordering is
  * a physical DOM reorder (insertBefore inside .nav-folder-children) — NEVER a
  * flex/order CSS override on the container, which broke Obsidian's collapse
@@ -27,12 +36,12 @@ export class ExplorerDecorator {
 	private observers: MutationObserver[] = [];
 	private redraw: () => void;
 
-	private prefixSet = new Set<string>();
+	/** Declared sink folder names (settings.sinkFolders), prefix-stripped and
+	 * lower-cased — a folder anywhere whose own name matches is a sink. */
 	private sinkSet = new Set<string>();
 	private typeColors = new Set<string>();
 	private floatSet = new Set<string>();
 	private floatEnabled = false;
-	private hideRe: RegExp | null = null;
 	/** name (and prefix-stripped name) → CONFIG table-row index. Row order in
 	 * § Folders / § Subfolders / § Types IS the display order. */
 	private rootOrderMap = new Map<string, number>();
@@ -116,15 +125,13 @@ export class ExplorerDecorator {
 
 	private compile(): void {
 		const s = this.plugin.settings;
-		this.prefixSet = new Set(s.prefixStyles.map((p) => p.prefix));
-		// A "sink" is a folder whose prefix rule fades it (opacity < 1, e.g. 99-).
-		// Tagging the wrapper lets the stylesheet dim its contents to match.
+		// A "sink" is a declared low-attention folder (settings.sinkFolders, e.g.
+		// Archive): a folder anywhere whose name — prefix-stripped, case-insensitive
+		// — equals an entry. The stylesheet dims its whole subtree.
 		this.sinkSet = new Set(
-			s.dimSinkContents
-				? s.prefixStyles
-						.filter((p) => Number.isFinite(p.opacity) && p.opacity < 1)
-						.map((p) => p.prefix)
-				: []
+			(s.sinkFolders ?? [])
+				.map((n) => n.replace(/^\d{2,}[-_ ]+/, "").trim().toLowerCase())
+				.filter(Boolean)
 		);
 		this.typeColors = new Set(this.plugin.typeStyles().filter((t) => t.color).map((t) => t.type));
 		this.floatSet = new Set(s.floatTopTypes ?? []);
@@ -150,12 +157,6 @@ export class ExplorerDecorator {
 		this.typeOrderMap = new Map(
 			(f?.types?.length ? f.types : (s.floatTopTypes ?? [])).map((t, i) => [t, i])
 		);
-		if (s.enableHidePrefix && this.prefixSet.size) {
-			const alt = [...this.prefixSet].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-			this.hideRe = new RegExp(`^(?:${alt})[ _-]+`);
-		} else {
-			this.hideRe = null;
-		}
 	}
 
 	private containers(): HTMLElement[] {
@@ -393,26 +394,26 @@ export class ExplorerDecorator {
 		const leaf = path.split("/").pop() ?? path;
 		const name = isFolder ? leaf : leaf.replace(/\.md$/i, "");
 
-		// (a) prefix — only configured prefixes; never matches YYYY dates
-		const m = name.match(/^(\d{2,})[ _-]/);
-		const matched = m && this.prefixSet.has(m[1]) ? m[1] : null;
-		this.setAttr(el, "data-nkui-prefix", s.enablePrefixStyling ? matched : null);
-
-		// (a2) sink folder — tag the wrapping .nav-folder so the stylesheet can
-		// fade everything *inside* an expanded sink (e.g. 99-Archive). The folder's
-		// own row is still styled by (a); this only reaches its descendants.
+		// (a) sink folder — a folder anywhere whose name (prefix-stripped,
+		// case-insensitive) is declared in settings.sinkFolders. Both the title
+		// row and the wrapping .nav-folder carry the marker, so the stylesheet
+		// can style the row AND dim everything inside the expanded subtree.
+		// The sink look itself (smaller + dimmer) is entirely the stylesheet's.
+		let isSink = false;
 		if (isFolder) {
+			// Strip a legacy `NN-` token for ROLE matching only — no styling or
+			// attribute is keyed on the prefix itself anymore.
+			const bare = name.replace(/^\d{2,}[ _-]+/, "").toLowerCase();
+			isSink = this.sinkSet.has(bare);
+			this.setAttr(el, "data-nkui-sink", isSink ? "" : null);
 			const wrapper = el.closest<HTMLElement>(".nav-folder");
-			const sinkHit = matched && this.sinkSet.has(matched) ? matched : null;
-			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", sinkHit);
+			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", isSink ? "" : null);
 
 			// Type-named folder colouring: a folder whose name — with any numeric
 			// prefix stripped — is a note type (02-Projects or plain Projects →
 			// project) is tinted by that type, brighter than the files inside
 			// (stylesheet). Singularise the plural folder name to match the singular
 			// type. Works identically for the prefixed and plain naming schemes.
-			const fm = name.match(/^\d{2,}[ _-]+(.+)$/);
-			const bare = (fm ? fm[1] : name).toLowerCase();
 			const singular = bare.endsWith("s") ? bare.slice(0, -1) : bare;
 			const ftype = this.typeColors.has(bare) ? bare : this.typeColors.has(singular) ? singular : null;
 			let fcolor = ftype
@@ -431,7 +432,19 @@ export class ExplorerDecorator {
 			else el.style.removeProperty("--nkui-folder-color");
 		}
 
-		// (c) type + (d) reviewed + (e) queue surface — files only
+		// (a2) uncategorized — a vault-ROOT item the kit doesn't recognise: a root
+		// folder outside the CONFIG root order (and not a sink), or a root file
+		// other than the two the kit knows (the configured queue files). The
+		// stylesheet gives these the mid-dim look; nested items are never tagged.
+		let uncat = false;
+		if (!path.includes("/")) {
+			uncat = isFolder
+				? !isSink && this.rootRank(path, true) === 600
+				: path !== s.userQueuePath && path !== s.machineQueuePath;
+		}
+		this.setAttr(el, "data-nkui-uncat", uncat ? "" : null);
+
+		// (c) type + (d) reviewed + (e) queue surface + (w) weight — files only
 		if (!isFolder) {
 			// The configured queues (user/machine) are interaction surfaces, not
 			// content: tag them so the stylesheet floats them to the top of their
@@ -454,11 +467,11 @@ export class ExplorerDecorator {
 			this.setAttr(el, "data-nkui-float", rawType && this.floatSet.has(rawType) ? "true" : null);
 
 			// (e3) cover note — BOTH conventions: a 00-/01- structural prefix (the
-			// numeric scheme) and the folder-note (basename equals its folder's name,
-			// the plain scheme), plus any explicit index-typed file. Drives float
-			// rank 0 and gives the stylesheet a hook so a plain-scheme cover can carry
-			// the same emphasis prefix styling gives a 00- row. Queues are interaction
-			// surfaces, never covers.
+			// legacy numeric scheme) and the folder-note (basename equals its folder's
+			// name, the plain scheme), plus any explicit index-typed file. Drives
+			// float rank 150 — below the floated typed files, above the queues — and
+			// gives the stylesheet an emphasis hook. Queues are interaction surfaces,
+			// never covers.
 			const parentName = path.includes("/") ? path.split("/").slice(-2, -1)[0] : "";
 			const isCover = !isQueue && (this.isCoverName(name, parentName) || rawType === "index");
 			this.setAttr(el, "data-nkui-cover", isCover ? "true" : null);
@@ -466,24 +479,36 @@ export class ExplorerDecorator {
 			const draft =
 				s.enableReviewFlags && s.showRowBadge && fm ? this.isUnreviewed(fm, s) : false;
 			this.setAttr(el, "data-nkui-reviewed", draft ? "false" : null);
+
+			// (w) standard weight — frontmatter `weight` > 0 stamps the row and
+			// appends a small w<n> badge. The per-folder heat variable
+			// (--nkui-weight-heat) is applied during reorder, where the whole
+			// sibling set is in hand. Idempotent: text updates in place; the badge
+			// and attribute go when the weight does.
+			const w = this.weightValue(fm);
+			this.setAttr(el, "data-nkui-weight", w > 0 ? String(w) : null);
+			let badge = el.querySelector<HTMLElement>(".nkui-weight-badge");
+			if (w > 0) {
+				if (!badge) badge = el.createSpan({ cls: "nkui-weight-badge" });
+				const text = `w${w}`;
+				if (badge.textContent !== text) badge.setText(text);
+				badge.setAttr(
+					"aria-label",
+					"standard weight — how many times the kit has re-derived this rule"
+				);
+			} else {
+				badge?.remove();
+			}
 		}
 
-		// (b) hide prefix — rewrite display text, keep filename on disk
+		// Restore a display name a LEGACY build rewrote (prefix hiding is gone) —
+		// harmless when the marker is absent.
 		const content = el.querySelector<HTMLElement>(
 			isFolder ? ".nav-folder-title-content" : ".nav-file-title-content"
 		);
-		if (content) {
-			if (s.enableHidePrefix && this.hideRe) {
-				const current = content.textContent ?? "";
-				const stripped = current.replace(this.hideRe, "");
-				if (stripped !== current) {
-					if (content.dataset.nkuiOrig === undefined) content.dataset.nkuiOrig = current;
-					content.textContent = stripped;
-				}
-			} else if (content.dataset.nkuiOrig !== undefined) {
-				content.textContent = content.dataset.nkuiOrig;
-				delete content.dataset.nkuiOrig;
-			}
+		if (content && content.dataset.nkuiOrig !== undefined) {
+			content.textContent = content.dataset.nkuiOrig;
+			delete content.dataset.nkuiOrig;
 		}
 	}
 
@@ -539,7 +564,7 @@ export class ExplorerDecorator {
 	/**
 	 * Colour an open plain folder borrows: the type colour of its TOP-MOST
 	 * NON-INDEX typed direct child file, by visible order — the same rank the DOM
-	 * reorder applies (covers, floated types, queues, then native order; plain
+	 * reorder applies (floated types, covers, queues, then native order; plain
 	 * name order when ordering is off). The folder reads its kind from the
 	 * content that leads it; only when no other typed child carries a colour does
 	 * it fall back to the cover/index note's own type. Both cover conventions are
@@ -583,7 +608,7 @@ export class ExplorerDecorator {
 	 * row layout, broke the collapse/expand height animation, and clipped rows.
 	 * Moving nodes leaves the container's layout — and so the animation — alone.)
 	 *
-	 * Inside a folder: cover/index note, floated types, the queues, then
+	 * Inside a folder: floated types, the cover/index note, the queues, then
 	 * everything else in native order. At the vault root (the mod-root wrapper's
 	 * children): the kit's semantic folder order (rootRank). Only .nav-folder /
 	 * .nav-file children ever move — Obsidian's spacer and animation helper nodes
@@ -594,12 +619,16 @@ export class ExplorerDecorator {
 	 * performs zero mutations and the MutationObserver converges.
 	 */
 	private reorderChildren(children: HTMLElement): void {
-		if (!this.floatEnabled) return;
 		const isItem = (n: Node | null): n is HTMLElement =>
 			n instanceof HTMLElement &&
 			(n.classList.contains("nav-folder") || n.classList.contains("nav-file"));
 		const items = Array.from(children.children).filter(isItem);
-		if (items.length < 2) return;
+		if (!items.length) return;
+		// Weight heat is per-folder by design — the sibling set is in hand here, so
+		// scaling against the heaviest sibling costs one metadataCache pass per
+		// folder instead of anything vault-wide. Runs regardless of float ordering.
+		this.applyWeightHeat(items);
+		if (!this.floatEnabled || items.length < 2) return;
 		// Root = any items container that is NOT a folder's .nav-folder-children
 		// (the unclassed root div), or the legacy mod-root wrapper's children.
 		const isRoot =
@@ -637,17 +666,34 @@ export class ExplorerDecorator {
 		return this.fileRank(path, base, parentName);
 	}
 
-	/** Float rank of a file within its folder: 0 cover/index · 100-band floated
-	 * types (ordered by CONFIG § Types row order) · 200 queue file · 300
-	 * everything else. Shared with topChildTypeColor so the borrowed folder
-	 * colour follows the visible order exactly. */
+	/** Float rank of a file within its folder: 100-band floated types (ordered by
+	 * CONFIG § Types row order, clamped to 100–149) · 150 cover/index — typed
+	 * floats lead, so a project's project-typed file sits ABOVE the folder note —
+	 * · 200 queue file · 300 everything else. When sortByWeight is on, a positive
+	 * frontmatter `weight` subtracts a fraction < 1, ordering weighted siblings
+	 * by weight descending WITHIN their band (a fraction can never cross bands).
+	 * Shared with topChildTypeColor so the borrowed folder colour follows the
+	 * visible order exactly. */
 	private fileRank(path: string, base: string, parentName: string): number {
 		const s = this.plugin.settings;
-		if (path === s.userQueuePath || path === s.machineQueuePath) return 200;
-		const t = this.typeOfPath(path);
-		if (t === "index" || this.isCoverName(base, parentName)) return 0;
-		if (t && this.floatSet.has(t)) return 100 + (this.typeOrderMap.get(t) ?? 99);
-		return 300;
+		let rank: number;
+		if (path === s.userQueuePath || path === s.machineQueuePath) rank = 200;
+		else {
+			const t = this.typeOfPath(path);
+			if (t && this.floatSet.has(t) && t !== "index" && !this.isCoverName(base, parentName)) {
+				rank = 100 + Math.min(this.typeOrderMap.get(t) ?? 99, 49);
+			} else if (t === "index" || this.isCoverName(base, parentName)) {
+				rank = 150;
+			} else {
+				rank = 300;
+			}
+		}
+		if (s.sortByWeight) {
+			const w = this.weightOfPath(path);
+			// w/(w+1) is monotonic in w and < 1: heavier sorts earlier, same band.
+			if (w > 0) rank -= w / (w + 1);
+		}
+		return rank;
 	}
 
 	/** Subfolders order by CONFIG § Subfolders row order (a typed subfolder —
@@ -719,6 +765,50 @@ export class ExplorerDecorator {
 		return t == null ? null : String(t);
 	}
 
+	/** A frontmatter block's numeric `weight`, normalised: a finite number (or
+	 * numeric string) > 0, else 0. */
+	private weightValue(fm: Record<string, unknown> | undefined): number {
+		const v = fm?.["weight"];
+		const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+		return Number.isFinite(n) && n > 0 ? n : 0;
+	}
+
+	/** The `weight` of an md file path via the metadataCache, or 0. */
+	private weightOfPath(path: string): number {
+		if (!/\.md$/i.test(path)) return 0;
+		return this.weightValue(this.plugin.app.metadataCache.getCache(path)?.frontmatter);
+	}
+
+	/** Per-folder weight heat: each weighted FILE row gets
+	 * `--nkui-weight-heat` scaled linearly against the heaviest sibling present
+	 * (max = 1), so the stylesheet can tint most-to-least like the Active list.
+	 * Unweighted rows lose the variable. Folder rows never carry heat. */
+	private applyWeightHeat(items: HTMLElement[]): void {
+		const rows: { title: HTMLElement; w: number }[] = [];
+		let max = 0;
+		for (const it of items) {
+			const title = it.querySelector<HTMLElement>(
+				":scope > .nav-file-title, :scope > .nav-folder-title"
+			);
+			if (!title) continue;
+			const w = it.classList.contains("nav-file")
+				? this.weightOfPath(title.getAttribute("data-path") ?? "")
+				: 0;
+			rows.push({ title, w });
+			if (w > max) max = w;
+		}
+		for (const { title, w } of rows) {
+			if (w > 0 && max > 0) {
+				const heat = String(Math.round((w / max) * 1000) / 1000);
+				if (title.style.getPropertyValue("--nkui-weight-heat") !== heat) {
+					title.style.setProperty("--nkui-weight-heat", heat);
+				}
+			} else {
+				title.style.removeProperty("--nkui-weight-heat");
+			}
+		}
+	}
+
 	/** Ask the file explorer to re-sort itself (best-effort, internal API) —
 	 * used when ordering is switched off, so the DOM returns to Obsidian's native
 	 * order instead of keeping the last float layout until the next vault event. */
@@ -748,16 +838,21 @@ export class ExplorerDecorator {
 	private clearAll(): void {
 		for (const c of this.containers()) {
 			c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title").forEach((el) => {
-				el.removeAttribute("data-nkui-prefix");
+				el.removeAttribute("data-nkui-prefix"); // legacy builds stamped it
 				el.removeAttribute("data-nkui-type");
 				el.removeAttribute("data-nkui-reviewed");
 				el.removeAttribute("data-nkui-queue");
 				el.removeAttribute("data-nkui-queue-active");
 				el.removeAttribute("data-nkui-float");
 				el.removeAttribute("data-nkui-cover");
+				el.removeAttribute("data-nkui-sink");
+				el.removeAttribute("data-nkui-uncat");
+				el.removeAttribute("data-nkui-weight");
+				el.style.removeProperty("--nkui-weight-heat");
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"
 				);
+				// Legacy prefix-hiding rewrote names; restore any marker still present.
 				if (content && content.dataset.nkuiOrig !== undefined) {
 					content.textContent = content.dataset.nkuiOrig;
 					delete content.dataset.nkuiOrig;
@@ -770,7 +865,9 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-folder-type");
 				el.style.removeProperty("--nkui-folder-color");
 			});
-			c.querySelectorAll<HTMLElement>(".nkui-inbox-count, .nkui-queue-count").forEach((b) => b.remove());
+			c.querySelectorAll<HTMLElement>(
+				".nkui-inbox-count, .nkui-queue-count, .nkui-weight-badge"
+			).forEach((b) => b.remove());
 		}
 	}
 

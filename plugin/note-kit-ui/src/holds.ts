@@ -6,7 +6,7 @@
  * setting — main.ts calls configureHolds(settings.holdMs) on load and on every
  * save, and css.ts emits the matching --nkui-hold so the fill animation always
  * tracks the configured commit time. */
-export const HOLD_MS = 303;
+export const HOLD_MS = 395;
 
 /** "close tab?" offer countdown (ms) — the hold fill run in reverse (see
  * main.ts injectCloseButton and the .nkui-close-offer transitions). Scales
@@ -24,6 +24,31 @@ export function configureHolds(ms: number): void {
  * shipped 303/1517 ratio. */
 export function closeOfferMs(): number {
 	return Math.round(liveHoldMs * 5);
+}
+
+/** When any hold last committed (module-level — shared across every hold).
+ * A commit re-renders the page and the layout shift can put the still-pressed
+ * cursor over a DIFFERENT hold; arming that one from the same physical press
+ * reads as "the hold persists". Any pointerdown inside this window is ignored. */
+let lastCommitAt = 0;
+const COMMIT_SUPPRESS_MS = 350;
+
+/** Eat the release that follows a pointer-held commit at the document level
+ * (capture phase, one-shot): after the commit re-renders, the pointer may sit
+ * over a row / fold header / another hold — the swallowed pointerup and click
+ * must not interact with whatever landed under the cursor. The listeners
+ * self-remove after the suppress window if no release arrives. */
+function swallowNextRelease(): void {
+	const swallow = (ev: Event): void => {
+		ev.preventDefault();
+		ev.stopPropagation();
+	};
+	document.addEventListener("pointerup", swallow, { capture: true, once: true });
+	document.addEventListener("click", swallow, { capture: true, once: true });
+	window.setTimeout(() => {
+		document.removeEventListener("pointerup", swallow, true);
+		document.removeEventListener("click", swallow, true);
+	}, COMMIT_SUPPRESS_MS);
 }
 
 export interface HoldOpts {
@@ -60,6 +85,10 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 	el.addEventListener("pointerdown", (ev) => {
 		ev.preventDefault();
 		ev.stopPropagation();
+		// A press right after ANY commit is the same physical press handed to a
+		// new element by the commit's layout shift — never a fresh intent. Ignore
+		// it; the user lifts and presses again to arm.
+		if (Date.now() - lastCommitAt < COMMIT_SUPPRESS_MS) return;
 		if (holding) return;
 		holding = true;
 		committed = false;
@@ -67,6 +96,8 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 		if (opts.armClass) opts.armTarget?.addClass(opts.armClass);
 		timer = window.setTimeout(() => {
 			committed = true;
+			lastCommitAt = Date.now();
+			swallowNextRelease();
 			end();
 			void opts.onCommit();
 		}, hold);
@@ -90,6 +121,9 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 			ev.stopPropagation();
 			// A held key auto-repeats — only the first press commits.
 			if (ev.repeat) return;
+			// Keyboard commits shift layout too — suppress pointer arming for the
+			// same window (no release to swallow: nothing is pressed).
+			lastCommitAt = Date.now();
 			void opts.onCommit();
 		}
 	});

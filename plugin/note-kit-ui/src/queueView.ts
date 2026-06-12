@@ -156,11 +156,20 @@ export class QueueView extends ItemView {
 		const c = this.contentEl;
 		c.empty();
 		this.addInput = null;
+		// `nkui-now` carries the For You page language: the centred 760px content
+		// column (`.nkui-now > *`), the page padding, the stable scrollbar gutter.
 		c.addClass("nkui-now");
 		c.addClass("nkui-queue");
 
 		const f = this.file();
 		const user = this.isUserQueue();
+		// Which queue this page is — a hook per surface for the stylesheet.
+		c.toggleClass("nkui-queue-user", user);
+		c.toggleClass("nkui-queue-machine", !user);
+		// The queue pages share the theme accent tint (both queues render with
+		// the accent in the For You view); the stylesheet keys the page wash and
+		// header colour off this var, like the For You section colour.
+		c.style.setProperty("--nkui-section-color", "var(--interactive-accent)");
 		const openCount = user
 			? this.decisions.filter(isOpenDecision).length
 			: this.items.filter((i) => !i.done).length;
@@ -182,6 +191,14 @@ export class QueueView extends ItemView {
 		raw.addEventListener("click", () => void this.openRaw());
 
 		if (!f) return;
+		// ONE explanatory sentence under the header — what this queue is and who
+		// acts on it, in the For You page's plain voice.
+		c.createDiv({
+			cls: "nkui-queue-explain",
+			text: user
+				? "Proposals from the agents — check a box to decide; the action-agent executes and clears it."
+				: "Your checklist for the agents — add a task; the action-agent runs it on its next pass.",
+		});
 		const list = c.createDiv("nkui-now-list");
 		if (user) this.renderDecisions(list);
 		else this.renderChecklist(list);

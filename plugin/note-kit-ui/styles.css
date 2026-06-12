@@ -1645,10 +1645,18 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	color: var(--text-normal) !important;
 	font-weight: var(--font-medium, 500) !important;
 }
+/* Matching washes, sibling tones — both derive from the THEME's accent, the
+   outbox a step cooler (mixed toward the theme's muted text) so the two mouths
+   read as one family with a visible difference. Each queue file wears its
+   folder's tone: the user queue lives in the inbox, the machine queue in the
+   outbox. */
 .nav-file-title[data-nkui-queue],
-.nav-folder-title[data-nkui-role="inbox"],
-.nav-folder-title[data-nkui-role="outbox"] {
+.nav-folder-title[data-nkui-role="inbox"] {
 	background: color-mix(in srgb, var(--nkui-draft-color) 8%, transparent);
+}
+.nav-folder-title[data-nkui-role="outbox"],
+.nav-folder-title[data-nkui-role="outbox"] + .nav-folder-children .nav-file-title[data-nkui-queue] {
+	background: color-mix(in srgb, color-mix(in srgb, var(--nkui-draft-color) 60%, var(--text-muted)) 9%, transparent);
 }
 .nav-folder-title[data-nkui-role="inbox"] .nav-folder-title-content,
 .nav-folder-title[data-nkui-role="outbox"] .nav-folder-title-content {

@@ -1534,6 +1534,12 @@ body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].is-selected,
 body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus {
 	background: color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 18%, transparent) !important;
 }
+/* The focus BORDER follows the tint too — a twice-clicked row otherwise draws
+   the theme's neutral focus ring through the type-washed band. */
+body.nkui-type-tint .nav-file-title[data-nkui-type].has-focus,
+body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus {
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 55%, transparent) !important;
+}
 body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] {
 	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
 }

@@ -113,11 +113,13 @@ export default class NoteKitUiPlugin extends Plugin {
 		this.styleEl?.remove();
 		document.body.removeClass("nkui-calm-reading");
 		document.body.removeClass("nkui-type-tint");
+		document.body.removeClass("nkui-anim");
 	}
 
 	private applyBodyClasses(): void {
 		document.body.toggleClass("nkui-calm-reading", this.settings.calmReading);
 		document.body.toggleClass("nkui-type-tint", this.settings.typeTint);
+		document.body.toggleClass("nkui-anim", this.settings.animations);
 	}
 
 	/** Close a just-opened duplicate of a file already open in another main tab. */

@@ -802,15 +802,17 @@ export class NowView extends ItemView {
 		const aria = "Approved — the filing-agent files this set next pass. Un-approve to send it back.";
 		row.setAttr("aria-label", aria);
 		row.setAttr("title", aria);
-		const main = row.createDiv("nkui-now-reducedmain");
-		const title = main.createSpan({
+		// Subject and status share ONE line: the subject truncates with an ellipsis
+		// before it would wrap, so the status/un-approve never get pushed to a second
+		// line (no vertical bloat).
+		const title = row.createSpan({
 			cls: "nkui-now-reducedtitle nkui-now-reducedrow-click",
 			text: this.displayName(e.file),
 		});
 		title.addEventListener("click", (ev) =>
 			this.app.workspace.openLinkText(e.file.path, "", ev.ctrlKey || ev.metaKey)
 		);
-		const note = main.createDiv("nkui-now-fatenote nkui-now-waitline");
+		const note = row.createDiv("nkui-now-fatenote nkui-now-waitline");
 		if (e.isGate) note.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
 		if (e.setCount) note.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
 		note.createSpan({ cls: "nkui-now-waittext", text: "approved — awaiting filing" });
@@ -890,6 +892,53 @@ export class NowView extends ItemView {
 		el.addEventListener("touchcancel", clear);
 	}
 
+	/** Press-and-hold (~700ms) to commit; a fill sweeps while held (is-holding). A
+	 * plain tap does nothing — it never folds a section or opens the row's file
+	 * (clicks are swallowed). Keyboard Enter/Space commits directly. */
+	private attachHold(el: HTMLElement, onCommit: () => void | Promise<void>): void {
+		const HOLD = 700;
+		let timer: number | undefined;
+		let holding = false;
+		const end = (): void => {
+			holding = false;
+			el.removeClass("is-holding");
+			if (timer) window.clearTimeout(timer);
+			timer = undefined;
+		};
+		el.addEventListener("pointerdown", (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			if (holding) return;
+			holding = true;
+			el.addClass("is-holding");
+			timer = window.setTimeout(() => {
+				end();
+				void onCommit();
+			}, HOLD);
+		});
+		el.addEventListener("pointerup", end);
+		el.addEventListener("pointerleave", end);
+		el.addEventListener("pointercancel", end);
+		el.addEventListener("click", (ev) => ev.stopPropagation());
+		el.addEventListener("keydown", (ev) => {
+			if (ev.key === "Enter" || ev.key === " ") {
+				ev.preventDefault();
+				ev.stopPropagation();
+				void onCommit();
+			}
+		});
+	}
+
+	/** Approve a gate (stamp reviewed: true) — group approval cascades to its peers
+	 * via the filing-agent; the set drops to Waiting next render. */
+	private async approveGate(e: Entry): Promise<void> {
+		const field = this.plugin.settings.reviewedField;
+		await this.app.fileManager.processFrontMatter(e.file, (fm) => {
+			fm[field] = true;
+		});
+		await this.reloadAndRender();
+	}
+
 	private renderRow(list: HTMLElement, e: Entry, opts: RowOpts, contained = false): void {
 		const row = list.createDiv("nkui-now-row");
 		if (contained) row.addClass("nkui-now-row-contained");
@@ -910,6 +959,7 @@ export class NowView extends ItemView {
 		});
 		this.attachPreview(row, e.file);
 
+		let titleDim = 1;
 		if (opts.showRowDot) {
 			const dot = row.createSpan("nkui-now-dot");
 			const color = e.type ? this.colorFor(e.type) : null;
@@ -923,10 +973,14 @@ export class NowView extends ItemView {
 				const span = newest - oldest;
 				const t = span > 0 ? Math.min(1, Math.max(0, (newest - ts) / span)) : 0;
 				dot.style.opacity = (1 - 0.75 * t).toFixed(2);
+				// The title fades to MATCH the dot's emphasis, on a higher floor so it
+				// stays readable.
+				titleDim = 1 - 0.45 * t;
 			}
 		}
 
-		row.createSpan({ cls: "nkui-now-rowtitle", text: this.displayName(e.file) });
+		const titleEl = row.createSpan({ cls: "nkui-now-rowtitle", text: this.displayName(e.file) });
+		if (titleDim < 1) titleEl.style.opacity = titleDim.toFixed(2);
 
 		// The gate trio renders as slot columns sized per section, packed against
 		// the right edge with the constant-width gate pill OUTERMOST: the pill is
@@ -949,7 +1003,9 @@ export class NowView extends ItemView {
 			// A gate stands in for a folded working-set: a quiet "+N" marks how
 			// many working notes sit behind it, without listing them.
 			const cslot = set.createSpan("nkui-now-countslot");
-			if (e.setCount) {
+			// A gate carries its own "+N" in its hold label, so only a non-gate folded
+			// head shows the standalone count here.
+			if (e.setCount && !e.isGate) {
 				const n = cslot.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
 				n.setAttr("aria-label", `${e.setCount} more in this set`);
 			}
@@ -958,12 +1014,21 @@ export class NowView extends ItemView {
 			// auto-approves its peers. The badge makes that dependency visible.
 			const gslot = set.createSpan("nkui-now-gateslot");
 			if (e.isGate) {
-				const gate = gslot.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
-				const hint = e.awaitingFiling
-					? "Approved — the filing-agent stamps and files this set on its next pass"
-					: "Approving this approves the rest of the set";
+				// The gate label is a press-and-hold: hold to approve the gate (which
+				// approves the set). A plain tap does nothing — it never opens the file
+				// or folds anything. It carries its own "+N", so the count slot stays
+				// empty for a gate.
+				const label = e.setCount ? `approve gate +${e.setCount}` : "approve gate";
+				const gate = gslot.createSpan({
+					cls: "nkui-now-gatepill nkui-now-gateapprove",
+					text: label,
+				});
+				const hint = "Hold to approve the gate — approving it approves the rest of the set";
 				gate.setAttr("aria-label", hint);
 				gate.setAttr("title", hint);
+				gate.setAttr("role", "button");
+				gate.setAttr("tabindex", "0");
+				this.attachHold(gate, () => this.approveGate(e));
 			}
 		}
 

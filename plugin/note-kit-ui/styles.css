@@ -1301,3 +1301,66 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 	font-weight: var(--font-semibold, 600);
 	font-variant-numeric: tabular-nums;
 }
+
+/* ── 0.4.43 — gate hold-to-approve · one-line waiting · animations ──────────── */
+/* "approve gate +N" — press-and-hold, the same fill animation as "approve all?". */
+.nkui-now-gateapprove {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	cursor: pointer;
+	touch-action: none;
+	user-select: none;
+	border-radius: var(--radius-s, 4px);
+	padding: 0 0.25em;
+}
+.nkui-now-gateapprove:hover {
+	text-decoration: underline;
+}
+.nkui-now-gateapprove::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background: currentColor;
+	opacity: 0.22;
+	transform: scaleX(0);
+	transform-origin: left center;
+}
+.nkui-now-gateapprove.is-holding::before {
+	transform: scaleX(1);
+	transition: transform 700ms linear;
+}
+
+/* Waiting gate on ONE line: subject (flex, truncates) + status inline. */
+.nkui-now-waitgate {
+	align-items: center;
+}
+.nkui-now-waitgate .nkui-now-reducedtitle {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-size: var(--font-ui-small, 13px);
+}
+.nkui-now-waitgate .nkui-now-waitline {
+	flex: 0 0 auto;
+	overflow: visible;
+}
+
+/* ── Animations (body.nkui-anim, toggleable) ─────────────────────────────────
+   A section's list grows/shrinks on fold; the hold fills sweep. With animations
+   OFF, both jump instantly. */
+body.nkui-anim .nkui-now-foldwrap > .nkui-now-list {
+	transition: transform 170ms ease;
+	transform-origin: top;
+}
+body.nkui-anim .nkui-now-group.is-collapsed .nkui-now-foldwrap > .nkui-now-list {
+	transform: scaleY(0.97);
+}
+body:not(.nkui-anim) .nkui-now-foldwrap {
+	transition: none !important;
+}
+body:not(.nkui-anim) .nkui-now-approveall.is-holding::before,
+body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
+	transition: none !important;
+}

@@ -34,6 +34,7 @@ export interface NoteKitUiSettings {
 	minimalChrome: boolean; // quieten Obsidian's tab bar + nav toolbar (main area only)
 	calmReading: boolean; // reading-mode overrides to reduce note noise
 	dedupeTabs: boolean; // one tab per document — focus the existing tab instead of opening twins
+	animations: boolean; // enable the view's animations (fold grow/shrink, hold fills, check pulse)
 
 	// a / b — numeric prefix scheme (also drives which prefixes get hidden)
 	prefixStyles: PrefixStyle[];
@@ -84,6 +85,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	minimalChrome: true,
 	calmReading: true,
 	dedupeTabs: true,
+	animations: true,
 
 	prefixStyles: [
 		{ prefix: "00", weight: 800, size: 1.2, opacity: 1, color: "" },
@@ -318,6 +320,16 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.dedupeTabs).onChange(async (v) => {
 					s.dedupeTabs = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Animations")
+			.setDesc("Animate the For You view — section grow/shrink on fold, the press-and-hold fills, and a pulse when a queue item is checked or submitted.")
+			.addToggle((t) =>
+				t.setValue(s.animations).onChange(async (v) => {
+					s.animations = v;
 					await save();
 				})
 			);

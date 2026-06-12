@@ -282,7 +282,7 @@ The one home for what blocks work and what is pre-approved; both tables are **us
 | ----- | ------------------ | ------------ |
 | approved kit fix | an `[x]` queue item naming the kit file and the change — scripts, SKILLs, hooks, CONFIG | archive-first; apply; re-read and diff-verify; one log line |
 | local agent redeploy | copy vault-source `scheduled-tasks/` SKILLs to `<user-home>/.claude/scheduled-tasks/note-kit-*` on an approved item | hash-compare every copied file; pre-redeploy copies archived |
-| note-kit-ui pipeline | edit plugin source in the repo working tree (`02-Areas/Note-Kit/02-Assets/note-kit/plugin/note-kit-ui/src/` — a named development workspace), esbuild, deploy `main.js`+`styles.css` to `.obsidian/plugins/note-kit-ui/`, reload | desktop screenshot via obsidian-cli; only the on-device mobile look stays user-presence |
+| note-kit-ui pipeline | edit plugin source in the repo working tree (`01-Areas/Note-Kit/02-Assets/note-kit/plugin/note-kit-ui/src/` — a named development workspace), esbuild, deploy `main.js`+`styles.css` to `.obsidian/plugins/note-kit-ui/`, reload | desktop screenshot via obsidian-cli; only the on-device mobile look stays user-presence |
 | local automation build | build and test headless tooling on this machine (e.g. a hython/headless-Houdini spawner) under a project's `02-Assets/` workspace | the build's own test output; anything needing a licensed GUI app or the user's eyes splits off as user-presence |
 
 ## Harness permissions

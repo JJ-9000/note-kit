@@ -891,6 +891,19 @@ body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
 body.is-mobile .nkui-now-approveall {
 	padding: 0.2em 0.45em;
 }
+/* "edit?" is a touch target on mobile — give it a comfortable tap area and a
+   readable size (it's tiny on desktop where a cursor is precise). */
+body.is-mobile .nkui-now-qedit {
+	padding: 0.35em 0;
+	font-size: var(--font-ui-small, 13px);
+}
+/* The add-task / edit textarea wraps on mobile (no horizontal scroll-off); a long
+   task is reviewable across lines rather than trailing off one. */
+body.is-mobile .nkui-now-qaddinput {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	text-overflow: clip;
+}
 /* The awaiting-filing row stays on ONE line on mobile: the title truncates
    with an ellipsis and the wait note renders as its one-word twin ("approved"),
    trailing off if space still runs out. */

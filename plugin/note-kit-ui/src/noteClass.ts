@@ -3,9 +3,11 @@ import { typeClass } from "./settings";
 import type NoteKitUiPlugin from "./main";
 
 /**
- * Applies an `nkui-type-<type>` class to each open markdown view's container,
- * read from the note's frontmatter `type`. This is the type → cssclasses bridge
- * the kit lacks — done at render time, so no file is ever modified.
+ * Applies an `nkui-type-<type>` class to each open markdown view's container
+ * AND to that leaf's tab header, read from the note's frontmatter `type`. This
+ * is the type → cssclasses bridge the kit lacks — done at render time, so no
+ * file is ever modified. The tab header is a sibling of the leaf content (out of
+ * CSS reach from the container), so it must be stamped directly to tint the tab.
  */
 export class NoteClassApplier {
 	private plugin: NoteKitUiPlugin;
@@ -26,7 +28,10 @@ export class NoteClassApplier {
 	}
 
 	stop(): void {
-		this.forEachView((view) => this.clear(view.containerEl));
+		this.forEachLeaf((view, tab) => {
+			this.clear(view.containerEl);
+			if (tab) this.clear(tab);
+		});
 	}
 
 	refresh(): void {
@@ -36,13 +41,18 @@ export class NoteClassApplier {
 	private apply(): void {
 		const s = this.plugin.settings;
 		const enabled = s.enableTypeStyling && s.applyTypeBodyClass;
-		this.forEachView((view) => {
+		this.forEachLeaf((view, tab) => {
 			const el = view.containerEl;
 			this.clear(el);
+			if (tab) this.clear(tab);
 			if (!enabled || !view.file) return;
 			const fm = this.plugin.app.metadataCache.getFileCache(view.file)?.frontmatter;
 			const t = fm?.[s.typeField];
-			if (t != null) el.classList.add(typeClass(String(t)));
+			if (t != null) {
+				const cls = typeClass(String(t));
+				el.classList.add(cls);
+				if (tab) tab.classList.add(cls);
+			}
 		});
 	}
 
@@ -51,9 +61,13 @@ export class NoteClassApplier {
 		for (const c of stale) el.classList.remove(c);
 	}
 
-	private forEachView(fn: (view: MarkdownView) => void): void {
+	private forEachLeaf(fn: (view: MarkdownView, tab: HTMLElement | undefined) => void): void {
 		for (const leaf of this.plugin.app.workspace.getLeavesOfType("markdown")) {
-			if (leaf.view instanceof MarkdownView) fn(leaf.view);
+			if (leaf.view instanceof MarkdownView) {
+				// tabHeaderEl is an undocumented internal handle on WorkspaceLeaf.
+				const tab = (leaf as unknown as { tabHeaderEl?: HTMLElement }).tabHeaderEl;
+				fn(leaf.view, tab);
+			}
 		}
 	}
 }

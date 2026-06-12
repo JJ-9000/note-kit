@@ -53,10 +53,20 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rende
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-header-4, .cm-header-5, .cm-header-6) {
 	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
 }
-/* Frontmatter: tint the property TEXT (keys + values) — not a box around it. */
+/* One shared "lighter" type tone — the tone the inline code text uses. Bold,
+   italic, code, and the frontmatter property controls all draw from it, so they
+   read as one family and a single tweak moves them together. Defined on the
+   typed leaf, where --nkui-type-color resolves. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
+	--nkui-type-ink: color-mix(in srgb, var(--nkui-type-color) 40%, var(--text-normal));
+}
+/* Frontmatter: tint the property TEXT and the property / add-property buttons to
+   the shared lighter tone (same as the inline code) — not a box around them. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-key,
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value {
-	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-muted));
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-add-button,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-icon {
+	color: var(--nkui-type-ink);
 }
 /* The note's background, washed a hair toward the type colour. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
@@ -65,24 +75,20 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-editor {
 	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary));
 }
 /* Content tint — in a typed+tinted note the whole body leans toward the type
-   colour: plain text a hair, the inline formats (bold/italic/code/links) more, all
-   mixed toward text-normal so contrast holds and they stay LIGHTER than the
-   full-colour headings. Only inside a typed, tinted note — never elsewhere. */
+   colour: plain text a hair, the inline formats (bold/italic/code) share the one
+   lighter tone above, all mixed toward text-normal so contrast holds and they
+   stay LIGHTER than the full-colour headings. Only inside a typed, tinted note. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-line {
 	color: color-mix(in srgb, var(--nkui-type-color) 13%, var(--text-normal));
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered strong,
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong {
-	color: color-mix(in srgb, var(--nkui-type-color) 38%, var(--text-normal));
-}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered em,
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em {
-	color: color-mix(in srgb, var(--nkui-type-color) 30%, var(--text-normal));
-}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered code,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-inline-code {
-	color: color-mix(in srgb, var(--nkui-type-color) 40%, var(--text-normal));
+	color: var(--nkui-type-ink);
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(a, .internal-link, .external-link),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-link, .cm-hmd-internal-link, .cm-url) {
@@ -94,6 +100,18 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-link, .
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content button:not(.clickable-icon) {
 	background: color-mix(in srgb, var(--nkui-type-color) 12%, var(--background-modifier-form-field, var(--background-secondary)));
 	color: color-mix(in srgb, var(--nkui-type-color) 30%, var(--text-normal));
+}
+
+/* An open typed file's TAB takes the type colour too, so the tab matches the
+   note's accent. The decorator stamps the leaf's tab-header with the same
+   nkui-type-<type> class (the tab is a sibling of the leaf, out of CSS reach
+   otherwise), which resolves --nkui-type-color here. The active tab reads a
+   touch stronger; inactive tabs already recede via the opacity rule in css.ts. */
+body.nkui-type-tint .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-title {
+	color: color-mix(in srgb, var(--nkui-type-color) 45%, var(--text-normal));
+}
+body.nkui-type-tint .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-title {
+	color: color-mix(in srgb, var(--nkui-type-color) 65%, var(--text-normal));
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by

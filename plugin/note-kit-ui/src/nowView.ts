@@ -839,12 +839,10 @@ export class NowView extends ItemView {
 		// end of the line. The status and un-approve sit in fixed columns so every
 		// waiting row — gate or lone file — aligns its "approved…" and "un-approve…".
 		const note = row.createDiv("nkui-now-fatenote nkui-now-waitline");
-		note.createSpan({ cls: "nkui-now-waittext", text: "approved — awaiting filing" });
+		note.createSpan({ cls: "nkui-now-waittext", text: "awaiting filing" });
 		const undo = note.createSpan({
 			cls: "nkui-now-unapprove",
-			// Make the cascade apparent: un-approving the gate also un-approves its N
-			// children, so the count rides the label.
-			text: e.setCount ? `un-approve gate +${e.setCount}` : "un-approve",
+			text: "undo",
 		});
 		undo.setAttr("role", "button");
 		undo.setAttr("tabindex", "0");
@@ -1043,8 +1041,8 @@ export class NowView extends ItemView {
 			if (e.awaitingFiling) {
 				// Full note on desktop; "approved" on mobile, inline on the item's
 				// line (the title truncates instead of the row stacking).
-				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-long", text: "approved — awaiting filing" });
-				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-short", text: "approved" });
+				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-long", text: "awaiting filing" });
+				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-short", text: "awaiting" });
 			}
 
 			// A gate stands in for a folded working-set: a quiet "+N" marks how

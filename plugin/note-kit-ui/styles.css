@@ -79,6 +79,14 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.metadata-p
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value :is(a, .internal-link, .external-link, .multi-select-pill-content) {
 	color: var(--nkui-tm);
 }
+/* The frontmatter checkboxes (the `reviewed` toggle at the top of the file) take the
+   type colour when checked — Obsidian paints a checked box with --checkbox-color, and
+   accent-color covers the native input fallback. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value {
+	--checkbox-color: var(--nkui-tm);
+	--checkbox-color-hover: var(--nkui-ts);
+	accent-color: var(--nkui-tm);
+}
 /* The note's background, washed a hair toward the type colour. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-reading-view,
@@ -1191,7 +1199,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
    regardless of the "un-approve" vs "un-approve gate +N" label length. */
 body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
 	flex: 0 0 auto;
-	width: 8.5em;
+	width: 3.5em;
 	text-align: left;
 }
 .nkui-now-unapprove {
@@ -1278,6 +1286,13 @@ body.nkui-type-tint .nav-file-title[data-nkui-type]:hover {
 }
 body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] {
 	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
+}
+
+/* Reserve the scrollbar gutter in the file explorer so opening a folder — which adds
+   rows and summons the vertical scrollbar — doesn't narrow the pane and shift the
+   whole tree sideways. The gutter is always there, so the content never reflows. */
+.workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
+	scrollbar-gutter: stable;
 }
 
 /* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */
@@ -1391,7 +1406,8 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 	touch-action: none;
 	user-select: none;
 	border-radius: var(--radius-s, 4px);
-	padding: 0 0.25em;
+	/* Room around the label so the depleting timer fill doesn't crowd the text. */
+	padding: 0.1em 0.55em;
 }
 .nkui-now-gateapprove:hover {
 	text-decoration: underline;
@@ -1410,6 +1426,27 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 .nkui-now-gateapprove.is-holding::before {
 	transform: scaleX(1);
 	transition: transform 233ms linear;
+}
+
+/* Pressable button texts (approve all, +N gated / approve, undo, draft) read a stop
+   fainter at rest — less opaque, so they recede until you reach for them — and go
+   full on hover or while arming. One treatment across all of them. */
+.nkui-now-approveall,
+.nkui-now-gatepill,
+.nkui-now-gateapprove,
+.nkui-now-unapprove,
+.nkui-now-draftpill {
+	opacity: 0.6;
+	transition: opacity 120ms ease;
+}
+.nkui-now-approveall:hover,
+.nkui-now-gateapprove:hover,
+.nkui-now-unapprove:hover,
+.nkui-now-approveall.is-holding,
+.nkui-now-gateapprove.is-holding,
+.nkui-now-group.is-arming .nkui-now-gatepill,
+.nkui-now-group.is-arming .nkui-now-draftpill {
+	opacity: 1;
 }
 
 /* Waiting gate on ONE line: subject (flex, truncates) + status inline. */

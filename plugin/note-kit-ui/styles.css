@@ -40,6 +40,14 @@ body {
 	--nkui-draft-color: var(--text-accent, var(--interactive-accent));
 }
 
+/* Highlight rows in the file pane are allowed to touch: Obsidian's 2px row
+   margin kept adjacent washes apart; with it gone, consecutive bands (role
+   washes, selections, hovers) stack seamless — the For You column language. */
+.nav-files-container .nav-file-title,
+.nav-files-container .nav-folder-title {
+	margin-bottom: 0;
+}
+
 /* ── (c) per-type dot on explorer rows ─────────────────────────────────────── */
 .nav-file-title[data-nkui-type]::before {
 	content: "";

@@ -51,6 +51,17 @@ export class ExplorerDecorator {
 		);
 		this.plugin.registerEvent(app.vault.on("create", this.redraw));
 		this.plugin.registerEvent(app.vault.on("delete", this.redraw));
+		// A queue's actionable state changes by CONTENT (a box toggled, a task
+		// added/edited) — that fires 'modify', not a metadata change — so refresh the
+		// queue highlight on it.
+		this.plugin.registerEvent(
+			app.vault.on("modify", (file) => {
+				const s = this.plugin.settings;
+				if (file.path === s.userQueuePath || file.path === s.machineQueuePath) {
+					void this.updateQueueState();
+				}
+			})
+		);
 		this.plugin.registerEvent(
 			app.workspace.on("layout-change", () => {
 				this.attachObservers();
@@ -175,6 +186,66 @@ export class ExplorerDecorator {
 			titles.forEach((el) => this.decorate(el, s));
 		}
 		this.updateInboxCounts();
+		void this.updateQueueState();
+	}
+
+	/** Highlight a queue file only while it holds something actionable — an open
+	 * machine task, or an open user-queue decision — so an all-resolved queue reads
+	 * as idle (muted) instead of lit up. Mirrors the For You Decide/Queue "open"
+	 * semantics: a resolved decision keeps unchecked sibling options, so a naive
+	 * "has a [ ]" test would wrongly call it active. */
+	private async updateQueueState(): Promise<void> {
+		const s = this.plugin.settings;
+		const queues: Array<[string, boolean]> = [
+			[s.userQueuePath, true],
+			[s.machineQueuePath, false],
+		];
+		for (const [path, isUser] of queues) {
+			if (!path) continue;
+			const active = await this.queueHasOpenItem(path, isUser);
+			for (const c of this.containers()) {
+				const el = c.querySelector<HTMLElement>(`.nav-file-title[data-path="${cssEscape(path)}"]`);
+				if (el) this.setAttr(el, "data-nkui-queue-active", active ? "true" : null);
+			}
+		}
+	}
+
+	private async queueHasOpenItem(path: string, isUser: boolean): Promise<boolean> {
+		const f = this.plugin.app.vault.getAbstractFileByPath(path);
+		if (!(f instanceof TFile)) return false;
+		const content = await this.plugin.app.vault.cachedRead(f);
+		if (!isUser) return /^\s*[-*]\s+\[ \]/m.test(content); // machine: any open task
+		// User queue: a decision (a heading block) is open when it has an unchecked
+		// option and none approved, or it drifted to a heading with prose but no
+		// checkboxes. A block marked only [x]/[-] is resolved — not open.
+		let hasOpen = false,
+			hasApproved = false,
+			hasCheckbox = false,
+			hasProse = false,
+			inBlock = false;
+		const open = (): boolean => (!inBlock ? false : hasCheckbox ? hasOpen && !hasApproved : hasProse);
+		for (const ln of content.split("\n")) {
+			if (/^#{2,}\s+\S/.test(ln)) {
+				if (open()) return true;
+				inBlock = true;
+				hasOpen = hasApproved = hasCheckbox = hasProse = false;
+				continue;
+			}
+			const m = ln.match(/^\s*[-*]\s+\[(.)\]/);
+			if (m) {
+				if (!inBlock) {
+					inBlock = true;
+					hasOpen = hasApproved = hasProse = false;
+				}
+				hasCheckbox = true;
+				if (m[1] === " ") hasOpen = true;
+				else if (m[1] === "x" || m[1] === "X") hasApproved = true;
+				continue;
+			}
+			const t = ln.trim();
+			if (inBlock && t && !t.startsWith("---") && !t.startsWith("_")) hasProse = true;
+		}
+		return open();
 	}
 
 	private decorate(el: HTMLElement, s = this.plugin.settings): void {
@@ -337,6 +408,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-type");
 				el.removeAttribute("data-nkui-reviewed");
 				el.removeAttribute("data-nkui-queue");
+				el.removeAttribute("data-nkui-queue-active");
 				el.removeAttribute("data-nkui-float");
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"

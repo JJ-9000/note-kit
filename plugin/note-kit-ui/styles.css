@@ -1025,8 +1025,16 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 .tree-item:has(> .nav-file-title[data-nkui-float]) {
 	order: -1;
 }
+/* A queue file always floats to the top of its folder; its colour reflects state:
+   muted when idle (nothing to act on), accent + bold only when it holds an open
+   decision/task (data-nkui-queue-active, set by updateQueueState). */
 .nav-file-title[data-nkui-queue] .nav-file-title-content {
+	color: var(--text-muted);
+	font-weight: var(--font-normal, 400);
+}
+.nav-file-title[data-nkui-queue-active] .nav-file-title-content {
 	color: var(--text-accent, var(--interactive-accent));
+	font-weight: var(--font-semibold, 600);
 }
 
 /* ── File explorer: an open (expanded) folder colours its title so you can see

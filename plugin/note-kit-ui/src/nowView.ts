@@ -205,7 +205,7 @@ export class NowView extends ItemView {
 			this.renderBucket(
 				c,
 				`Needs you/${key}`,
-				key,
+				pluralLabel(key, items.length),
 				this.colorFor(key),
 				items,
 				{ showAge: false, showType: false, showDraft: false, showRowDot: false },
@@ -820,7 +820,7 @@ export class NowView extends ItemView {
 			cls: "nkui-now-unapprove",
 			// Make the cascade apparent: un-approving the gate also un-approves its N
 			// children, so the count rides the label.
-			text: e.setCount ? `un-approve +${e.setCount}` : "un-approve",
+			text: e.setCount ? `un-approve gate +${e.setCount}` : "un-approve",
 		});
 		undo.setAttr("role", "button");
 		undo.setAttr("tabindex", "0");
@@ -1018,7 +1018,7 @@ export class NowView extends ItemView {
 				// approves the set). A plain tap does nothing — it never opens the file
 				// or folds anything. It carries its own "+N", so the count slot stays
 				// empty for a gate.
-				const label = e.setCount ? `approve gate +${e.setCount}` : "approve gate";
+				const label = e.setCount ? `+${e.setCount} gated` : "gated";
 				const gate = gslot.createSpan({
 					cls: "nkui-now-gatepill nkui-now-gateapprove",
 					text: label,
@@ -1614,6 +1614,14 @@ function formatToday(): string {
 		month: "long",
 		day: "numeric",
 	});
+}
+
+/** A Needs-you section label that agrees with its count: "session" / "sessions",
+ * "note" / "notes", "index" / "indexes". The header CSS capitalises it. The
+ * non-type buckets ("queued", "untyped") read as-is. */
+function pluralLabel(key: string, n: number): string {
+	if (key === "queued" || key === "untyped" || n === 1) return key;
+	return /(?:[sxz]|ch|sh)$/.test(key) ? `${key}es` : `${key}s`;
 }
 
 /** Secondary title line — a quiet status summary. */

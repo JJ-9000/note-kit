@@ -1,4 +1,4 @@
-import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { DEFAULT_SETTINGS, NoteKitUiSettings, NoteKitUiSettingTab, TypeStyle } from "./settings";
 import { buildDynamicCss } from "./css";
 import { ExplorerDecorator } from "./decorator";
@@ -21,6 +21,9 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * firing during startup. */
 	private layoutReady = false;
 	private creatingNote = false;
+	/** Last-known `reviewed` value per file — lets us catch the false→true flip
+	 * (the user checking the box) and offer to close the tab. */
+	private reviewedState = new Map<string, boolean>();
 	/** True while we're opening the For You view — keeps new-tab-creates-note from
 	 * hijacking the brief empty leaf `getLeaf("tab")` creates for it. */
 	private openingNow = false;
@@ -71,6 +74,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		// whenever the CSS changes (theme switch, snippet edit) and repaint if the
 		// colors actually moved.
 		this.registerEvent(this.app.workspace.on("css-change", () => this.onCssChange()));
+
+		// When a note's `reviewed` box is checked (false → true), offer to close the
+		// tab — the reviewed box becomes a "close tab?" button that fades on a timer.
+		this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeOfferClose(file)));
 
 		// Fold children with parent: when a folder is collapsed by a click, collapse
 		// its descendant folders too, so re-opening it shows them folded.
@@ -167,6 +174,48 @@ export default class NoteKitUiPlugin extends Plugin {
 			}
 		}
 		void leaf.setViewState({ type: NOW_VIEW_TYPE });
+	}
+
+	/** On a `reviewed` false→true flip (the user checking the box), offer to close
+	 * the file's tab: its reviewed checkbox becomes a "close tab?" button that fades
+	 * over a timer. */
+	private maybeOfferClose(file: TFile): void {
+		const field = this.settings.reviewedField;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const reviewed = !!fm && (fm[field] === true || fm[field] === "true");
+		const prev = this.reviewedState.get(file.path);
+		this.reviewedState.set(file.path, reviewed);
+		if (!reviewed || prev !== false) return; // only on a real false → true flip
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.file?.path === file.path) {
+				// Let Obsidian finish re-rendering the property block first.
+				window.setTimeout(() => this.injectCloseButton(view, leaf), 60);
+			}
+		}
+	}
+
+	private injectCloseButton(view: MarkdownView, leaf: WorkspaceLeaf): void {
+		const prop = view.containerEl.querySelector<HTMLElement>(
+			'.metadata-property[data-property-key="reviewed"]'
+		);
+		if (!prop || prop.querySelector(".nkui-close-offer")) return;
+		const value = prop.querySelector<HTMLElement>(".metadata-property-value");
+		if (!value) return;
+		value.style.display = "none";
+		const btn = prop.createEl("button", { cls: "nkui-close-offer", text: "close tab?" });
+		const restore = (): void => {
+			btn.remove();
+			value.style.display = "";
+		};
+		btn.addEventListener("click", (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			leaf.detach();
+		});
+		// Fade over ~6s, then the offer expires and the checkbox returns.
+		window.requestAnimationFrame(() => btn.addClass("is-fading"));
+		window.setTimeout(restore, 6000);
 	}
 
 	/** Turn a new empty tab into a fresh untitled note at the vault root. Guarded so

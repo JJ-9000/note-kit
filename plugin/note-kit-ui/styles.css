@@ -1364,3 +1364,26 @@ body:not(.nkui-anim) .nkui-now-approveall.is-holding::before,
 body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	transition: none !important;
 }
+
+/* "close tab?" — replaces the reviewed checkbox once the box is checked; fades on a
+   ~6s timer (hover holds it full). Click closes the tab. */
+.nkui-close-offer {
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-accent, var(--interactive-accent));
+	font-style: italic;
+	font-size: var(--font-ui-small, 13px);
+	cursor: pointer;
+	padding: 0 0.4em;
+	opacity: 1;
+	transition: opacity 6000ms linear;
+}
+.nkui-close-offer.is-fading {
+	opacity: 0.15;
+}
+.nkui-close-offer:hover {
+	opacity: 1 !important;
+	text-decoration: underline;
+	transition: opacity 120ms ease;
+}

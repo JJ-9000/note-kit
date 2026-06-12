@@ -46,8 +46,8 @@ interface RowOpts {
 	 * glows at full opacity, the oldest sits at the dim floor, everything else
 	 * interpolates. Dimming means "stalest of what's here", not an absolute clock. */
 	dimDotRange?: { newest: number; oldest: number };
-	/** This section can approve drafts: a non-gate draft row gets its own inline
-	 * "approve" press-hold in the gate column, aligned with the gates' "+N gated". */
+	/** This section can approve drafts: every draft row (gate or lone file) is
+	 * itself a press-hold — hold the whole row to approve it. */
 	approve?: boolean;
 }
 
@@ -85,6 +85,13 @@ export interface Decision {
 /** Fallback archive root when neither CONFIG nor a root-folder name resolves one. */
 const ARCHIVE_FALLBACK = "99-Archive";
 const BUCKET_CAP = 50;
+
+/** Gate-member unfolds, keyed by gate file path — so reviewing a set's children
+ * survives the re-render every file visit triggers (the unfold used to reset,
+ * forcing the gate open again after each member). In-memory at module scope,
+ * the nowExpandedGroups pattern minus the persistence: shared by the main and
+ * sidebar twins, reset only by an app restart. */
+const expandedGates = new Set<string>();
 
 /** A loose file (or folder) dropped in the outbox folder — queued work in file
  * form, surfaced as a Queue row. `open` is what a click opens: the file itself,
@@ -242,9 +249,15 @@ export class NowView extends ItemView {
 		tb.createDiv({ cls: "nkui-now-title", text: formatToday() });
 		tb.createDiv({
 			cls: "nkui-now-subtitle",
-			// "Waiting" counts only what still needs you — approved gates awaiting
-			// filing are excluded, matching the section bubbles.
-			text: summary(needs.length, active.length, openDecisions.length),
+			// "To review" counts only what still needs you; the waiting segment
+			// counts what you settled and an agent still owes (approved sets
+			// awaiting filing + resolved decisions awaiting execution).
+			text: summary(
+				needs.length,
+				active.length,
+				openDecisions.length,
+				waiting.length + resolvedDecisions.length
+			),
 		});
 		const refresh = head.createEl("button", { cls: "clickable-icon nkui-now-refresh" });
 		setIcon(refresh, "refresh-cw");
@@ -384,15 +397,25 @@ export class NowView extends ItemView {
 		// filing is done, so it drops out of the bubble (a section of only approved
 		// gates reads 0).
 		const needsUser = entries.filter((e) => !e.awaitingFiling).length;
-		const head = this.bucketHead(b, id, label, color, needsUser, defaultOpen);
-		// A draft section gets a per-section "approve all" — a quiet armed-then-commit
-		// text control at the right of the header that stamps reviewed: true on every
-		// draft row here (a folded set's gate included, cascading to its peers via
-		// group approval). Drafts only: an awaiting-filing gate is already approved
-		// and is left alone.
-		if (approvable) {
-			const drafts = entries.filter((e) => e.draft);
-			if (drafts.length) this.addApproveAll(head, drafts);
+		// A draft section's HEADER is its "approve all": hold the header to stamp
+		// reviewed: true on every draft row here (a folded set's gate included,
+		// cascading to its peers via group approval); a tap still folds/unfolds.
+		// Drafts only: an awaiting-filing gate is already approved and left alone.
+		const drafts = approvable ? entries.filter((e) => e.draft) : [];
+		const head = this.bucketHead(
+			b,
+			id,
+			label,
+			color,
+			needsUser,
+			defaultOpen,
+			drafts.length ? () => this.approveAll(drafts, b) : undefined
+		);
+		if (drafts.length) {
+			const noun = drafts.length === 1 ? "draft" : "drafts";
+			const hint = `Hold to approve all ${drafts.length} ${noun} in this section; tap to fold`;
+			head.setAttr("aria-label", hint);
+			head.setAttr("title", hint);
 		}
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
@@ -452,14 +475,14 @@ export class NowView extends ItemView {
 	 * section's wide column (the wait note) tore this section's pills apart
 	 * (Format-UI-Columns-Are-Section-Scoped).
 	 *
-	 * Only the gate trio (wait note, +N, pill) inside the action cell still
-	 * measures; the meta columns (type, age, pill slot) moved to the shared
-	 * column grid (nkui-cols), which aligns by tracks instead of widths.
+	 * Only the gate pair (+N, pill) inside the action cell still measures; the
+	 * meta columns (type, age, pill slot) moved to the shared column grid
+	 * (nkui-cols), which aligns by tracks instead of widths.
 	 */
 	private equalizeMetaColumns(scope: HTMLElement): void {
 		// A slot column nobody in this list fills disappears entirely — left in
 		// place it would read as a double gap between its neighbours.
-		for (const cls of ["nkui-now-gateslot", "nkui-now-waitslot", "nkui-now-countslot", "nkui-now-pillslot"]) {
+		for (const cls of ["nkui-now-gateslot", "nkui-now-countslot", "nkui-now-pillslot"]) {
 			const els = Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`));
 			const empty = els.length > 0 && els.every((el) => el.childElementCount === 0);
 			for (const el of els) el.toggleClass("nkui-now-slot-void", empty);
@@ -470,7 +493,7 @@ export class NowView extends ItemView {
 		// pushed off the right edge). Clear any width a prior desktop-width render
 		// left behind and bail before the measuring pass.
 		if (Platform.isMobile) {
-			for (const cls of ["nkui-now-gateslot", "nkui-now-waitslot", "nkui-now-countslot"]) {
+			for (const cls of ["nkui-now-gateslot", "nkui-now-countslot"]) {
 				for (const el of Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`))) el.style.width = "";
 			}
 			return;
@@ -481,7 +504,7 @@ export class NowView extends ItemView {
 		// every iteration; over several columns × N rows that layout-thrash is the visible
 		// "stutter, dots then text" on the Active section. Batched, the browser does one
 		// layout flush for the whole measuring pass instead of dozens.
-		const groups = ["nkui-now-gateslot", "nkui-now-waitslot", "nkui-now-countslot"]
+		const groups = ["nkui-now-gateslot", "nkui-now-countslot"]
 			.map((cls) => Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`)))
 			.filter((els) => els.length >= 2);
 		// Phase 1 — clear every width (writes only).
@@ -533,9 +556,11 @@ export class NowView extends ItemView {
 		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
 		if (!picked) return;
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
+		// No per-row "awaiting action agent" note — the Waiting sub-header names
+		// the agent once for the whole group. No hold either: the only write here
+		// is the uncheck, and that stays on the checkbox.
 		renderReducedRow(list, {
 			title: label,
-			note: "awaiting action agent",
 			struck: true,
 			checkbox: {
 				checked: true,
@@ -738,14 +763,18 @@ export class NowView extends ItemView {
 		return drops;
 	}
 
-	/** Shared bucket header (count bubble + label, foldable). */
+	/** Shared bucket header (count bubble + label, foldable). With `holdCommit`
+	 * the header itself is a hold: tap folds, press-and-hold commits (the
+	 * approve-all redesign — no separate button target), arming the section's
+	 * rows while held. */
 	private bucketHead(
 		bucket: HTMLElement,
 		id: string,
 		label: string,
 		color: string | null,
 		count: number,
-		defaultOpen: boolean
+		defaultOpen: boolean,
+		holdCommit?: () => void | Promise<void>
 	): HTMLElement {
 		// An empty section (count 0 — an all-approved drafts bucket, a queue with
 		// nothing open, only-resolved decisions) carries nothing the user must act
@@ -784,37 +813,38 @@ export class NowView extends ItemView {
 			this.setCollapsed(id, collapsed, defaultOpen);
 			syncDiminished();
 		};
-		gh.addEventListener("click", toggle);
-		gh.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" || ev.key === " ") {
-				ev.preventDefault();
-				toggle();
-			}
-		});
+		if (holdCommit) {
+			// The header is the approve-all control: a tap folds (today's gesture),
+			// the hold commits. While held the section gains `is-arming`, lighting
+			// the candidate rows in their type colour. `nkui-row-hold` marks every
+			// holdable surface for the stylesheet's row-sweep fill.
+			gh.addClass("nkui-row-hold");
+			attachHold(gh, {
+				onCommit: () => {
+					// A collapsed section hides its candidate rows — a hold there
+					// unfolds instead of committing blind (the old "approve all?"
+					// control hid itself while folded).
+					if (bucket.hasClass("is-collapsed")) {
+						toggle();
+						return;
+					}
+					return holdCommit();
+				},
+				onTap: toggle,
+				armClass: "is-arming",
+				armTarget: bucket,
+				keyHold: true,
+			});
+		} else {
+			gh.addEventListener("click", toggle);
+			gh.addEventListener("keydown", (ev) => {
+				if (ev.key === "Enter" || ev.key === " ") {
+					ev.preventDefault();
+					toggle();
+				}
+			});
+		}
 		return gh;
-	}
-
-	/**
-	 * Per-section "approve all?": a pressable in the section header (the shared
-	 * pressable language — small italic text, like "edit?" / "undo"), coloured
-	 * like the section it belongs to. Press and HOLD ~700ms to commit; while held a
-	 * fill animates and the candidate rows light up in their type colour (the section
-	 * gains `is-arming`), so an accidental tap does nothing. Click stops propagation
-	 * so the fold header doesn't toggle.
-	 */
-	private addApproveAll(head: HTMLElement, drafts: Entry[]): void {
-		const bucket = head.closest<HTMLElement>(".nkui-now-group");
-		const btn = head.createEl("button", { cls: "nkui-now-approveall", text: "approve all?" });
-		const noun = drafts.length === 1 ? "draft" : "drafts";
-		btn.setAttr("aria-label", `Hold to approve all ${drafts.length} ${noun} in this section`);
-		btn.setAttr("title", btn.getAttr("aria-label") ?? "");
-		// While held the section gains `is-arming`, lighting the candidate rows in
-		// their type colour; the swallowed tap keeps the header from folding.
-		attachHold(btn, {
-			onCommit: () => this.approveAll(drafts, bucket),
-			armClass: "is-arming",
-			armTarget: bucket,
-		});
 	}
 
 	/** Stamp reviewed: true on each draft via the frontmatter-safe API. Then the
@@ -833,77 +863,77 @@ export class NowView extends ItemView {
 		await this.reloadAndRender();
 	}
 
-	/** Waiting — settled-by-you items pending an agent: approved gates awaiting the
-	 * filing-agent and resolved decisions awaiting the action-agent. One quiet
-	 * neutral-grey section, default collapsed, gathered right above Active. */
+	/** Waiting — settled-by-you items pending an agent, in TWO labelled sub-groups
+	 * under small quiet headers: "filing agent" (approved gates/files awaiting
+	 * filing) and "action agent" (resolved decisions awaiting execution). The
+	 * sub-header names the agent once, so the rows drop their repeated per-row
+	 * agent notes. One quiet neutral-grey section, default collapsed, gathered
+	 * right above Active. */
 	private renderWaitingSection(parent: HTMLElement, waiting: Entry[], resolved: Decision[]): void {
 		const id = "Waiting";
 		const b = parent.createDiv("nkui-now-group nkui-now-group-waiting");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, false));
 		this.bucketHead(b, id, "Waiting", null, waiting.length + resolved.length, false);
 		const wrap = b.createDiv("nkui-now-foldwrap");
-		// The waiting list shares the column-grid contract so every row's status
-		// and undo land in the same tracks (no measured widths).
+		// The waiting list shares the column-grid contract so every row's cells
+		// land in the same tracks (no measured widths).
 		const list = wrap.createDiv("nkui-now-list nkui-now-colgrid");
-		for (const e of waiting) this.renderWaitingGate(list, e);
-		for (const d of resolved) this.renderResolvedDecision(list, d);
+		if (waiting.length) {
+			list.createDiv({ cls: "nkui-now-subhead", text: "filing agent" });
+			for (const e of waiting) this.renderWaitingGate(list, e);
+		}
+		if (resolved.length) {
+			list.createDiv({ cls: "nkui-now-subhead", text: "action agent" });
+			for (const d of resolved) this.renderResolvedDecision(list, d);
+		}
 		// The stylesheet scales the unroll duration by the row count.
 		wrap.style.setProperty("--nkui-rows", String(list.childElementCount));
 	}
 
-	/** An approved waiting set: the gate (or lone approved file), folded with its
-	 * "+N", an "approved — awaiting filing" note, and an undo-review affordance that
-	 * sends the gate and its members back to drafts (Needs-you). */
+	/** An approved waiting set: the gate (or lone approved file), folded with a
+	 * passive "+N" marking its members. The ROW is the control: hold to undo —
+	 * sends the gate and its members back to drafts (Needs-you); a tap unfolds
+	 * the gated member files beneath the row (a tap on the title, or a row with
+	 * no members, opens the file instead). The sub-header above names the agent,
+	 * so the row carries no per-row wait note. */
 	private renderWaitingGate(list: HTMLElement, e: Entry): void {
-		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate nkui-cols");
+		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate nkui-cols nkui-row-hold");
 		// A waiting child keeps its kind's tint, like every top-level row.
 		this.applyTint(row, e.type);
-		const aria = "Approved — the filing-agent files this set next pass. Undo review to send it back.";
+		const members = !!e.setFiles?.length;
+		const aria = members
+			? "Approved — the filing-agent files this set next pass. Hold to undo — sends the set back to drafts. Tap to peek at the set."
+			: "Approved — the filing-agent files this next pass. Hold to undo — sends it back to drafts. Tap to open.";
 		row.setAttr("aria-label", aria);
 		row.setAttr("title", aria);
-		// Subject and status share ONE line: the subject truncates with an ellipsis
-		// before it would wrap, so the status/un-approve never get pushed to a second
-		// line (no vertical bloat).
+		row.setAttr("role", "button");
+		row.setAttr("tabindex", "0");
 		const title = row.createSpan({
 			cls: "nkui-now-reducedtitle nkui-now-reducedrow-click nkui-col-main",
 			text: this.displayName(e.file),
 		});
-		title.addEventListener("click", (ev) => this.openPath(e.file.path, ev.ctrlKey || ev.metaKey));
-		// No leading "gate +N": it's redundant with the "undo gate +N" at the
-		// end of the line. Status and undo are grid cells (nkui-cols) — the list grid
-		// aligns them across waiting rows, gate or lone file, on any pane width.
-		// Agent-explicit: the row names WHO it waits for, not just that it waits.
-		row.createSpan({ cls: "nkui-now-fatenote nkui-now-waittext nkui-col-meta", text: "awaiting filing agent" });
-		// "undo +N" — a press-and-hold (the gate-approve language) that sends the gate
-		// and its N members back to drafts; the +N marks the gated set. A single tap
-		// unfolds the gated member files beneath the row instead.
-		const undo = row.createSpan({
-			cls: "nkui-now-unapprove nkui-now-gateapprove nkui-col-action",
-			text: e.setCount ? `undo +${e.setCount}` : "undo",
-		});
-		const undoHint = "Hold to undo — sends the set back to drafts. Tap to peek at the set.";
-		undo.setAttr("aria-label", undoHint);
-		undo.setAttr("title", undoHint);
-		undo.setAttr("role", "button");
-		undo.setAttr("tabindex", "0");
-		attachHold(undo, {
-			onCommit: () => this.unapproveSet(e, row),
-			onTap: () => this.toggleGateMembers(row, e),
-		});
-		// Mobile: undo is shy — invisible and inert until the row is tapped once
-		// (a thumb grazing the action column kept arming accidental undos).
-		// Reveal on CLICK, not pointerdown: a scroll gesture begins with a
-		// pointerdown on whatever row is under the finger, so a pointerdown
-		// reveal un-shied the control on every scroll. A click only lands on a
-		// genuine settled tap — and the undo is inert during that tap, so the
-		// revealing tap can never also press it.
-		if (Platform.isMobile) {
-			row.addClass("nkui-undo-shy");
-			row.addEventListener("click", () => row.addClass("is-undo-revealed"), {
-				capture: true,
-			});
+		// A passive "+N" marks the folded set (the old "undo +N" control is gone —
+		// the row itself holds to undo).
+		if (e.setCount) {
+			const n = row.createSpan({ cls: "nkui-now-setcount nkui-col-action", text: `+${e.setCount}` });
+			n.setAttr("aria-label", `${e.setCount} more in this set`);
 		}
-		this.attachPreview(row, e.file, e.type);
+		attachHold(row, {
+			onCommit: () => this.unapproveSet(e, row),
+			onTap: (ev) => {
+				// Title taps open the gate document (what title clicks always did);
+				// anywhere else on a gated row peeks at the folded set.
+				const onTitle = ev?.target instanceof Node && title.contains(ev.target);
+				if (members && !onTitle) this.toggleGateMembers(row, e);
+				else this.openPath(e.file.path, ev ? ev.ctrlKey || ev.metaKey : false);
+			},
+			keyHold: true,
+		});
+		// The hold owns the long-press here — no mobile long-press preview, or the
+		// popover would fire mid-arm; desktop right-click preview stays.
+		this.attachPreview(row, e.file, e.type, false);
+		// A persisted unfold survives the re-render (expandedGates) — re-open it.
+		if (members && expandedGates.has(e.file.path)) this.openGateMembers(row, e);
 	}
 
 	/** Send an approved waiting set back to Needs-you: clear `reviewed` on the gate
@@ -927,8 +957,10 @@ export class NowView extends ItemView {
 
 	/** Native page-preview on demand: right-click (desktop) or long-press (mobile)
 	 * fires Obsidian's own hover-link, so the core Page Preview plugin shows its
-	 * popover — no bespoke window to manage. A no-op when that plugin is off. */
-	private attachPreview(el: HTMLElement, file: TFile, type?: string | null): void {
+	 * popover — no bespoke window to manage. A no-op when that plugin is off.
+	 * `longPress: false` keeps only the right-click path — a row whose long-press
+	 * already commits a hold must not also pop the preview mid-arm. */
+	private attachPreview(el: HTMLElement, file: TFile, type?: string | null, longPress = true): void {
 		const fire = (event: Event): void => {
 			this.app.workspace.trigger("hover-link", {
 				event,
@@ -944,6 +976,7 @@ export class NowView extends ItemView {
 			ev.preventDefault();
 			fire(ev);
 		});
+		if (!longPress) return;
 		let timer: number | undefined;
 		const clear = (): void => {
 			if (timer) {
@@ -982,17 +1015,26 @@ export class NowView extends ItemView {
 		}, 80);
 	}
 
-	/** Single tap on a gate count ("+N gated" on a Needs gate row, "undo +N" on a
-	 * Waiting row): unfold the gated member files inline beneath the row; tap
-	 * again to fold. The hold (approve / undo) is unchanged — the tap only
-	 * reveals what the hold would commit. The unfold is transient: any re-render
-	 * folds it again. */
+	/** Single tap on a gate row (Needs or Waiting): unfold the gated member files
+	 * inline beneath the row; tap again to fold. The hold (approve / undo) is
+	 * unchanged — the tap only reveals what the hold would commit. The unfold
+	 * PERSISTS across re-renders for the session (expandedGates, keyed by gate
+	 * path), so visiting a member file no longer folds the set behind you. */
 	private toggleGateMembers(row: HTMLElement, e: Entry): void {
 		const next = row.nextElementSibling;
 		if (next instanceof HTMLElement && next.hasClass("nkui-now-gatemembers")) {
+			expandedGates.delete(e.file.path);
 			this.foldGateMembers(next);
 			return;
 		}
+		if (!(e.setFiles ?? []).length) return;
+		expandedGates.add(e.file.path);
+		this.openGateMembers(row, e);
+	}
+
+	/** Build and unfold the member box beneath a gate row (the DOM half of
+	 * toggleGateMembers — also replayed on render for a persisted unfold). */
+	private openGateMembers(row: HTMLElement, e: Entry): void {
 		const files = e.setFiles ?? [];
 		if (!files.length) return;
 		const box = createDiv("nkui-now-gatemembers");
@@ -1070,18 +1112,25 @@ export class NowView extends ItemView {
 		const row = list.createDiv("nkui-now-row nkui-cols");
 		if (contained) row.addClass("nkui-now-row-contained");
 		if (e.isGate) row.addClass("nkui-now-row-gate");
-		if (e.awaitingFiling) row.addClass("nkui-now-row-waiting");
 		// Every row carries its type colour as --nkui-row-color: the stylesheet tints
-		// the row title with it (like the explorer file names), and the "approve all?"
-		// hold lights the draft candidates up in their own colour.
+		// the row title with it (like the explorer file names), and the approve-all
+		// header hold lights the draft candidates up in their own colour.
 		this.applyTint(row, e.type);
 		if (e.draft) row.addClass("nkui-now-row-draft");
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
 		const open = (newLeaf: boolean) => this.openPath(e.file.path, newLeaf);
-		row.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
-		attachKeyActivate(row, () => open(false));
-		this.attachPreview(row, e.file, e.type);
+		// In an approvable section every draft row IS its approve control: hold
+		// the row to commit (the gate cascade or the single-file stamp); a tap
+		// keeps today's gestures — a gate row peeks at its set, a file row opens
+		// its file. Non-draft rows (Active, queued, untyped) keep the plain click.
+		const canHold = !!opts.approve && e.draft;
+		if (!canHold) {
+			row.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
+			attachKeyActivate(row, () => open(false));
+		}
+		// A holdable row's long-press is the commit — no mobile long-press preview.
+		this.attachPreview(row, e.file, e.type, !canHold);
 
 		// Main cell — dot + title. The action and meta cells land in the section
 		// grid's shared tracks (the nkui-cols contract), aligned across rows.
@@ -1109,31 +1158,44 @@ export class NowView extends ItemView {
 		const titleEl = main.createSpan({ cls: "nkui-now-rowtitle", text: this.displayName(e.file) });
 		if (titleDim < 1) titleEl.style.opacity = titleDim.toFixed(2);
 
+		if (canHold) {
+			// The ROW is the approve control (no per-row button targets — the
+			// small pills kept getting mis-pressed on a phone). `nkui-row-hold`
+			// marks it for the stylesheet's whole-row hold fill.
+			row.addClass("nkui-row-hold");
+			const peekable = e.isGate && !!e.setFiles?.length;
+			const hint = e.isGate
+				? "Hold to approve the gate — approving it approves the rest of the set. Tap to peek at the set; tap the title to open it."
+				: "Hold to approve this draft (reviewed: true). Tap to open.";
+			row.setAttr("aria-label", hint);
+			row.setAttr("title", hint);
+			attachHold(row, {
+				onCommit: () => this.approveGate(e, row),
+				onTap: (ev) => {
+					// A gate row's tap unfolds/folds its gated children — except on
+					// the title, which keeps its open-the-document click. A plain
+					// file row's tap opens the file, like its title always did.
+					const onTitle = ev?.target instanceof Node && titleEl.contains(ev.target);
+					if (peekable && !onTitle) this.toggleGateMembers(row, e);
+					else open(ev ? ev.ctrlKey || ev.metaKey : false);
+				},
+				keyHold: true,
+			});
+		}
+
 		// The gate trio renders as slot columns sized per section, packed against
 		// the right edge with the constant-width gate pill OUTERMOST: the pill is
 		// the same thing in every section, so it anchors the same x everywhere,
-		// while the variable-width extras (wait note, +N) stack inward — no
-		// section ever reserves a column another section's content created.
-		const canApproveDraft = !!opts.approve && e.draft && !e.isGate;
-		if (e.isGate || e.awaitingFiling || e.setCount || canApproveDraft) {
+		// while the variable-width "+N" stacks inward — no section ever reserves
+		// a column another section's content created.
+		if (e.isGate || e.setCount) {
 			const set = row.createSpan("nkui-now-rowset nkui-col-action");
-
-			// An approved gate whose set hasn't moved yet: the decision is made —
-			// the row only reports that the files still wait on the filing-agent.
-			const wslot = set.createSpan("nkui-now-waitslot");
-			if (e.awaitingFiling) {
-				// Full note on desktop; a compact agent name on mobile, inline on
-				// the item's line (the title truncates instead of the row
-				// stacking). Both name the agent the row waits for.
-				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-long", text: "awaiting filing agent" });
-				wslot.createSpan({ cls: "nkui-now-waitnote nkui-now-waitnote-short", text: "filing agent" });
-			}
 
 			// A gate stands in for a folded working-set: a quiet "+N" marks how
 			// many working notes sit behind it, without listing them.
 			const cslot = set.createSpan("nkui-now-countslot");
-			// A gate carries its own "+N" in its hold label, so only a non-gate folded
-			// head shows the standalone count here.
+			// A gate carries its own "+N" in its badge label, so only a non-gate
+			// folded head shows the standalone count here.
 			if (e.setCount && !e.isGate) {
 				const n = cslot.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
 				n.setAttr("aria-label", `${e.setCount} more in this set`);
@@ -1141,41 +1203,17 @@ export class NowView extends ItemView {
 
 			// The gate file is the one document to actually read — approving it
 			// auto-approves its peers. The badge makes that dependency visible.
+			// PASSIVE now: the row itself carries the hold and the tap.
 			const gslot = set.createSpan("nkui-now-gateslot");
 			if (e.isGate) {
-				// The gate label is a press-and-hold: hold to approve the gate (which
-				// approves the set). A single tap unfolds the gated members beneath
-				// the row — it never opens the file or folds the section. It carries
-				// its own "+N", so the count slot stays empty for a gate.
 				const label = e.setCount ? `+${e.setCount} gated` : "gated";
-				const gate = gslot.createSpan({
-					cls: "nkui-now-gatepill nkui-now-gateapprove",
-					text: label,
-				});
-				const hint =
-					"Hold to approve the gate — approving it approves the rest of the set. Tap to peek at the set.";
-				gate.setAttr("aria-label", hint);
-				gate.setAttr("title", hint);
-				gate.setAttr("role", "button");
-				gate.setAttr("tabindex", "0");
-				attachHold(gate, {
-					onCommit: () => this.approveGate(e, row),
-					onTap: () => this.toggleGateMembers(row, e),
-				});
-			} else if (canApproveDraft) {
-				// A lone (non-gate) draft gets its own "approve" hold in the same column
-				// as the gates' "+N gated", so every draft row approves the same way.
-				const appr = gslot.createSpan({
-					cls: "nkui-now-gatepill nkui-now-gateapprove",
-					text: "approve",
-				});
-				const hint = "Hold to approve this draft (reviewed: true)";
-				appr.setAttr("aria-label", hint);
-				appr.setAttr("title", hint);
-				appr.setAttr("role", "button");
-				appr.setAttr("tabindex", "0");
-				attachHold(appr, { onCommit: () => this.approveGate(e, row) });
+				gslot.createSpan({ cls: "nkui-now-gatepill", text: label });
 			}
+		}
+
+		// A persisted unfold survives the re-render (expandedGates) — re-open it.
+		if (e.isGate && e.setFiles?.length && expandedGates.has(e.file.path)) {
+			this.openGateMembers(row, e);
 		}
 
 		const showType = opts.showType && !!e.type;
@@ -1660,21 +1698,26 @@ export function parseQueueItems(content: string): QueueItem[] {
 	return items;
 }
 
-/** The one shared "reduced" row — a compact, faded two-line block (title, then
- * a small fate note beneath) used for every settled item: crossed-off queue
+/** The one shared "reduced" row — a compact, faded block (title, with a small
+ * fate note beneath when given) used for every settled item: crossed-off queue
  * lines, resolved decisions, awaiting-filing gates. The note sits BELOW the
- * title so a long title is never smushed to make room for it.
+ * title so a long title is never smushed to make room for it; omit it where a
+ * group sub-header already says the same thing for every row. A `holdCommit`
+ * makes the WHOLE ROW a press-and-hold (the kit's commit gesture) — the
+ * destructive write rides the hold, never a stray tap.
  * Exported for the standalone queue view. */
 export function renderReducedRow(
 	list: HTMLElement,
 	o: {
 		title: string;
-		note: string;
+		note?: string;
 		struck: boolean;
 		onOpen?: (newLeaf: boolean) => void;
 		checkbox?: { checked: boolean; onChange: () => void | Promise<void> };
 		ariaLabel?: string;
 		bullet?: boolean;
+		/** Whole-row press-and-hold commit (e.g. restore a crossed-off task). */
+		holdCommit?: () => void | Promise<void>;
 	}
 ): void {
 	const row = list.createDiv("nkui-now-reducedrow");
@@ -1692,11 +1735,23 @@ export function renderReducedRow(
 	const main = row.createDiv("nkui-now-reducedmain");
 	const title = main.createSpan({ cls: "nkui-now-reducedtitle", text: o.title });
 	if (o.struck) title.addClass("is-struck");
-	main.createSpan({ cls: "nkui-now-fatenote", text: o.note });
+	if (o.note) main.createSpan({ cls: "nkui-now-fatenote", text: o.note });
+	if (o.holdCommit) {
+		const commit = o.holdCommit;
+		row.addClass("nkui-row-hold");
+		row.setAttr("role", "button");
+		row.setAttr("tabindex", "0");
+		attachHold(row, {
+			onCommit: commit,
+			onTap: o.onOpen ? (ev) => o.onOpen?.(ev ? ev.ctrlKey || ev.metaKey : false) : undefined,
+			keyHold: true,
+		});
+		return;
+	}
 	if (o.onOpen) {
 		const open = o.onOpen;
 		// With a checkbox the title opens its source; without one the whole row is
-		// the affordance (e.g. click a crossed-off queue line to restore it).
+		// the affordance (e.g. click a resolved decision to open its heading).
 		const target = o.checkbox ? title : row;
 		target.addClass("nkui-now-reducedrow-click");
 		target.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
@@ -1710,12 +1765,13 @@ export interface MachineRowHandlers {
 }
 
 /** One machine-queue row — the crossed-off reduced shape, or the open shape
- * (bullet · text · a pencil edit button in the row's bottom-right corner).
- * Exported for the standalone queue view. */
+ * (bullet · text). The ROW is the control (no pencil button): hold to skip,
+ * tap to edit the text in place. Exported for the standalone queue view. */
 export function renderMachineItemRow(list: HTMLElement, item: QueueItem, h: MachineRowHandlers): void {
 	// A crossed-off item (skipped by the user or executed by the agent) is a
 	// receipt, not a live ask — it renders in the shared reduced shape (small,
 	// faded, fate note beneath the text) so it never crowds the open items.
+	// Restoring it is a write, so it rides the hold, not a stray tap.
 	if (item.done) {
 		const skipped = SKIP_MARK_RE.test(item.text);
 		const executed = EXEC_MARK_RE.test(item.text);
@@ -1728,31 +1784,28 @@ export function renderMachineItemRow(list: HTMLElement, item: QueueItem, h: Mach
 					: "done — clears next agent run",
 			struck: true,
 			bullet: true,
-			onOpen: () => h.onSkip(item),
+			holdCommit: () => h.onSkip(item),
 			ariaLabel: executed
-				? "Executed by the action agent; clears on its next run. Click to restore — it will run again."
-				: "Crossed off — the agent clears it next run without executing. Click to restore.",
+				? "Executed by the action agent; clears on its next run. Hold to restore — it will run again."
+				: "Crossed off — the agent clears it next run without executing. Hold to restore.",
 		});
 		return;
 	}
-	// Open item: click the task to cross it off (a SKIP — the line gains the
+	// Open item: HOLD the row to cross it off (a SKIP — the line gains the
 	// literal "*(item skipped)*" marker with its [x] so the agent's sweep tells
-	// it from a real completion). The pencil re-opens the text for editing.
-	const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
+	// it from a real completion); a tap re-opens the text for editing.
+	const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike nkui-row-hold");
 	row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
 	const main = row.createDiv("nkui-now-qmain");
 	main.createSpan({ cls: "nkui-now-qtext", text: item.text });
-	row.setAttr("aria-label", "Click the task to skip it; the pencil edits its text.");
+	row.setAttr("aria-label", "Hold the task to skip it; tap to edit its text.");
 	row.setAttr("title", row.getAttr("aria-label") ?? "");
-	row.addEventListener("click", () => h.onSkip(item));
-	// Edit affordance — the row's bottom-right corner, a bare icon button like
-	// the "+" submit beneath it.
-	const edit = row.createEl("button", { cls: "nkui-now-qeditbtn" });
-	setIcon(edit, "pencil");
-	edit.setAttr("aria-label", "Edit task");
-	edit.addEventListener("click", (ev) => {
-		ev.stopPropagation();
-		h.onEdit(main, item);
+	row.setAttr("role", "button");
+	row.setAttr("tabindex", "0");
+	attachHold(row, {
+		onCommit: () => h.onSkip(item),
+		onTap: () => h.onEdit(main, item),
+		keyHold: true,
 	});
 }
 
@@ -1910,12 +1963,13 @@ function pluralLabel(key: string, n: number): string {
 	return /(?:[sxz]|ch|sh)$/.test(key) ? `${key}es` : `${key}s`;
 }
 
-/** Secondary title line — a quiet status summary. */
-function summary(review: number, active: number, decide: number): string {
+/** Secondary title line — a quiet status summary. Zero segments are omitted. */
+function summary(review: number, active: number, decide: number, waiting: number): string {
 	const parts: string[] = [];
 	if (decide > 0) parts.push(`${decide} to decide`);
 	if (review > 0) parts.push(`${review} to review`);
 	if (active > 0) parts.push(`${active} active`);
+	if (waiting > 0) parts.push(`${waiting} waiting for agent`);
 	return parts.length ? parts.join("  ·  ") : "All clear";
 }
 

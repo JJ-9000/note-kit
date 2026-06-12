@@ -223,6 +223,9 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-type-tint");
 		document.body.removeClass("nkui-anim");
 		document.body.removeClass("nkui-solid-icons");
+		document.body.removeClass("nkui-large-mouths");
+		document.body.removeClass("nkui-rounded");
+		document.body.removeClass("nkui-minimal");
 	}
 
 	private applyBodyClasses(): void {
@@ -230,6 +233,9 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-type-tint", this.settings.typeTint);
 		document.body.toggleClass("nkui-anim", this.settings.animations);
 		document.body.toggleClass("nkui-solid-icons", this.settings.solidIcons);
+		document.body.toggleClass("nkui-large-mouths", this.settings.largeMouths);
+		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
+		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
 	}
 
 	/** Close a just-opened duplicate of a file already open in another main tab. */
@@ -674,13 +680,22 @@ export default class NoteKitUiPlugin extends Plugin {
 		if (rightFlipped) this.revealSidebarContent();
 	}
 
-	/** Land the just-opened right drawer on the configured content. A queue is
-	 * a write surface for the agents, so its view re-locks behind the
-	 * "are you sure?" hold-to-unlock before it's revealed — a stray swipe can
-	 * never land a tap on a live checkbox. */
+	/** Land the just-opened right drawer on the configured content — unless the
+	 * user already navigated the drawer to one of the plugin's views. The drawer
+	 * stops FORCING its configured content: a queue or For You the user left on
+	 * top stands across opens; only a drawer showing none of the plugin's views
+	 * gets the configured content revealed. A queue is a write surface for the
+	 * agents, so whenever a queue view IS what the swipe reveals — configured or
+	 * standing — it re-locks behind the "are you sure?" hold-to-unlock first,
+	 * and a stray swipe can never land a tap on a live checkbox. */
 	private revealSidebarContent(): void {
 		if (!this.settings.sidebarNow) return;
 		const ws = this.app.workspace;
+		const standing = this.shownSidebarPluginLeaf();
+		if (standing) {
+			if (standing.view instanceof QueueView) standing.view.lockForReveal();
+			return;
+		}
 		if (this.settings.sidebarContent === "for-you") {
 			const leaf = ws.getLeavesOfType(NOW_SIDE_VIEW_TYPE)[0];
 			if (leaf) void ws.revealLeaf(leaf);
@@ -695,6 +710,22 @@ export default class NoteKitUiPlugin extends Plugin {
 			void ws.revealLeaf(leaf);
 			return;
 		}
+	}
+
+	/** The plugin-owned sidebar leaf the right drawer is currently showing, if
+	 * any — the drawer just opened, so its active tab is the only sidebar leaf
+	 * actually laid out (isShown distinguishes it from the tabs stacked behind
+	 * it). Null when the drawer sits on a core tab (backlinks, tags, …) or
+	 * hosts no plugin view at all. */
+	private shownSidebarPluginLeaf(): WorkspaceLeaf | null {
+		const ws = this.app.workspace;
+		for (const type of [NOW_SIDE_VIEW_TYPE, QUEUE_VIEW_TYPE]) {
+			for (const leaf of ws.getLeavesOfType(type)) {
+				if (!this.inSidebar(leaf)) continue;
+				if (leaf.view.containerEl.isShown()) return leaf;
+			}
+		}
+		return null;
 	}
 
 	async saveSettings(): Promise<void> {

@@ -1,6 +1,6 @@
-/** Shared press-and-hold commit affordance. Every hold in the kit (gate approve,
- * approve all, undo) runs through attachHold so the arming rules — the fill, the
- * swallowed tap, the keyboard shortcut — stay identical everywhere. */
+/** Shared press-and-hold commit affordance. Every hold in the kit (row approve,
+ * section approve-all, undo) runs through attachHold so the arming rules — the
+ * fill, the swallowed tap, the keyboard shortcut — stay identical everywhere. */
 
 /** Shipped press-and-hold duration (ms). The LIVE value is the "Hold duration"
  * setting — main.ts calls configureHolds(settings.holdMs) on load and on every
@@ -33,6 +33,14 @@ export function closeOfferMs(): number {
 let lastCommitAt = 0;
 const COMMIT_SUPPRESS_MS = 350;
 
+/** Movement allowance while a hold arms (px). At row scale the press target is
+ * also the scroll surface — the row must NOT carry touch-action: none, so the
+ * list keeps scrolling. A drift past this slop reads as a scroll (or a drag),
+ * not a hold, and disarms without committing. Touch scrolling also fires
+ * pointercancel once the browser claims the gesture; the slop catches mice,
+ * pens, and the slow pre-scroll drift before that claim lands. */
+const HOLD_SLOP_PX = 8;
+
 /** Eat the release that follows a pointer-held commit at the document level
  * (capture phase, one-shot): after the commit re-renders, the pointer may sit
  * over a row / fold header / another hold — the swallowed pointerup and click
@@ -55,13 +63,20 @@ export interface HoldOpts {
 	/** Runs when the press is held the full duration (or on keyboard Enter/Space). */
 	onCommit: () => void | Promise<void>;
 	/** Runs on a released-early press (a tap). Optional — without it a tap does
-	 * nothing, matching the original holds. */
-	onTap?: () => void;
+	 * nothing, matching the original holds. Receives the releasing pointer event
+	 * when one exists (a keyboard tap passes none), so a row-scale tap can branch
+	 * on its target or its modifier keys. */
+	onTap?: (ev?: PointerEvent) => void;
 	holdMs?: number;
 	/** While held, this class is added to `armTarget` (e.g. the section's
 	 * `is-arming`, which lights up the candidate rows). */
 	armClass?: string;
 	armTarget?: HTMLElement | null;
+	/** Keyboard mirrors the pointer: Enter/Space held the full duration commits,
+	 * released early taps (firing `onTap`). Without it (the default) Enter/Space
+	 * commits at once — the original button behaviour, kept for the dedicated
+	 * holds (e.g. the queue unlock) where the element has no tap action. */
+	keyHold?: boolean;
 }
 
 /**
@@ -75,14 +90,35 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 	let timer: number | undefined;
 	let holding = false;
 	let committed = false;
+	/** True while a keyboard hold (keyHold mode) is arming — pointer end events
+	 * (leave/cancel/move) must not disarm a press the pointer never made. */
+	let keyHeld = false;
+	let startX = 0;
+	let startY = 0;
 	const end = (): void => {
 		holding = false;
+		keyHeld = false;
 		el.removeClass("is-holding");
 		if (opts.armClass) opts.armTarget?.removeClass(opts.armClass);
 		if (timer) window.clearTimeout(timer);
 		timer = undefined;
 	};
+	const commit = (): void => {
+		committed = true;
+		lastCommitAt = Date.now();
+		end();
+		void opts.onCommit();
+	};
 	el.addEventListener("pointerdown", (ev) => {
+		// A press landing on an interactive CHILD (a checkbox, a text field, a
+		// nested button) belongs to that control — never armed, never swallowed.
+		// The hold element itself may be a button (the queue unlock), so only a
+		// strict descendant bails.
+		const t = ev.target;
+		if (t instanceof Element) {
+			const it = t.closest("input, textarea, select, button, a");
+			if (it && it !== el) return;
+		}
 		ev.preventDefault();
 		ev.stopPropagation();
 		// A press right after ANY commit is the same physical press handed to a
@@ -92,40 +128,69 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 		if (holding) return;
 		holding = true;
 		committed = false;
+		startX = ev.clientX;
+		startY = ev.clientY;
 		el.addClass("is-holding");
 		if (opts.armClass) opts.armTarget?.addClass(opts.armClass);
 		timer = window.setTimeout(() => {
-			committed = true;
-			lastCommitAt = Date.now();
 			swallowNextRelease();
-			end();
-			void opts.onCommit();
+			commit();
 		}, hold);
 	});
 	// The tap is decided on pointerup (not click — preventDefault on pointerdown
 	// suppresses the click on some mobile platforms): released while still armed
 	// and before the commit landed.
-	el.addEventListener("pointerup", () => {
+	el.addEventListener("pointerup", (ev) => {
+		if (keyHeld) return;
 		const tapped = holding && !committed;
 		end();
-		if (tapped) opts.onTap?.();
+		if (tapped) opts.onTap?.(ev);
 	});
-	el.addEventListener("pointerleave", end);
-	el.addEventListener("pointercancel", end);
+	// Slop-cancel: a hold that drifts past the slop is a scroll or a drag, not a
+	// commit intent — disarm. Essential at row scale, where the hold target IS
+	// the scroll surface (the row keeps native touch-action so the list scrolls).
+	el.addEventListener("pointermove", (ev) => {
+		if (!holding || keyHeld) return;
+		if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > HOLD_SLOP_PX) end();
+	});
+	el.addEventListener("pointerleave", () => {
+		if (!keyHeld) end();
+	});
+	el.addEventListener("pointercancel", () => {
+		if (!keyHeld) end();
+	});
 	// The release click still bubbles — swallow it so a press never folds the
 	// section or opens the row's file underneath.
 	el.addEventListener("click", (ev) => ev.stopPropagation());
 	el.addEventListener("keydown", (ev) => {
-		if (ev.key === "Enter" || ev.key === " ") {
-			ev.preventDefault();
-			ev.stopPropagation();
-			// A held key auto-repeats — only the first press commits.
-			if (ev.repeat) return;
+		if (ev.key !== "Enter" && ev.key !== " ") return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		// A held key auto-repeats — only the first press arms/commits.
+		if (ev.repeat) return;
+		if (!opts.keyHold) {
 			// Keyboard commits shift layout too — suppress pointer arming for the
 			// same window (no release to swallow: nothing is pressed).
 			lastCommitAt = Date.now();
 			void opts.onCommit();
+			return;
 		}
+		// keyHold mode: the key mirrors the pointer — arm on keydown (the fill
+		// sweeps), commit when held the full duration, tap on an early release.
+		if (holding) return;
+		holding = true;
+		committed = false;
+		keyHeld = true;
+		el.addClass("is-holding");
+		if (opts.armClass) opts.armTarget?.addClass(opts.armClass);
+		timer = window.setTimeout(commit, hold);
+	});
+	el.addEventListener("keyup", (ev) => {
+		if (!keyHeld) return;
+		if (ev.key !== "Enter" && ev.key !== " ") return;
+		const tapped = holding && !committed;
+		end();
+		if (tapped) opts.onTap?.();
 	});
 }
 

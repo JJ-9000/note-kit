@@ -7,6 +7,8 @@ import type NoteKitUiPlugin from "./main";
  *                      title AND its wrapping .nav-folder carry it, so the
  *                      stylesheet can dim the whole subtree
  *   data-nkui-uncat    (a2) vault-root item the kit doesn't recognise
+ *   data-nkui-empty    (b) empty content — a 0-byte file, or a folder with no
+ *                      children (dimmer + smaller, like sink; stylesheet)
  *   data-nkui-type     (c) note type (only for types with a configured colour)
  *   data-nkui-reviewed (d) "false" on unreviewed drafts
  *   data-nkui-weight   (w) frontmatter `weight` > 0, with a w<n> badge and a
@@ -54,8 +56,10 @@ export class ExplorerDecorator {
 	/** Scroll-settle re-decoration — the explorer recycles rows as it scrolls,
 	 * and a reused row can surface carrying another path's decoration (a wash
 	 * that "follows scroll") or none at all (a folder-note index blank until
-	 * scrolled away and back). Decoration-only (no counts), debounced trailing
-	 * so a fling costs ONE pass after the scroll settles, not work per frame. */
+	 * scrolled away and back). Decoration-only (no counts, and NO ordering —
+	 * moving rows at scroll-settle read as the list re-sorting under the
+	 * finger, the 0.4.63 snap), debounced trailing so a fling costs ONE pass
+	 * after the scroll settles, not work per frame. */
 	private scrollRedraw: Debouncer<[], void>;
 	/** Containers whose scroll listener is already attached — attachObservers
 	 * re-runs on every layout-change and must not stack duplicate listeners. */
@@ -248,35 +252,26 @@ export class ExplorerDecorator {
 	 */
 	private onMutations(muts: MutationRecord[]): void {
 		const s = this.plugin.settings;
-		// Containers whose rows changed this batch — reordered once, after every row
-		// is decorated. Our own insertBefore moves re-enter here on the next callback,
-		// where the already-ordered container produces zero mutations (fixed point),
-		// so observing our own reorder converges instead of looping.
-		const toOrder = new Set<HTMLElement>();
+		// A children container inserted this batch (a folder expanding, or a
+		// subtree re-rendering) needs its float order applied — but never HERE:
+		// an insertBefore in the same mutation batch lands inside Obsidian's
+		// expand/collapse height animation and cancels it, and during a fling
+		// the virtualizer's own churn would re-attach reorder work to the
+		// hottest event stream in the plugin. The MOVES wait for the settled
+		// redraw (150ms); decoration stays synchronous below — that's the
+		// no-FOUC requirement (rows appear already-styled, pre-paint).
+		let childrenInserted = false;
 		for (const m of muts) {
 			if (m.type === "attributes" && m.target instanceof HTMLElement) {
 				if (m.target.matches(".nav-file-title, .nav-folder-title")) {
 					this.decorate(m.target, s);
-					// A data-path swap is a RECYCLED row — its folder's weight heat
-					// and float order were computed for the old path. Recycling is
-					// continuous during a fling, so ordering here per batch would
-					// re-attach reorder work to the hottest event stream in the
-					// plugin; the settled pass reorders every container instead (a
-					// genuine rename settles ≤100ms later, imperceptible).
+					// A data-path swap is a RECYCLED row — re-stamp the settled
+					// rows once the scroll stops. Ordering never runs from this
+					// path: a genuine rename's vault event schedules the full
+					// redraw, which reorders.
 					this.scrollRedraw();
 				}
 				continue;
-			}
-			if (m.target instanceof HTMLElement) {
-				const cc = m.target.closest<HTMLElement>(".nav-folder-children");
-				if (cc) toOrder.add(cc);
-				else {
-					// A root-level change (the root items live in an unclassed div,
-					// not a .nav-folder-children) — settle the root container.
-					const host = m.target.closest<HTMLElement>(".nav-files-container");
-					const root = host && this.rootItemsContainer(host);
-					if (root && (m.target === root || root.contains(m.target))) toOrder.add(root);
-				}
 			}
 			m.addedNodes.forEach((node) => {
 				if (!(node instanceof HTMLElement)) return;
@@ -284,11 +279,12 @@ export class ExplorerDecorator {
 				node
 					.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title")
 					.forEach((el) => this.decorate(el, s));
-				if (node.matches(".nav-folder-children")) toOrder.add(node);
-				node.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((el) => toOrder.add(el));
+				if (node.matches(".nav-folder-children") || node.querySelector(".nav-folder-children")) {
+					childrenInserted = true;
+				}
 			});
 		}
-		for (const cc of toOrder) this.reorderChildren(cc);
+		if (childrenInserted) this.redraw();
 		// Counts only — the targeted work above already decorated every touched
 		// row. A full decorateAll per mutation batch made scrolling the
 		// virtualized explorer (which churns childList constantly) drop frames.
@@ -313,15 +309,19 @@ export class ExplorerDecorator {
 	// ── decoration ─────────────────────────────────────────────────────────────
 
 	private decorateAll(): void {
-		this.decorateRendered();
+		this.decorateRendered(true);
 		void this.updateCounts();
 	}
 
-	/** Decoration + ordering over every RENDERED row, counts excluded — the
-	 * virtualized explorer only keeps the visible rows in the DOM, so this is
-	 * cheap, and the scroll-settle pass (scrollRedraw) uses it to re-stamp
-	 * recycled rows without re-reading the queue files. */
-	private decorateRendered(): void {
+	/** Decoration over every RENDERED row, counts excluded — the virtualized
+	 * explorer only keeps the visible rows in the DOM, so this is cheap, and
+	 * the scroll-settle pass (scrollRedraw) uses it to re-stamp recycled rows
+	 * without re-reading the queue files. Ordering MOVES rows, and a row moving
+	 * at scroll-settle reads as the list re-sorting under the finger — so the
+	 * moves run only when `order` is set (vault/metadata events and the
+	 * explicit redraw), never from scroll. Weight heat refreshes either way:
+	 * it is style-only, no node ever moves for it. */
+	private decorateRendered(order = false): void {
 		const s = this.plugin.settings;
 		for (const c of this.containers()) {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
@@ -331,9 +331,9 @@ export class ExplorerDecorator {
 			// in an unclassed div directly under .nav-files-container), then every
 			// folder's children. Idempotent: an ordered container moves nothing.
 			const root = this.rootItemsContainer(c);
-			if (root) this.reorderChildren(root);
+			if (root) this.reorderChildren(root, order);
 			c.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((cc) =>
-				this.reorderChildren(cc)
+				this.reorderChildren(cc, order)
 			);
 		}
 	}
@@ -465,6 +465,15 @@ export class ExplorerDecorator {
 		// frontmatter can change without a path swap.
 		const recycled = this.lastDecoratedPath.get(el) !== path;
 		this.lastDecoratedPath.set(el, path);
+		// Obsidian's own state classes ride a recycled element too — the active
+		// file's grey wash surfacing on an unrelated row and appearing to follow
+		// the scroll. Strip them whenever the recycled row is NOT the active
+		// file; Obsidian re-applies its own marks on a real selection or focus.
+		if (recycled && (el.classList.contains("is-active") || el.classList.contains("has-focus"))) {
+			if (path !== this.plugin.app.workspace.getActiveFile()?.path) {
+				el.classList.remove("is-active", "has-focus");
+			}
+		}
 		const isFolder = el.classList.contains("nav-folder-title");
 		const leaf = path.split("/").pop() ?? path;
 		const name = isFolder ? leaf : leaf.replace(/\.md$/i, "");
@@ -563,6 +572,16 @@ export class ExplorerDecorator {
 				: path !== s.userQueuePath && path !== s.machineQueuePath;
 		}
 		this.setAttr(el, "data-nkui-uncat", uncat ? "" : null);
+
+		// (b) empty = quiet — a 0-byte file or a childless folder is stamped so
+		// the stylesheet can render it dimmer and smaller (the sink treatment,
+		// keeping the type colour). Stamped fresh every pass, so the mark clears
+		// the moment content or a child arrives — and recycling can't carry it.
+		const af = this.plugin.app.vault.getAbstractFileByPath(path);
+		const empty = isFolder
+			? af instanceof TFolder && af.children.length === 0
+			: af instanceof TFile && af.stat.size === 0;
+		this.setAttr(el, "data-nkui-empty", empty ? "" : null);
 
 		// (c) type + (d) reviewed + (e) queue surface + (w) weight — files only
 		if (!isFolder) {
@@ -777,8 +796,12 @@ export class ExplorerDecorator {
 	 * Idempotent by fixed point: the desired sequence is computed first and a
 	 * node is moved only when out of place, so re-running on an ordered container
 	 * performs zero mutations and the MutationObserver converges.
+	 *
+	 * `moves: false` runs the style-only half (weight heat) and skips the DOM
+	 * moves — the scroll-settle pass uses it, because rows moving at settle read
+	 * as the list re-sorting under the finger.
 	 */
-	private reorderChildren(children: HTMLElement): void {
+	private reorderChildren(children: HTMLElement, moves = true): void {
 		const isItem = (n: Node | null): n is HTMLElement =>
 			n instanceof HTMLElement &&
 			(n.classList.contains("nav-folder") || n.classList.contains("nav-file"));
@@ -788,7 +811,7 @@ export class ExplorerDecorator {
 		// scaling against the heaviest sibling costs one metadataCache pass per
 		// folder instead of anything vault-wide. Runs regardless of float ordering.
 		this.applyWeightHeat(items);
-		if (!this.floatEnabled || items.length < 2) return;
+		if (!moves || !this.floatEnabled || items.length < 2) return;
 		// Root = any items container that is NOT a folder's .nav-folder-children
 		// (the unclassed root div), or the legacy mod-root wrapper's children.
 		const isRoot =
@@ -1008,6 +1031,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-sink");
 				el.removeAttribute("data-nkui-role");
 				el.removeAttribute("data-nkui-uncat");
+				el.removeAttribute("data-nkui-empty");
 				el.removeAttribute("data-nkui-weight");
 				el.style.removeProperty("--nkui-weight-heat");
 				const content = el.querySelector<HTMLElement>(

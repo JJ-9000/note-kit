@@ -498,6 +498,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
    like the section header it belongs to. PRESS AND HOLD to commit: a fill in the
    section colour sweeps left→right over the hold, and the candidate rows light up
    (the section's `is-arming`); release early and nothing happens. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   approve-all hold now lives on the section head itself via .nkui-row-hold;
+   no .nkui-now-approveall button is emitted). */
 .nkui-now-group-head .nkui-now-approveall {
 	position: relative;
 	isolation: isolate;
@@ -562,7 +565,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-group.is-arming > .nkui-now-group-head .nkui-now-group-title {
 	color: var(--nkui-section-color, var(--text-normal));
 }
-/* Only while the section is open — a collapsed section is just count + title. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands. */
 .nkui-now-group.is-collapsed .nkui-now-approveall {
 	display: none;
 }
@@ -792,9 +795,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	font-weight: var(--font-normal, 400);
 	line-height: 1.3;
 }
-/* Approved gate still waiting on the filing-agent: visibly not an open ask —
-   the whole row recedes (it no longer counts toward the section bubble), brightening
-   on hover so it stays reachable, with an italic note saying why it lingers. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (waiting
+   gates render as .nkui-now-waitgate reduced rows under the agent sub-heads;
+   no .nkui-now-row-waiting rows are emitted). */
 .nkui-now-row-waiting {
 	opacity: 0.5;
 }
@@ -810,6 +813,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	border-color: var(--text-faint);
 	color: var(--text-faint);
 }
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   per-row wait note is gone; the Waiting sub-head names the agent instead). */
 .nkui-now-waitnote {
 	font-size: var(--font-ui-smaller, 11px);
 	font-style: italic;
@@ -846,6 +851,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	display: inline-flex;
 	justify-content: flex-end;
 }
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   wait-note slot left the gate trio; only count + gate slots remain). */
 .nkui-now-waitslot {
 	display: inline-flex;
 	justify-content: flex-start;
@@ -898,8 +905,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	text-decoration: line-through;
 	color: var(--text-faint);
 }
-/* Long/short twins: desktop shows the full wait note; mobile shows the short
-   twin so the item text truncates instead of being pushed. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (no
+   wait-note twins are emitted anymore). */
 .nkui-now-waitnote-short {
 	display: none;
 }
@@ -1301,12 +1308,11 @@ body.is-mobile .workspace-tab-header:not(.is-active),
 body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
 	opacity: 1 !important;
 }
-/* A touch-reachable tap area on mobile without bloating the quiet text — only
-   shown when the section is open, so it never crowds a collapsed header. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   approve-all and un-approve buttons are gone; the row/head is the target). */
 body.is-mobile .nkui-now-approveall {
 	padding: 0.2em 0.45em;
 }
-/* "un-approve" is a touch target on mobile — give it a tap area. */
 body.is-mobile .nkui-now-unapprove {
 	padding: 0.25em 0;
 }
@@ -1317,9 +1323,8 @@ body.is-mobile .nkui-now-qaddinput {
 	overflow-wrap: anywhere;
 	text-overflow: clip;
 }
-/* The awaiting-filing row stays on ONE line on mobile: the title truncates
-   with an ellipsis and the wait note renders as its short twin ("filing
-   agent"), trailing off if space still runs out. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (no
+   .nkui-now-row-waiting rows and no wait-note twins are emitted anymore). */
 body.is-mobile .nkui-now-row-waiting .nkui-now-rowtitle {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -1414,14 +1419,14 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	padding-inline-end: 0.18em;
 	padding-block-end: 0.12em;
 }
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   inline "awaiting filing" text is gone; the Waiting sub-head names the agent). */
 .nkui-now-waittext {
 	flex: 0 0 auto; /* never shrink — "awaiting filing" always shows in full */
 	color: var(--text-muted);
 }
-/* un-approve — same pressable language as "edit?" / "approve all?" (small italic,
-   underline on hover), in the action accent. The min-width reserves room for the
-   widest variant ("undo +N") so a gated row's wider label doesn't displace the
-   column the plain "undo" rows share. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (holding
+   the waiting row itself is the undo; no .nkui-now-unapprove is emitted). */
 .nkui-now-unapprove {
 	color: var(--text-accent, var(--interactive-accent));
 	font-style: italic;
@@ -1471,10 +1476,8 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	text-align: center;
 	color: var(--text-on-accent, #fff);
 }
-/* The expanded-only "approve all?" affordance now sits ON the coloured band —
-   on-accent text keeps it readable; its rest opacity keeps it quiet. Its hold
-   fill sweeps in the same on-accent tone, stepped up: white at 22% vanished
-   into the solid band. */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   head-band fill twin lives in the .nkui-row-hold block below). */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall {
 	color: var(--text-on-accent, #fff);
 }
@@ -1706,7 +1709,9 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 }
 
 /* ── 0.4.43 — gate hold-to-approve · one-line waiting · animations ──────────── */
-/* "approve gate +N" — press-and-hold, the same fill animation as "approve all?". */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the gate
+   approve hold moved onto the row itself; no .nkui-now-gateapprove is emitted).
+   The whole block through .nkui-now-gateapprove.is-holding::before is dead. */
 .nkui-now-gateapprove {
 	position: relative;
 	isolation: isolate;
@@ -1742,9 +1747,11 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	transition: transform var(--nkui-hold) linear;
 }
 
-/* Pressable button texts (approve all, +N gated / approve, undo, draft) read a stop
-   fainter at rest — less opaque, so they recede until you reach for them — and go
-   full on hover or while arming. One treatment across all of them. */
+/* Quiet pill texts (+N gated, draft) read a stop fainter at rest — less opaque,
+   so they recede until the section arms — and go full while arming.
+   PARTLY DEAD after whole-row hold — integrator: once Stream A lands, the
+   .nkui-now-approveall / .nkui-now-gateapprove / .nkui-now-unapprove selectors
+   here are dead; .nkui-now-gatepill and .nkui-now-draftpill stay live. */
 .nkui-now-approveall,
 .nkui-now-gatepill,
 .nkui-now-gateapprove,
@@ -1780,6 +1787,8 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 body:not(.nkui-anim) .nkui-now-foldwrap {
 	transition: none !important;
 }
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
+   snap twin for the row fill lives in the .nkui-row-hold block below). */
 body:not(.nkui-anim) .nkui-now-approveall.is-holding::before,
 body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	transition: none !important;
@@ -2179,10 +2188,22 @@ body.nkui-type-tint .nkui-now-waitgate .nkui-now-reducedtitle {
    once down the tree). :has() is supported by Obsidian's Chromium. */
 .nav-folder-title[data-nkui-sink] {
 	opacity: 0.55;
+	/* The size step joins the dim: 30% smaller (0.7em), title row and subtree
+	   alike, so cold storage reads at archive scale, not live-work scale. */
+	font-size: 0.7em;
 }
 .nav-folder:has(> .nav-folder-title[data-nkui-sink]) > .nav-folder-children {
 	opacity: 0.55;
-	font-size: 0.95em;
+	font-size: 0.7em;
+}
+/* EMPTY — a 0-byte file or a childless folder (data-nkui-empty, stamped fresh
+   each pass by the decorator): the sink treatment — dimmer and the same size
+   step down — but its TYPE colour stays (opacity dims hue-true; the dot and
+   tinted name keep their kind). */
+.nav-file-title[data-nkui-empty],
+.nav-folder-title[data-nkui-empty] {
+	opacity: 0.55;
+	font-size: 0.7em;
 }
 /* UNCATEGORISED — the middle diminish: present, quieter than live work, louder
    than a sink. */
@@ -2411,27 +2432,51 @@ body.nkui-solid-icons .lucide-sun {
 body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
 	max-width: none;
 	margin-inline: 0;
-	padding-inline: 0;
+	padding-inline: 0 !important;
+}
+/* The container alone was not enough on device: Obsidian's MOBILE stylesheet
+   insets the rest of the chain — the view content and the wrappers between
+   container and row carry inline padding, and every title row carries its own
+   margin-inline + rounded band. Zero the whole chain so a highlight band meets
+   BOTH screen edges. Text keeps its gutter: the per-row inline padding (and
+   the tree indent, which Obsidian writes per row as inline padding-inline-
+   start) survives untouched — only the band-narrowing margins go. */
+body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .view-content,
+body.is-mobile .nav-files-container > div {
+	max-width: none;
+	margin-inline: 0 !important;
+	padding-inline: 0 !important;
+}
+body.is-mobile .nav-file-title,
+body.is-mobile .nav-folder-title {
+	margin-inline: 0 !important;
+	border-radius: var(--nkui-radius) !important;
 }
 
-/* ── For You on a phone: a deliberately centered column, vertically too ───────
-   Inline: a narrower cap than the desktop 760px (88% of the pane, never more
-   than 480px), so the column reads as placed, not full-bleed. Block: the scroll
-   pane becomes a flex column with two equal flexible spacers (the ::before /
-   ::after pseudo flex items). While the content is shorter than the screen the
-   spacers share the slack and a short queue sits at the viewport's vertical
-   centre — within thumb reach; as content grows they shrink continuously to
-   zero, so the page anchors to the top with no jump once it spans the screen. */
+/* ── For You on a phone: full-bleed inline, centered block ────────────────────
+   Inline: edge to edge — the page drops its inline padding, the children drop
+   the column cap, and every band (rows, children, sub-rows, section heads)
+   runs the same full width from screen edge to screen edge; the text gutter
+   lives in the rows' own inline padding (rules in the full-bleed section
+   below). Block: the scroll pane becomes a flex column with two equal flexible
+   spacers (the ::before / ::after pseudo flex items). While the content is
+   shorter than the screen the spacers share the slack and a short queue sits
+   at the viewport's vertical centre — within thumb reach; as content grows
+   they shrink continuously to zero, so the page anchors to the top with no
+   jump once it spans the screen. */
 body.is-mobile .nkui-now {
 	display: flex;
 	flex-direction: column;
+	padding-inline: 0;
+	/* The desktop scrollbar gutter is an inset here — iOS scrollbars overlay. */
+	scrollbar-gutter: auto;
 }
 /* The unlock scrim is exempt: it must cover the FULL pane (a capped absolute
    box would drop right:0 and leave an edge strip of live queue tappable). */
 body.is-mobile .nkui-now > *:not(.nkui-queue-lock) {
 	flex: 0 0 auto;
 	width: 100%;
-	max-width: min(480px, 88%);
+	max-width: none;
 }
 body.is-mobile .nkui-now::before,
 body.is-mobile .nkui-now::after {
@@ -2491,11 +2536,11 @@ body.is-mobile .metadata-property-value .multi-select-input {
 }
 
 /* ── Mobile hold affordance — arming must be unmistakable under a thumb ───────
-   Touch has no hover: while a hold is arming, the fill doubles its contrast and
-   the control steps brighter and a hair larger, one treatment on every hold
-   (approve gate, approve all, undo — all carry one of these two classes). The
-   fill's sweep IS the progress readout; these rules make it legible in
-   daylight. The close-offer's depleting fill takes the same stronger contrast. */
+   Touch has no hover: while a hold is arming, the fill doubles its contrast.
+   The close-offer's depleting fill takes the same stronger contrast.
+   The first two rules are DEAD after whole-row hold — integrator: remove once
+   Stream A lands (mobile contrast for the row fill lives in the .nkui-row-hold
+   block below; the close-offer rule stays live). */
 body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding {
 	opacity: 1;
 	filter: brightness(1.12);
@@ -2605,10 +2650,9 @@ body:not(.nkui-anim) .nkui-queue-lock-btn.is-holding::before {
 	transition: none !important;
 }
 
-/* ── Shy undo (mobile) — the undo control on a waiting row is invisible and
-   inert until the row has been tapped once, so a thumb grazing the action
-   column can't arm an accidental undo. Once revealed, the shared pressable
-   styles govern untouched. ──────────────────────────────────────────────────── */
+/* DEAD after whole-row hold — integrator: remove once Stream A lands (no
+   .nkui-now-unapprove control and no shy-undo classes are emitted; the
+   waiting row holds to undo). */
 body.is-mobile .nkui-undo-shy:not(.is-undo-revealed) .nkui-now-unapprove {
 	opacity: 0;
 	pointer-events: none;
@@ -2629,4 +2673,276 @@ body.is-mobile .nkui-queue-lock-btn.is-holding::before {
 }
 body.is-mobile .nkui-now-qadd:focus-within .nkui-now-qadddone {
 	display: inline-flex;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Full-bleed wave — edge-to-edge mobile · symmetric centring · whole-row holds ·
+   rounded mode · minimalist mode · thin-pane labels
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── For You rows run edge to edge on a phone ─────────────────────────────────
+   The page's inline padding is gone (flex-column block above), so the rows'
+   -0.5em outdent has nothing to eat — it dies, and the text gutter moves INTO
+   the row's own padding. Every band — section heads, rows, queue rows, option
+   rows, reduced rows, decisions, gate members — is the same full width as its
+   peers: no sub-width children, no width steps; indentation stays a text
+   affair (padding), never a band affair (margins). */
+body.is-mobile .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
+	margin-inline: 0;
+	padding-right: var(--nkui-gap-m);
+}
+/* Section heads: the -0.5em margin trick reaches the edges via margin 0 above;
+   the head's text gutter steps up to the shared 16px so the band never reads
+   tight against the bezel. */
+body.is-mobile .nkui-now-group-head {
+	padding-inline: var(--nkui-gap-m);
+}
+/* The flush count pill still eats its way to the band's — now the screen's —
+   left edge (the negative margin mirrors the head's new padding token). */
+body.is-mobile .nkui-now-group-head .nkui-now-count {
+	margin-left: calc(-1 * var(--nkui-gap-m));
+}
+/* Rows nested INSIDE a decision card sit in the card's 1.55em text indent —
+   out-dent their bands back to the screen edges and repay the text indent as
+   padding, so an option row's hover band matches every peer's width. */
+body.is-mobile .nkui-now-decision :is(.nkui-now-optrow, .nkui-now-needsread, .nkui-now-qadd) {
+	margin-left: -1.55em;
+	margin-right: calc(-1 * var(--nkui-gap-m));
+	padding-left: 1.55em;
+	padding-right: var(--nkui-gap-m);
+}
+/* Bandless furniture keeps a plain text gutter of its own. */
+body.is-mobile :is(.nkui-now-head, .nkui-now-empty) {
+	padding-inline: var(--nkui-gap-m);
+}
+
+/* ── Gate-trio slots shrink instead of clipping (mobile) ──────────────────────
+   The action cell's track may not exceed the row (minmax caps it at the free
+   space), the trio itself may shrink, and every slot ellipsises its text —
+   nothing pushes past the row edge on a narrow screen. */
+body.is-mobile .nkui-now-colgrid {
+	grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+}
+body.is-mobile .nkui-now-rowset {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+body.is-mobile :is(.nkui-now-waitslot, .nkui-now-gateslot, .nkui-now-countslot) {
+	min-width: 0;
+	overflow: hidden;
+}
+body.is-mobile :is(.nkui-now-waitslot, .nkui-now-gateslot, .nkui-now-countslot) > * {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+/* The waitgate's meta cell IS the fate note — the mobile column-stack made the
+   cell a flex box, and raw text in a flex box can't ellipsise; block restores
+   the trailing-off note. */
+body.is-mobile .nkui-now-waitgate.nkui-cols > .nkui-col-meta.nkui-now-fatenote {
+	display: block;
+	min-width: 0;
+}
+body.is-mobile .nkui-now-fatenote {
+	min-width: 0;
+}
+
+/* ── Symmetric mobile centring — short content centres in the VISIBLE glass ──
+   The all-platform bottom safety zone above (3em + navbar + 44px) made the
+   padded box far deeper than what the navbar actually covers, so the flex
+   spacers centred content visibly high. Mobile: a modest SYMMETRIC block step,
+   with the navbar + safe-area clearance moved into the ::after spacer as a
+   min-height — short content centres between equal spacers; long content still
+   scrolls clear of the navbar because the bottom spacer never collapses below
+   the clearance. */
+body.is-mobile .workspace-leaf-content .view-content.nkui-now {
+	padding-block: var(--nkui-gap-l);
+}
+body.is-mobile .nkui-now::after {
+	min-height: calc(max(var(--safe-area-inset-bottom, 0px), var(--nkui-gap-m)) + var(--mobile-navbar-height, 0px));
+}
+/* The spacers' size comes from flex distribution, not a property change, so a
+   fold's re-centre can't be transitioned in CSS — needs JS (pin the spacers'
+   measured heights across the fold and release them on --nkui-unroll). */
+
+/* ── One clock on the fold (mobile) — while a section is folding closed, no
+   child runs its own opacity fade beside the wrapper's --nkui-unroll veil;
+   height and veil read as a single motion. (The gate-member peek already
+   shares the one-clock contract — grid rows + opacity on --nkui-unroll.) ───── */
+body.is-mobile .nkui-now-group.is-collapsed .nkui-now-foldwrap :is(.nkui-now-decision, .nkui-now-reducedrow, .nkui-now-gatepill, .nkui-now-draftpill) {
+	transition: none;
+}
+
+/* ── Whole-row holds — the row IS the control (nkui-row-hold, stamped by the
+   view on approvable rows, waiting rows, and holdable section heads). The hold
+   fill sweeps the FULL band, left to right over --nkui-hold, in the row's own
+   colour (type colour where stamped, section colour on heads, current ink as
+   the floor). pan-y keeps the page scrollable from a row: a scrolling thumb
+   cancels the hold (pointercancel), a still thumb commits it. ──────────────── */
+.nkui-row-hold {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	cursor: pointer;
+	touch-action: pan-y;
+	user-select: none;
+	-webkit-user-select: none;
+}
+.nkui-row-hold::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background: var(--nkui-row-color, var(--nkui-section-color, currentColor));
+	opacity: 0.22;
+	transform: scaleX(0);
+	transform-origin: left center;
+}
+.nkui-row-hold.is-holding::before {
+	transform: scaleX(1);
+	transition: transform var(--nkui-hold) linear;
+}
+/* Animations off → the fill snaps, like every other hold. */
+body:not(.nkui-anim) .nkui-row-hold.is-holding::before {
+	transition: none !important;
+}
+/* An OPEN coloured head band is already solid section colour — its fill sweeps
+   in on-accent ink instead, stepped up so it reads on the solid band. */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head.nkui-row-hold::before {
+	background: currentColor;
+	opacity: 0.35;
+}
+/* Mobile contrast steps — arming must be unmistakable under a thumb. */
+body.is-mobile .nkui-row-hold.is-holding {
+	filter: brightness(1.08);
+}
+body.is-mobile .nkui-row-hold.is-holding::before {
+	opacity: 0.4;
+}
+body.is-mobile .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head.nkui-row-hold.is-holding::before {
+	opacity: 0.5;
+}
+
+/* Waiting sub-group headers — the containercap language: small, quiet, muted,
+   naming the agent its rows wait on, once, instead of a note on every row. */
+.nkui-now-subhead {
+	padding-left: 1.55em;
+	margin-top: var(--nkui-gap-2xs);
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--text-muted);
+}
+
+/* ── Rounded mode (body.nkui-rounded) — one token flip re-rounds every plugin
+   surface: rows, heads, pills, badges, inputs, hold fills (border-radius:
+   inherit follows along). The audit below adds inline breathing room to the
+   TIGHT boxes so no digit or glyph sits inside the 10px corner curve. ──────── */
+body.nkui-rounded {
+	--nkui-radius: 10px;
+}
+body.nkui-rounded .nkui-now-count {
+	padding-inline: 0.7em;
+}
+body.nkui-rounded .nkui-inbox-count {
+	padding: 0 var(--nkui-gap-s);
+}
+body.nkui-rounded .nkui-weight-badge {
+	padding-inline: 0.55em;
+}
+body.nkui-rounded .nkui-close-offer {
+	padding-inline: 0.75em;
+}
+body.nkui-rounded .nkui-now-ackbtn {
+	padding-inline: 0.9em;
+}
+
+/* ── Minimalist mode (body.nkui-minimal) — app chrome steps out of the way;
+   the SETTINGS PATH always stays visible (the gear is the exit). Conservative
+   scope: the main-area tab strip hides, but the icon-only sidebar tab headers
+   stay (hiding them strands the Files/Search switcher — the lost-file-view
+   lesson in css.ts); the mobile view-header stays (it carries the drawer
+   buttons that reach settings). ─────────────────────────────────────────────── */
+body.nkui-minimal .mod-root .workspace-tab-header-container {
+	display: none !important;
+}
+/* Ribbon actions hide EXCEPT anything carrying the settings gear. */
+body.nkui-minimal .workspace-ribbon .side-dock-ribbon-action:not(:has(.lucide-settings)) {
+	display: none !important;
+}
+/* Desktop view-header (title bar) hides; mobile keeps its header (drawer
+   access — see the scope note above). */
+body.nkui-minimal:not(.is-mobile) .mod-root .view-header {
+	display: none !important;
+}
+/* Mobile navbar: only the settings action stays. */
+body.nkui-minimal.is-mobile .mobile-navbar-action:not(:has(.lucide-settings)) {
+	display: none !important;
+}
+/* Quiet text furniture leaves with the chrome. */
+body.nkui-minimal .nkui-now-version,
+body.nkui-minimal .nkui-queue-explain {
+	display: none !important;
+}
+/* Speed: the motion table at ×0.7 — re-declared literals (a calc() on the same
+   custom property is a cycle). --nkui-hold / --nkui-count are NOT scaled: their
+   JS twins (holds.ts) would desync from the fill. Base values in :root. */
+body.nkui-minimal {
+	--nkui-fade: 84ms; /* 120 ×0.7 */
+	--nkui-arm: 70ms; /* 100 ×0.7 */
+	--nkui-settle: 119ms; /* 170 ×0.7 */
+	--nkui-row-ms: 15ms; /* 22 ×0.7 */
+	--nkui-unroll-min: 67ms; /* 96 ×0.7 */
+	--nkui-unroll-max: 235ms; /* 336 ×0.7 */
+}
+
+/* ── Settings on a phone — the colour grid and add-type row at hand scale ──── */
+body.is-mobile .nkui-type-grid {
+	grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+	gap: var(--nkui-gap-2xs) var(--nkui-gap-s);
+}
+body.is-mobile .nkui-type-grid-swatch {
+	width: 18px;
+	height: 18px;
+}
+/* The add-type row's text box + button drop to a tidy 32px control height
+   (Obsidian mobile's default input height reads chunky beside the grid). */
+body.is-mobile .nkui-compact-row.setting-item {
+	--input-height: 32px;
+	padding: 2px 0;
+}
+body.is-mobile .nkui-compact-row .setting-item-control button {
+	min-height: 32px;
+	padding: 0 0.8em;
+	font-size: var(--font-ui-small, 13px);
+}
+/* A row whose control carries BOTH a toggle and a button (Match the graph
+   view, the CONFIG sync row) gets squashed by its control on a phone — stack
+   it: info on top, controls beneath. Scoped to this plugin's tab via the
+   version stamp in its header (a TS marker class on the Setting would be the
+   cleaner hook — see the integrator note). */
+body.is-mobile div:has(> .setting-item .nkui-settings-version) .setting-item:has(.setting-item-control .checkbox-container):has(.setting-item-control button) {
+	flex-direction: column;
+	align-items: stretch;
+	gap: var(--nkui-gap-s);
+}
+body.is-mobile div:has(> .setting-item .nkui-settings-version) .setting-item:has(.setting-item-control .checkbox-container):has(.setting-item-control button) .setting-item-control {
+	justify-content: flex-start;
+	flex-wrap: wrap;
+}
+
+/* ── Thin desktop pane — the explorer answers to its own width, not the OS:
+   under a narrow pane the weight badge switches long→short exactly like
+   mobile. inline-size containment only (block size stays content-driven, so
+   the folder collapse height math is untouched). ────────────────────────────── */
+.workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
+	container-type: inline-size;
+	container-name: nkui-explorer;
+}
+@container nkui-explorer (max-width: 260px) {
+	.nkui-weight-badge-long {
+		display: none;
+	}
+	.nkui-weight-badge-short {
+		display: inline;
+	}
 }

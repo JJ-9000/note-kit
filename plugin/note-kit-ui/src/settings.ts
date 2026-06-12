@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type NoteKitUiPlugin from "./main";
 
 /** One note-type rule (feature c). `type` matches the frontmatter `type` value. */
@@ -78,6 +78,17 @@ export interface NoteKitUiSettings {
 	holdMs: number;
 	/** Replace Obsidian's outline control icons with minimal solid shapes. */
 	solidIcons: boolean;
+	/** Explorer: render the inbox/outbox rows — the kit's working mouths, where
+	 * draft and queue types flow — larger than ordinary rows (body class
+	 * nkui-large-mouths; the stylesheet carries the look). */
+	largeMouths: boolean;
+	/** Round the kit's corners — pills, badges, washes, buttons — to match
+	 * iOS/native menus (body class nkui-rounded). Off = the kit's sharp default. */
+	roundedCorners: boolean;
+	/** Hide the app chrome — tab bar, ribbons, nav buttons, version stamps,
+	 * explainer text — leaving the notes (body class nkui-minimal). The settings
+	 * path stays visible, so the mode is always exitable. */
+	minimalistMode: boolean;
 }
 
 /** Defaults seeded from the kit's CONFIG vocabulary (types, inbox path). */
@@ -146,6 +157,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	paletteMigrated: false,
 	holdMs: 395,
 	solidIcons: true,
+	largeMouths: false,
+	roundedCorners: false,
+	minimalistMode: false,
 };
 
 /** Sanitize a type value into a CSS class suffix. Shared by css + noteClass. */
@@ -275,6 +289,31 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				t.setValue(s.calmReading).onChange(async (v) => {
 					s.calmReading = v;
 					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Rounded corners")
+			.setDesc(
+				"Round the kit's corners — pills, badges, washes, buttons — to match iOS and native menus. Off keeps the kit's sharp default."
+			)
+			.addToggle((t) =>
+				t.setValue(s.roundedCorners).onChange(async (v) => {
+					s.roundedCorners = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Minimalist mode")
+			.setDesc(
+				"Hide the app chrome — tab bar, ribbons, nav buttons, version stamps, explainer text — leaving the notes. The settings gear stays, so this screen is always reachable to exit."
+			)
+			.addToggle((t) =>
+				t.setValue(s.minimalistMode).onChange(async (v) => {
+					s.minimalistMode = v;
+					await save();
+					if (v) new Notice("Minimalist mode on — Settings → Note-Kit UI to exit");
 				})
 			);
 
@@ -548,6 +587,18 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.sortByWeight).onChange(async (v) => {
 					s.sortByWeight = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Large inbox/outbox rows")
+			.setDesc(
+				"Render the inbox and outbox — the working mouths where draft and queue types flow — as larger explorer rows, so the folders you act on lead the eye."
+			)
+			.addToggle((t) =>
+				t.setValue(s.largeMouths).onChange(async (v) => {
+					s.largeMouths = v;
 					await save();
 				})
 			);

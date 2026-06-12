@@ -137,7 +137,10 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 
 ## First session — fit the kit to you
 
-Run one setup session before any real work. Open Claude Code and paste this:
+> [!IMPORTANT]
+> **Open Claude Code in your vault root — not the note-kit folder.** Set your vault directory as the project when you launch Claude Code (desktop app: *New Project → Open Folder*; CLI: `claude` from inside the vault). This loads `CLAUDE.md`, the hooks, `.mcp.json`, and all the skills. Every session from here on opens there. Opening anywhere else means none of those fire.
+
+Run one setup session before any real work. Open Claude Code in the vault root and paste this:
 
 > Read README.md and .claude/CONFIG.md and ask a few questions to help the user set up their note-kit:
 >
@@ -290,6 +293,7 @@ This refreshes the kit's *code* — `scripts/`, `skills/`, `scheduled-tasks/`, `
 
 If...
 
+- **Skills, hooks, or the `vault` search tool aren't available:** Claude Code is probably open in the wrong folder. The skills, hooks, `CLAUDE.md`, and `.mcp.json` only load when Claude Code is opened with the **vault root** as its project directory — not the note-kit source folder, not a subfolder. Close and reopen with the vault folder selected as the project.
 - **`python` is not recognized** (Windows): Python wasn't added to PATH. Re-run the Python installer, choose Modify, and tick "Add python.exe to PATH" — or use `py` instead of `python` in every command.
 - **The search daemon won't start, or the `vault` tool errors:** check it with `python .claude/vault-search/daemonctl.py status` from the vault folder. The most common cause is another vault on the same machine already holding port 8765 — change `port:` in `.claude/vault-search/config.yaml`, then update the same number in `.mcp.json` and `.claude/hooks/session-start-context.py`.
 - **First search of the day is slow:** that's the on-demand start warming up (and on day one, the ~90 MB model download). After that, queries are quick.

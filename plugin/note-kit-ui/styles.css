@@ -313,21 +313,30 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 /* ── (d) live pill on the inbox folder row — total USER actions needed ──────────
    A filled pill (the one badge that earns it): the sum of what the user must act
    on — unreviewed drafts + open user-queue decisions. The queue FILES get plain
-   numbers (no pill) instead; the pill is reserved for this roll-up. */
+   numbers (no pill) instead; the pill is reserved for this roll-up.
+
+   FLUSH with the highlight row, like the For You head pills: the pill anchors
+   absolutely to the row's block edges (inset-block: 0 reaches through the row
+   padding on any platform), and that now-definite height transfers into width
+   via aspect-ratio — a square that meets the band exactly, widening only when
+   a long count's content forces it. The row reserves the square's width so a
+   long name ellipsizes instead of running underneath. */
+.nav-folder-title:has(> .nkui-inbox-count) {
+	position: relative;
+	padding-right: calc(2.6em + var(--size-4-2, 8px));
+}
 .nkui-inbox-count {
-	margin-left: auto;
-	flex: 0 0 auto;
-	align-self: center;
+	position: absolute;
+	inset-block: 0;
+	right: 0;
+	height: auto;
+	aspect-ratio: 1 / 1;
 	/* inline-flex centring (not line-height/text-align) so the number sits dead
 	   centre in the pill. */
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	/* Square below 3 digits: min-width equals the height (em so it scales);
-	   wider counts grow with the constant inline padding preserved. */
 	box-sizing: border-box;
-	min-width: 1.6em;
-	height: 1.6em;
 	padding: 0 6px;
 	border-radius: var(--nkui-radius);
 	background: var(--nkui-draft-color);
@@ -425,8 +434,12 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	gap: var(--nkui-gap-s);
 	/* Same inset as the rows beneath (-0.5em), so the head's wash band and a
 	   row's wash band are the SAME width and stack with no step — connected
-	   highlights read as one surface. */
-	padding: 0.25em 0.5em;
+	   highlights read as one surface. Block padding is the fixed-pixel token —
+	   the flush children (count pill, approve-all) eat it back with the SAME
+	   token, so their boxes meet the band edges regardless of font size (an em
+	   here resolved against the head's font, an em there against the child's,
+	   and the mismatch left a hairline gap). */
+	padding: var(--nkui-gap-2xs, 4px) 0.5em;
 	margin-inline: -0.5em;
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
@@ -441,7 +454,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-group-head .nkui-now-count {
 	align-self: stretch;
 	height: auto;
-	margin-block: -0.25em;
+	margin-block: calc(-1 * var(--nkui-gap-2xs, 4px));
 	margin-left: -0.5em;
 	padding-inline: 0.6em;
 }
@@ -471,9 +484,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   negative block margin eats the band padding, the label centres in its own
 	   evenly-padded box — the hold fill sweeps the full band height. */
 	align-self: stretch;
+	/* It's a <button>: the theme's fixed input height beats stretch — clear it. */
+	height: auto;
 	display: inline-flex;
 	align-items: center;
-	margin-block: -0.25em;
+	margin-block: calc(-1 * var(--nkui-gap-2xs, 4px));
 	padding: 0 0.6em;
 	border: none;
 	border-radius: var(--nkui-radius);
@@ -502,9 +517,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	transform: scaleX(0);
 	transform-origin: left center;
 }
-.nkui-now-group-head .nkui-now-approveall.is-holding {
-	font-weight: var(--font-semibold, 600);
-}
+/* No weight change while holding — bolding widens the label, which shifts the
+   centred title and reads as a layout snap; the sweeping fill and full opacity
+   are the arming signal. */
 .nkui-now-group-head .nkui-now-approveall.is-holding::before {
 	transform: scaleX(1);
 	transition: transform var(--nkui-hold) linear;
@@ -1402,20 +1417,39 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	color: color-mix(in srgb, var(--text-accent, var(--interactive-accent)) 60%, var(--text-normal));
 }
 
-/* ── Open-section emphasis — an unfolded, non-empty section colours its title
-   with its section colour (the pill colour, or the theme heading colour when the
-   theme palette is on; set inline as --nkui-section-color). Collapsed stays
-   neutral, so unfolding is visible feedback. Queue surfaces keep their own. ──── */
-/* An open dropdown title takes the FULL section/pill colour (the rows below stay a
-   stop lighter); collapsed it reads neutral, so unfolding is visible feedback. */
-.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head .nkui-now-group-title {
-	color: var(--nkui-section-color, var(--text-normal));
+/* ── Open-section emphasis — an unfolded, non-empty section wears its tone:
+   the WHOLE head band takes the pill's colour (the pill melts into the band —
+   same tone, flush box; the count digit stays readable in on-accent text) and
+   the title centres in the band, in on-accent text. Collapsed stays neutral,
+   so unfolding is visible feedback. Hover brightens instead of washing, since
+   the band already carries colour. ──────────────────────────────────────────── */
+/* Waiting stays out: it is the deliberately neutral, low-key section (its
+   section colour falls back to the accent, which would shout). */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head {
+	background: var(--nkui-section-color, var(--interactive-accent));
+	color: var(--text-on-accent, #fff);
 }
-/* An open dropdown's HEADER takes a faint wash of its section colour too (like the
-   explorer's open-folder / selected-file highlight), so the open section reads as
-   the exposed one. */
-body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) > .nkui-now-group-head {
-	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 10%, transparent);
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
+	background: var(--nkui-section-color, var(--interactive-accent));
+	filter: brightness(1.08);
+}
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-group-title {
+	flex: 1 1 auto;
+	text-align: center;
+	color: var(--text-on-accent, #fff);
+}
+/* The expanded-only "approve all?" affordance now sits ON the coloured band —
+   on-accent text keeps it readable; its rest opacity keeps it quiet. Its hold
+   fill sweeps in the same on-accent tone, stepped up: white at 22% vanished
+   into the solid band. */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall {
+	color: var(--text-on-accent, #fff);
+}
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall::before {
+	opacity: 0.35;
+}
+body.is-mobile .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall.is-holding::before {
+	opacity: 0.5;
 }
 /* …and its CHILD rows carry a LIGHTER wash of the same colour at rest (folder →
    child tonal step: the header keeps its 10%, children sit at ~6%), so the open

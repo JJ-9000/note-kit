@@ -300,9 +300,10 @@ export class NowView extends ItemView {
 		if (active.length) {
 			c.createDiv("nkui-now-divider");
 			const stamps = active.map((e) => e.activity ?? e.file.stat.mtime);
-			// The Active header takes the colour of the most-recently-active item (the
-			// freshest project/area, which sorts to the top): red for a project, orange
-			// for an area, etc. — its count pill and open-emphasis follow.
+			// The Active header takes the colour of the top item — under the
+			// type-major order that's the freshest entry of the first CONFIG
+			// type (a project, when any is active) — its count pill and
+			// open-emphasis follow.
 			const activeColor = active[0].type ? this.colorFor(active[0].type) : null;
 			this.renderBucket(
 				c,
@@ -1349,7 +1350,10 @@ export class NowView extends ItemView {
 	}
 
 	private groupOrder(keys: string[]): string[] {
-		const idx = new Map(this.plugin.typeStyles().map((t, i) => [t.type, i]));
+		// CONFIG § Types row order is THE type order — the same order the
+		// explorer floats files by — so the For You sections and the file pane
+		// never disagree. The palette list is the CONFIG-less fallback.
+		const idx = this.configTypeIndex();
 		const rank = (k: string): number => {
 			const i = idx.get(k);
 			if (i !== undefined) return i;
@@ -1358,6 +1362,14 @@ export class NowView extends ItemView {
 			return 9001;
 		};
 		return keys.sort((a, b) => rank(a) - rank(b));
+	}
+
+	/** type → CONFIG § Types row index (palette order when CONFIG is absent). */
+	private configTypeIndex(): Map<string, number> {
+		const types = this.plugin.kitFacts?.types?.length
+			? this.plugin.kitFacts.types
+			: this.plugin.typeStyles().map((t) => t.type);
+		return new Map(types.map((t, i) => [t, i]));
 	}
 
 	// ── collapse state (persisted) ─────────────────────────────────────────────
@@ -1543,9 +1555,15 @@ export class NowView extends ItemView {
 		const byMtime = (a: Entry, b: Entry) => b.file.stat.mtime - a.file.stat.mtime;
 		const byActivity = (a: Entry, b: Entry) =>
 			(b.activity ?? b.file.stat.mtime) - (a.activity ?? a.file.stat.mtime);
+		// Mixed-type lists sort type-major in CONFIG § Types row order (the
+		// same order the explorer floats by and the sections stack in), recency
+		// within a type — so every surface tells one ordering story. Needs-you
+		// is grouped per type already; recency alone orders inside a section.
+		const typeIdx = this.configTypeIndex();
+		const typeRank = (e: Entry) => (e.type ? typeIdx.get(e.type) ?? 900 : 900);
 		needs.sort(byMtime);
-		waiting.sort(byMtime);
-		active.sort(byActivity);
+		waiting.sort((a, b) => typeRank(a) - typeRank(b) || byMtime(a, b));
+		active.sort((a, b) => typeRank(a) - typeRank(b) || byActivity(a, b));
 		return { needs, active, waiting };
 	}
 

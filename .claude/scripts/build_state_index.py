@@ -31,6 +31,15 @@ Open findings emitted here (snapshot-derivable, deterministic detections):
   - `type-resolution` — a `type:` value that does not normalize to a canonical
     type.
   - `parent-missing`  — a typed note that requires an uplink but carries none.
+  - `duplicate-asset` — a loose (un-contained) non-md asset whose identical
+    bytes appear at >1 path under one owning root (project/area/domain/snippets);
+    pure redundancy. Asset folders (git/.hg/.svn, .keep-whole) are pruned from
+    the walk, and `complete` (deployed) projects are skipped. Janitor archives
+    the redundant copies, keeping the 02-Assets canonical.
+  - `diverged-asset` — the same loose-asset filename carrying DIFFERENT content
+    at >1 path under one owning root; a version ambiguity. The janitor picks the
+    canonical copy (version token, date, or date of related use in a plan/log)
+    and archives the rest, queueing only a genuine scope fork.
 
 A caller (audit.py) may hand additional, run-scoped findings to fold into the
 same ## Open findings section via --findings, so the snapshot stays the one
@@ -98,6 +107,7 @@ from config_variables import (
     normalize_tag,
 )
 from normalize_type import normalize_type
+from wikilink_helpers import extract_wikilinks
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -144,6 +154,17 @@ def main() -> None:
 
     INBOX_FOLDER = _folder_by_semantic("inbox")    # e.g. "00-Inbox"
     ARCHIVE_FOLDER = _folder_by_semantic("archive")  # e.g. "99-Archive"
+
+    def _semantic_or(needle: str, fallback: str) -> str:
+        try:
+            return _folder_by_semantic(needle)
+        except Exception:
+            return fallback
+
+    PROJECTS_FOLDER = _semantic_or("projects", "01-Projects")
+    AREAS_FOLDER = _semantic_or("areas", "02-Areas")
+    REFERENCE_FOLDER = _semantic_or("reference", "03-Reference")
+    SNIPPETS_FOLDER = _semantic_or("snippets", "04-Snippets")
 
     # ---------------------------------------------------------------------------
     # Output paths — canonical 99-Logs root (NOT under an agent folder)
@@ -637,7 +658,20 @@ def main() -> None:
 
             # Record the absolute path and outbound links alongside the frontmatter
             # so the open-findings detections (reviewed-stale) can stat linked files.
-            fm_records.append({"rel_path": rel, "abspath": path, "fm": fm, "links": links})
+            # `links` (above) is the raw extractor for the legacy graph metrics;
+            # `helper_links` uses the kit's fenced- and inline-code-aware
+            # extract_wikilinks on the BODY ONLY (frontmatter uplinks are parent-
+            # resolution's job, not dangling-link's) so template/example links
+            # inside code never count as ghosts.
+            _body = text
+            if text.startswith("---"):
+                _ff = list(_FM_FENCE.finditer(text))
+                if len(_ff) >= 2 and _ff[0].start() == 0:
+                    _body = text[_ff[1].end():]
+            fm_records.append({
+                "rel_path": rel, "abspath": path, "fm": fm,
+                "links": links, "helper_links": extract_wikilinks(_body),
+            })
             basename_to_abspath.setdefault(path.stem, path)
 
             # Content hash + mtime evidence for reviewed-stale.
@@ -786,6 +820,98 @@ def main() -> None:
                 size = 0
                 mtime = "unknown"
             orphan_asset_rows.append((rel, size, mtime))
+
+    # ---------------------------------------------------------------------------
+    # Asset duplication / divergence (scattered non-md copies)
+    # ---------------------------------------------------------------------------
+    # The walk has already pruned every asset folder — git/.hg/.svn working trees
+    # and .keep-whole units (CONFIG § Asset folders) — so only LOOSE (un-contained)
+    # assets reach here. A loose asset appearing more than once under the same
+    # owning root is clutter: identical bytes in N places (`duplicate-asset`) or
+    # one filename carrying different content (`diverged-asset`, a version
+    # ambiguity). Grouping is scoped to a single owning root, so a like-named file
+    # in two unrelated projects is never a false positive. A `complete` (deployed)
+    # project is hands-off and skipped; the janitor reconciles the rest.
+
+    def _file_md5(path: Path, cap: int = 100 * 1024 * 1024) -> Optional[str]:
+        """Full-file md5, or None if unreadable or above the size cap."""
+        try:
+            if path.stat().st_size > cap:
+                return None
+            h = hashlib.md5()
+            with path.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+        except OSError:
+            return None
+
+    def _owning_root(rel: str) -> Optional[str]:
+        """The subtree a dedup group is scoped to: a project, area, or reference
+        domain (`<top>/<member>`), or the snippets root. None for a bare file."""
+        parts = rel.split("/")
+        if not parts:
+            return None
+        top = parts[0]
+        if top in (PROJECTS_FOLDER, AREAS_FOLDER, REFERENCE_FOLDER) and len(parts) >= 3:
+            return f"{parts[0]}/{parts[1]}"
+        if top == SNIPPETS_FOLDER and len(parts) >= 2:
+            return top
+        return None
+
+    # Project status — a `complete` project is deployed → hands-off for dedup.
+    _project_status: dict[str, str] = {}
+    for _r in fm_records:
+        _parts = _r["rel_path"].split("/")
+        if (len(_parts) == 3 and _parts[0] == PROJECTS_FOLDER
+                and _parts[2].startswith("00-")):
+            _st = str((_r["fm"] or {}).get("status", "")).strip().lower()
+            if _st:
+                _project_status[f"{_parts[0]}/{_parts[1]}"] = _st
+
+    # Group loose non-md by (owning-root, basename).
+    _asset_groups: dict[tuple[str, str], list[tuple[str, str, int, str]]] = defaultdict(list)
+    for npath in non_md_files:
+        try:
+            rel = str(npath.relative_to(VAULT_ROOT)).replace("\\", "/")
+        except ValueError:
+            continue
+        root = _owning_root(rel)
+        if root is None:
+            continue
+        if _project_status.get(root) == "complete":
+            continue  # deployed project — hands-off
+        md5 = _file_md5(npath)
+        if md5 is None:
+            continue
+        try:
+            size = npath.stat().st_size
+            mtime = datetime.fromtimestamp(
+                npath.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d")
+        except OSError:
+            size, mtime = 0, "unknown"
+        _asset_groups[(root, npath.name)].append((rel, md5, size, mtime))
+
+    # One finding per multi-copy group; canonical hint = the 02-Assets copy when
+    # present (the Centralize standard's home), else the first path.
+    asset_dedup_findings: list[tuple[str, str, str]] = []
+    for (root, name), copies in sorted(_asset_groups.items()):
+        if len(copies) < 2:
+            continue
+        copies = sorted(copies)
+        canonical = next(
+            (rel for rel, _h, _s, _m in copies if "/02-Assets/" in f"/{rel}"),
+            copies[0][0],
+        )
+        if len({c[1] for c in copies}) == 1:
+            redundant = [c[0] for c in copies if c[0] != canonical]
+            value = (f"{len(copies)} identical copies (md5 {copies[0][1][:8]}); "
+                     f"canonical={canonical}; redundant={', '.join(redundant)}")
+            asset_dedup_findings.append(("duplicate-asset", canonical, value))
+        else:
+            detail = "; ".join(f"{rel}({h[:8]},{s}B,{m})" for rel, h, s, m in copies)
+            value = f"{len(copies)} divergent copies of {name} under {root}: {detail}"
+            asset_dedup_findings.append(("diverged-asset", canonical, value))
 
     # ---------------------------------------------------------------------------
     # Link graph summary
@@ -1323,6 +1449,55 @@ def main() -> None:
             continue  # one finding per stale note
         _noted.add(n_rel)
         open_findings.append(("reviewed-stale", n_rel, t_stem))
+
+    # ---------------------------------------------------------------------------
+    # dangling-link: an active-source note's wikilink whose basename resolves to
+    # no file anywhere in the vault. Detection is deterministic and owned here so
+    # the snapshot work-list carries a standing count the janitor drives to zero;
+    # the janitor performs the repair by reading the line (janitor SKILL § 2).
+    # Uses the kit's fenced- and inline-code-aware extract_wikilinks (helper_links)
+    # so template and example links never count. Inbox drafts and the archive are
+    # skipped; a file opts out with compliance_exceptions: [body-wikilink-resolution].
+    # ---------------------------------------------------------------------------
+
+    # Existing-file basename index over the WHOLE vault, matching Obsidian's
+    # case-insensitive basename resolution: a link resolving to any file — an
+    # archived copy, a differently-cased name, or a file inside an asset folder —
+    # is not a ghost. Only dot-dirs (tooling/config) are excluded; asset folders
+    # are kept here because Obsidian still resolves links into them.
+    all_basenames_lower: set[str] = set()
+    for _dp, _dn, _fn in os.walk(VAULT_ROOT):
+        _dn[:] = [d for d in _dn if not is_excluded_dir(d)]
+        for _f in _fn:
+            all_basenames_lower.add(Path(_f).stem.lower())
+
+    _DANGLING_EXEMPT = {"body-wikilink-resolution", "dangling-link"}
+    # Confirmed-knowledge sources surface first in the detail rows.
+    _DANGLING_TYPE_RANK = {"reference": 0, "index": 1, "design": 1, "format": 1, "voice": 1}
+    dangling_findings: list[tuple[int, str, str]] = []
+    for record in fm_records:
+        rel = record["rel_path"]
+        if rel.startswith(INBOX_FOLDER + "/"):
+            continue  # inbox drafts are expected to dangle until filed
+        fm = record.get("fm") or {}
+        exempt = fm.get("compliance_exceptions") or []
+        if isinstance(exempt, str):
+            exempt = [exempt]
+        if any(str(e).strip() in _DANGLING_EXEMPT for e in exempt):
+            continue
+        ctype = normalize_type(str(fm.get("type") or "")) or ""
+        rank = _DANGLING_TYPE_RANK.get(ctype, 5)
+        for ghost in record.get("helper_links", []):
+            if ghost.lower() in all_basenames_lower:
+                continue
+            dangling_findings.append((rank, rel, ghost))
+
+    dangling_findings.sort(key=lambda t: (t[0], t[1], t[2]))
+    for _rank, rel, ghost in dangling_findings:
+        open_findings.append(("dangling-link", rel, ghost))
+
+    # Scattered loose-asset duplicates / divergences (computed above).
+    open_findings.extend(asset_dedup_findings)
 
     # Fold in caller-supplied findings (e.g. audit.py's run-scoped inference and
     # queue findings), parsed from a `code | target | value`-per-line file.

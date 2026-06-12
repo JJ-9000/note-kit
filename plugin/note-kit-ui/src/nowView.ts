@@ -1318,9 +1318,13 @@ export class NowView extends ItemView {
 			// folder lists each. Either way a draft needs you, an approved one waits.
 			if (members.some((m) => m.depth >= 3)) {
 				members.sort((a, b) => a.depth - b.depth || a.entry.file.path.localeCompare(b.entry.file.path));
-				const head = members[0].entry;
-				head.setCount = count - 1;
-				head.setFiles = members.slice(1).map((m) => m.entry.file);
+				// Build a fresh head (don't mutate the shared collected entry) — matches
+				// the gate branch and keeps the source entry reusable.
+				const head: Entry = {
+					...members[0].entry,
+					setCount: count - 1,
+					setFiles: members.slice(1).map((m) => m.entry.file),
+				};
 				if (members[0].approved) waiting.push({ ...head, awaitingFiling: true });
 				else needs.push(head);
 				continue;

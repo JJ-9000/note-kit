@@ -23,10 +23,11 @@
 	/* Unroll/collapse scales with the section's length: the view sets --nkui-rows
 	   (child row count) on the unrolling container; duration is one step per row,
 	   clamped, so short and long sections feel the same speed per row.
-	   Values are the shipped 28/120/420 trimmed 30% (×0.7) — dropdowns snap. */
-	--nkui-row-ms: 20ms;
-	--nkui-unroll-min: 84ms;
-	--nkui-unroll-max: 294ms;
+	   Values are the shipped 28/120/420 at ×0.8 — the ×0.7 "30% faster" cut
+	   read a touch too snappy on the dropdown headers; eased back slightly. */
+	--nkui-row-ms: 22ms;
+	--nkui-unroll-min: 96ms;
+	--nkui-unroll-max: 336ms;
 }
 
 /* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)

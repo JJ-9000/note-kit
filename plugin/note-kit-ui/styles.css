@@ -22,40 +22,44 @@
 	background: var(--nkui-type-color, var(--text-faint));
 	align-self: center;
 }
-/* (c) Type TINT — a row's name, and a note's title / headings / frontmatter,
-   carry a HINT of their type colour mixed into the normal text colour (not the
-   full saturated hue), so the type reads at a glance without shouting. Only typed
-   notes get it: a file with no type (or an asset, which has no frontmatter) has no
-   --nkui-type-color, so the color-mix is invalid and the text keeps its default. */
-.nav-file-title[data-nkui-type] .nav-file-title-content {
-	color: color-mix(in srgb, var(--nkui-type-color) 38%, var(--text-normal));
-}
-/* Title + body headings, tinted for emphasis — larger headings take more of the
-   type colour. Covers reading view and live preview (CodeMirror headers). */
-.workspace-leaf-content[class*="nkui-type-"] .inline-title,
-.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h1,
-.workspace-leaf-content[class*="nkui-type-"] .cm-header-1 {
+/* (c) Type TINT — toggleable via body.nkui-type-tint. A row's name, and an open
+   note's title / headings / frontmatter text / background, take their type colour,
+   saturated toward the real configured colour. Only typed notes get it: a file with
+   no type (or an asset, which has no frontmatter) has no --nkui-type-color, so the
+   color-mix is invalid and the text keeps its default — nothing un-typed is touched. */
+body.nkui-type-tint .nav-file-title[data-nkui-type] .nav-file-title-content {
 	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
 }
-.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h2,
-.workspace-leaf-content[class*="nkui-type-"] .cm-header-2 {
-	color: color-mix(in srgb, var(--nkui-type-color) 46%, var(--text-normal));
+/* Boldest heading — the title and h1 — IS the full type colour (matching the type's
+   dot/pill); sub-headings stay tinted, the larger ones more so. Reading + live
+   preview (CodeMirror headers). */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .inline-title,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h1,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-header-1 {
+	color: var(--nkui-type-color);
 }
-.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h3,
-.workspace-leaf-content[class*="nkui-type-"] .cm-header-3 {
-	color: color-mix(in srgb, var(--nkui-type-color) 40%, var(--text-normal));
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h2,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-header-2 {
+	color: color-mix(in srgb, var(--nkui-type-color) 75%, var(--text-normal));
 }
-.workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(h4, h5, h6),
-.workspace-leaf-content[class*="nkui-type-"] :is(.cm-header-4, .cm-header-5, .cm-header-6) {
-	color: color-mix(in srgb, var(--nkui-type-color) 32%, var(--text-normal));
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered h3,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-header-3 {
+	color: color-mix(in srgb, var(--nkui-type-color) 65%, var(--text-normal));
 }
-/* Frontmatter: a faint type wash on the properties block, with tinted keys. */
-.workspace-leaf-content[class*="nkui-type-"] .metadata-properties {
-	background: color-mix(in srgb, var(--nkui-type-color) 8%, transparent);
-	border-radius: var(--radius-s, 6px);
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(h4, h5, h6),
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-header-4, .cm-header-5, .cm-header-6) {
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
 }
-.workspace-leaf-content[class*="nkui-type-"] .metadata-property-key {
-	color: color-mix(in srgb, var(--nkui-type-color) 45%, var(--text-muted));
+/* Frontmatter: tint the property TEXT (keys + values) — not a box around it. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-key,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value {
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-muted));
+}
+/* The note's background, washed a hair toward the type colour. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-reading-view,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-editor {
+	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary));
 }
 
 /* ── (c) accent the open note by type ──────────────────────────────────────── */
@@ -186,11 +190,11 @@
 /* Selectors carry the .nkui-now-group-head parent to outrank Obsidian's default
    `button` styling (a `.theme-dark button` chip background would otherwise bleed
    through `background: transparent`). */
-/* "Approve all" — a quiet text affordance at the right edge of the section header
-   (margin-left:auto floats it past count + title), shown only while the section is
-   open. Readable at rest (text-muted, full opacity), not a button block. */
+/* "Approve all" — a quiet text affordance immediately to the right of the section
+   title (it flows right after it with the normal gap, not floated to the far
+   edge), shown only while the section is open. Readable at rest (text-muted, full
+   opacity), not a button block. */
 .nkui-now-group-head .nkui-now-approveall {
-	margin-left: auto;
 	flex: 0 0 auto;
 	padding: 0 0.3em;
 	border: none;

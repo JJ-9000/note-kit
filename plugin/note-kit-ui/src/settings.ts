@@ -41,6 +41,7 @@ export interface NoteKitUiSettings {
 	typeField: string;
 	typeStyles: TypeStyle[];
 	applyTypeBodyClass: boolean; // accent the open note by type
+	typeTint: boolean; // tint the open note's title/headings/frontmatter/background by type
 	/** Derive type colours from the active theme's palette (--color-red … pink)
 	 * at load and on every theme change, instead of the manual list. */
 	themePalette: boolean;
@@ -115,6 +116,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 		{ type: "revision", color: "#ab6969" },
 	],
 	applyTypeBodyClass: true,
+	typeTint: true,
 	themePalette: true,
 	syncGraphColors: true,
 	floatTopTypes: ["project", "index", "plan"],
@@ -421,6 +423,17 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.applyTypeBodyClass).onChange(async (v) => {
 					s.applyTypeBodyClass = v;
+					await save();
+				})
+			);
+		new Setting(containerEl)
+			.setName("Tint by type")
+			.setDesc(
+				"Wash the open note in its type colour: the title and h1 take the full colour, sub-headings and the frontmatter text are tinted, and the background gets a faint tint. Explorer file names are tinted too."
+			)
+			.addToggle((t) =>
+				t.setValue(s.typeTint).onChange(async (v) => {
+					s.typeTint = v;
 					await save();
 				})
 			);

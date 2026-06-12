@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { DEFAULT_SETTINGS, NoteKitUiSettings, NoteKitUiSettingTab, TypeStyle } from "./settings";
 import { buildDynamicCss } from "./css";
 import { ExplorerDecorator } from "./decorator";
@@ -67,6 +67,10 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * before that, a startup layout-change with a restored-open drawer would
 	 * read as a fresh swipe and force-switch its tab. */
 	private sidebarsSeeded = false;
+	/** The minimalist-mode exit button mounted in the file-explorer pane —
+	 * minimalist hides the app chrome (stylesheet), so this is the one way
+	 * back out. Null while minimalist is off or the explorer isn't there yet. */
+	private minimalExitEl: HTMLElement | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -165,6 +169,9 @@ export default class NoteKitUiPlugin extends Plugin {
 			this.app.workspace.on("layout-change", () => {
 				this.routeQueueLeaves();
 				this.enforceSidebars();
+				// Re-mount the minimalist exit if the explorer leaf was rebuilt
+				// (idempotent — a still-connected button is left alone).
+				this.applyMinimalExit();
 			})
 		);
 
@@ -219,6 +226,8 @@ export default class NoteKitUiPlugin extends Plugin {
 		this.decorator?.stop();
 		this.noteClass?.stop();
 		this.styleEl?.remove();
+		this.minimalExitEl?.remove();
+		this.minimalExitEl = null;
 		document.body.removeClass("nkui-calm-reading");
 		document.body.removeClass("nkui-type-tint");
 		document.body.removeClass("nkui-anim");
@@ -236,6 +245,34 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-large-mouths", this.settings.largeMouths);
 		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
 		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
+		this.applyMinimalExit();
+	}
+
+	/** Mount (or remove) the minimalist-mode exit. Minimalist hides the mobile
+	 * navbar and view headers (stylesheet, body.nkui-minimal), so the way OUT
+	 * is this one quiet ghost button pinned to the bottom-left of the
+	 * file-explorer pane — the left drawer on mobile. Idempotent: re-run on
+	 * every settings save and layout-change, re-mounting only when the
+	 * explorer leaf was rebuilt. */
+	private applyMinimalExit(): void {
+		if (!this.settings.minimalistMode) {
+			this.minimalExitEl?.remove();
+			this.minimalExitEl = null;
+			return;
+		}
+		if (this.minimalExitEl?.isConnected) return;
+		this.minimalExitEl?.remove();
+		this.minimalExitEl = null;
+		const host = this.app.workspace.getLeavesOfType("file-explorer")[0]?.view.containerEl;
+		if (!host) return; // no explorer yet — the next layout-change mounts it
+		const btn = host.createEl("button", { cls: "clickable-icon nkui-minimal-exit" });
+		setIcon(btn, "eye");
+		btn.setAttr("aria-label", "Exit minimalist mode");
+		btn.addEventListener("click", () => {
+			this.settings.minimalistMode = false;
+			void this.saveSettings(); // saveSettings → applyBodyClasses unmounts this
+		});
+		this.minimalExitEl = btn;
 	}
 
 	/** Close a just-opened duplicate of a file already open in another main tab. */

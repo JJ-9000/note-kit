@@ -23,11 +23,13 @@
 	/* Unroll/collapse scales with the section's length: the view sets --nkui-rows
 	   (child row count) on the unrolling container; duration is one step per row,
 	   clamped, so short and long sections feel the same speed per row.
-	   Values are the shipped 28/120/420 at ×0.8 — the ×0.7 "30% faster" cut
+	   Step and floor are the shipped 28/120 at ×0.8 — the ×0.7 "30% faster" cut
 	   read a touch too snappy on the dropdown headers; eased back slightly. */
 	--nkui-row-ms: 22ms;
 	--nkui-unroll-min: 96ms;
-	--nkui-unroll-max: 336ms;
+	/* Ceiling raised 336→480: the per-row step is unchanged, so only LONG lists
+	   slow — a big dropdown unrolls instead of snapping open. */
+	--nkui-unroll-max: 480ms;
 }
 
 /* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)
@@ -410,6 +412,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	--nkui-gap-s: 8px;    /* between elements in a row: columns, dot↔title, chips */
 	--nkui-gap-m: 16px;   /* between blocks: section heads, dividers, strip groups */
 	--nkui-gap-l: 24px;   /* between regions: page head ↔ first bucket */
+	/* End gutter between a row's LAST inline element (draft pill, meta, fate
+	   note) and the band edge — one token for every list-item variant, so the
+	   text-to-border distance reads even down the column. Mobile re-aims it at
+	   the safe-area edge (full-bleed block, file end). */
+	--nkui-row-end: var(--nkui-gap-m);
 }
 .nkui-now > * {
 	max-width: 760px;
@@ -461,8 +468,12 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   the flush children (count pill, approve-all) eat it back with the SAME
 	   token, so their boxes meet the band edges regardless of font size (an em
 	   here resolved against the head's font, an em there against the child's,
-	   and the mismatch left a hairline gap). */
-	padding: var(--nkui-gap-2xs, 4px) 0.5em;
+	   and the mismatch left a hairline gap). The INLINE gutters route through
+	   tokens so mobile (safe-area edges) and rounded (pill-end clearance) can
+	   re-aim them — and the flush count pill's negative margin follows. */
+	--nkui-head-pad-l: 0.5em;
+	--nkui-head-pad-r: 0.5em;
+	padding: var(--nkui-gap-2xs, 4px) var(--nkui-head-pad-r) var(--nkui-gap-2xs, 4px) var(--nkui-head-pad-l);
 	margin-inline: -0.5em;
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
@@ -478,7 +489,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	align-self: stretch;
 	height: auto;
 	margin-block: calc(-1 * var(--nkui-gap-2xs, 4px));
-	margin-left: -0.5em;
+	margin-left: calc(-1 * var(--nkui-head-pad-l));
 	padding-inline: 0.6em;
 }
 .nkui-now-group-head:hover {
@@ -529,9 +540,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	touch-action: none; /* a hold must not scroll the page */
 	user-select: none;
 }
-.nkui-now-group-head .nkui-now-approveall:hover {
-	text-decoration: underline;
-}
+/* Hover speaks through the shared opacity fade (quiet-pill block, further
+   down) — never an underline: text that changes shape on pointer reads messy. */
 .nkui-now-group-head .nkui-now-approveall::before {
 	content: "";
 	position: absolute;
@@ -888,6 +898,18 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-qrow:hover {
 	background: var(--nkui-hover);
 }
+/* Zebra on the checklist — without a wash every queue line melts into one
+   block of text. Odd rows (counted among qrows only, so the add box and
+   sub-heads don't break the rhythm) take a faint neutral tint; opaque mix
+   over background-primary keeps ClearType crisp. Hover re-asserts above the
+   stripe, and the hold fill sweeps over both. Same classes serve the For You
+   Queue section and the standalone queue view. */
+.nkui-now .nkui-now-qrow:nth-child(odd of .nkui-now-qrow) {
+	background: color-mix(in srgb, var(--text-normal) 4%, var(--background-primary));
+}
+.nkui-now .nkui-now-qrow:nth-child(odd of .nkui-now-qrow):hover {
+	background: var(--nkui-hover);
+}
 .nkui-now-qrow-strike {
 	cursor: pointer;
 }
@@ -1013,8 +1035,12 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	cursor: pointer;
 	margin-bottom: 0.1em;
 }
+/* Hover dips the opacity on the fade token — no underline, no shape change. */
+.nkui-now-decision-title {
+	transition: opacity var(--nkui-fade) ease;
+}
 .nkui-now-decision-title:hover {
-	text-decoration: underline;
+	opacity: 0.8;
 }
 /* Context is supporting detail — quiet, and clamped so a long paragraph stays calm. */
 .nkui-now-decision-context {
@@ -1434,9 +1460,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	min-width: 4.5em;
 	text-align: right;
 }
-.nkui-now-unapprove:hover {
-	text-decoration: underline;
-}
+/* Hover lives in the shared opacity fade (quiet-pill block) — no underline. */
 
 /* ── Waiting section — neutral and low-key; it holds nothing that needs you. ── */
 .nkui-now-group-waiting > .nkui-now-group-head .nkui-now-group-title {
@@ -1458,22 +1482,29 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 /* ── Open-section emphasis — an unfolded, non-empty section wears its tone:
    the WHOLE head band takes the pill's colour (the pill melts into the band —
    same tone, flush box; the count digit stays readable in on-accent text) and
-   the title centres in the band, in on-accent text. Collapsed stays neutral,
-   so unfolding is visible feedback. Hover brightens instead of washing, since
-   the band already carries colour. ──────────────────────────────────────────── */
+   the head GROWS: title a step up, band a step taller — vertical-only, the
+   title stays left-justified and the inline padding never changes, so nothing
+   shifts horizontally on open. Collapsed stays neutral, so unfolding is
+   visible feedback. Hover brightens instead of washing, since the band
+   already carries colour. ───────────────────────────────────────────────────── */
 /* Waiting stays out: it is the deliberately neutral, low-key section (its
    section colour falls back to the accent, which would shout). */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head {
 	background: var(--nkui-section-color, var(--interactive-accent));
 	color: var(--text-on-accent, #fff);
+	padding-block: var(--nkui-gap-s);
+}
+/* The flush children keep eating the band's block padding at the new step
+   (squareHeadPills re-measures the taller band into the pill's min-width). */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head :is(.nkui-now-count, .nkui-now-approveall) {
+	margin-block: calc(-1 * var(--nkui-gap-s));
 }
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
 	background: var(--nkui-section-color, var(--interactive-accent));
 	filter: brightness(1.08);
 }
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-group-title {
-	flex: 1 1 auto;
-	text-align: center;
+	font-size: 1.45em; /* 1.3em × ~1.12 — the open step */
 	color: var(--text-on-accent, #fff);
 }
 /* DEAD after whole-row hold — integrator: remove once Stream A lands (the
@@ -1728,9 +1759,7 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	padding: 0.45em 0.55em;
 	margin-block: -0.45em;
 }
-.nkui-now-gateapprove:hover {
-	text-decoration: underline;
-}
+/* Hover lives in the shared opacity fade below — no underline. */
 .nkui-now-gateapprove::before {
 	content: "";
 	position: absolute;
@@ -1864,7 +1893,6 @@ body:not(.nkui-anim) .nkui-now .is-settling {
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;
-	text-decoration: underline;
 	transition: opacity var(--nkui-fade) ease;
 }
 .nkui-close-offer:hover::before {
@@ -2453,6 +2481,59 @@ body.is-mobile .nav-folder-title {
 	border-radius: var(--nkui-radius) !important;
 }
 
+/* ── iOS device truth — the emulator stopped here, the notch phone didn't:
+   Obsidian's mobile sheet pads the drawer/content chain with the SAFE-AREA
+   insets (env(safe-area-inset-left/right)), so bands stopped short of the
+   glass on real hardware. Zero the inline insets along the whole chain; the
+   inset comes back as ROW-INTERNAL padding below, so the band hits the glass
+   edge while text never sits under a curved corner. ─────────────────────────── */
+body.is-mobile .workspace-drawer,
+body.is-mobile .workspace-drawer-inner,
+body.is-mobile .workspace-drawer-active-tab-container,
+body.is-mobile .workspace-leaf-content[data-type="file-explorer"],
+body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .view-content {
+	padding-inline: 0 !important;
+}
+/* Edge gutters — the text inset each full-bleed surface re-provides INSIDE its
+   own band: at least the block gap, more where the device's curved corner
+   demands it. Declared once on the mobile body; the row-end token follows. */
+body.is-mobile {
+	--nkui-edge-l: max(var(--nkui-gap-m), env(safe-area-inset-left, 0px));
+	--nkui-edge-r: max(var(--nkui-gap-m), env(safe-area-inset-right, 0px));
+	--nkui-row-end: var(--nkui-edge-r);
+}
+/* Explorer rows: the right gutter joins the row (the draft-dot / pill side).
+   The LEFT inset rides a transparent border instead — the tree indent is
+   inline-styled per row (padding-inline-start !important) so a stylesheet
+   can't add to it, but a transparent border pushes the content in while the
+   background still paints to the border box, i.e. the glass edge. */
+body.is-mobile .nav-file-title,
+body.is-mobile .nav-folder-title {
+	padding-inline-end: max(var(--size-4-2, 8px), env(safe-area-inset-right, 0px));
+	border-inline-start: env(safe-area-inset-left, 0px) solid transparent;
+}
+/* The inbox pill's reserved square keeps clear of the inset right edge. */
+body.is-mobile .nav-folder-title:has(> .nkui-inbox-count) {
+	padding-right: calc(2.6em + max(var(--size-4-2, 8px), env(safe-area-inset-right, 0px)));
+}
+
+/* ── Short tree centres vertically — the For You centred-until-tall move: the
+   scroll container becomes a flex column and the root items wrapper takes
+   auto block margins; they absorb the slack while the tree is short and
+   collapse to zero once the content overflows, so a tall tree anchors to the
+   top with no jump. decorator.ts documents the wrapper: current Obsidian
+   renders the root tree-items in an unclassed div directly under
+   .nav-files-container. */
+body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
+	display: flex;
+	flex-direction: column;
+}
+body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .nav-files-container > div:first-child {
+	flex: 0 0 auto;
+	width: 100%;
+	margin-block: auto;
+}
+
 /* ── For You on a phone: full-bleed inline, centered block ────────────────────
    Inline: edge to edge — the page drops its inline padding, the children drop
    the column cap, and every band (rows, children, sub-rows, section heads)
@@ -2467,7 +2548,11 @@ body.is-mobile .nav-folder-title {
 body.is-mobile .nkui-now {
 	display: flex;
 	flex-direction: column;
-	padding-inline: 0;
+	/* !important: Obsidian's mobile sheet re-insets view content with the
+	   safe-area env() padding on device (not in the emulator) — the bands must
+	   own the glass edge; the safe inset returns inside the rows (full-bleed
+	   block, file end). */
+	padding-inline: 0 !important;
 	/* The desktop scrollbar gutter is an inset here — iOS scrollbars overlay. */
 	scrollbar-gutter: auto;
 }
@@ -2541,10 +2626,11 @@ body.is-mobile .metadata-property-value .multi-select-input {
    The first two rules are DEAD after whole-row hold — integrator: remove once
    Stream A lands (mobile contrast for the row fill lives in the .nkui-row-hold
    block below; the close-offer rule stays live). */
+/* No scale — a width change on hold reads as a layout snap; brightness and
+   the sweeping fill carry the arming. Vertical-only emphasis everywhere. */
 body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding {
 	opacity: 1;
 	filter: brightness(1.12);
-	transform: scale(1.03);
 }
 body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding::before {
 	opacity: 0.45;
@@ -2658,8 +2744,7 @@ body.is-mobile .nkui-undo-shy:not(.is-undo-revealed) .nkui-now-unapprove {
 	pointer-events: none;
 }
 body.is-mobile .nkui-queue-lock-btn.is-holding {
-	filter: brightness(1.12);
-	transform: scale(1.03);
+	filter: brightness(1.12); /* no scale — vertical-only emphasis everywhere */
 }
 body.is-mobile .nkui-queue-lock-btn.is-holding::before {
 	opacity: 0.45;
@@ -2689,31 +2774,38 @@ body.is-mobile .nkui-now-qadd:focus-within .nkui-now-qadddone {
    affair (padding), never a band affair (margins). */
 body.is-mobile .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
 	margin-inline: 0;
-	padding-right: var(--nkui-gap-m);
+	padding-right: var(--nkui-row-end);
+}
+/* The LEFT safe inset on rows rides a transparent border (the explorer trick):
+   the band's background still paints to the glass edge while every text
+   indent shifts in by the inset. Portrait phones resolve it to 0 — this is
+   the landscape-curve guard. (The hold fill's inset:0 box starts at the
+   padding edge, so in landscape the sweep begins at the safe line, not the
+   glass — acceptable: the band colour itself still reaches the edge.) */
+body.is-mobile .nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
+	border-inline-start: env(safe-area-inset-left, 0px) solid transparent;
 }
 /* Section heads: the -0.5em margin trick reaches the edges via margin 0 above;
-   the head's text gutter steps up to the shared 16px so the band never reads
-   tight against the bezel. */
+   the head's text gutter steps up to the edge tokens (the shared 16px, or the
+   safe-area inset where the corner curves) so the band never reads tight
+   against the bezel — and the flush count pill's negative margin follows the
+   token automatically. */
 body.is-mobile .nkui-now-group-head {
-	padding-inline: var(--nkui-gap-m);
-}
-/* The flush count pill still eats its way to the band's — now the screen's —
-   left edge (the negative margin mirrors the head's new padding token). */
-body.is-mobile .nkui-now-group-head .nkui-now-count {
-	margin-left: calc(-1 * var(--nkui-gap-m));
+	--nkui-head-pad-l: var(--nkui-edge-l);
+	--nkui-head-pad-r: var(--nkui-edge-r);
 }
 /* Rows nested INSIDE a decision card sit in the card's 1.55em text indent —
    out-dent their bands back to the screen edges and repay the text indent as
    padding, so an option row's hover band matches every peer's width. */
 body.is-mobile .nkui-now-decision :is(.nkui-now-optrow, .nkui-now-needsread, .nkui-now-qadd) {
 	margin-left: -1.55em;
-	margin-right: calc(-1 * var(--nkui-gap-m));
+	margin-right: calc(-1 * var(--nkui-edge-r));
 	padding-left: 1.55em;
-	padding-right: var(--nkui-gap-m);
+	padding-right: var(--nkui-row-end);
 }
 /* Bandless furniture keeps a plain text gutter of its own. */
 body.is-mobile :is(.nkui-now-head, .nkui-now-empty) {
-	padding-inline: var(--nkui-gap-m);
+	padding-inline: var(--nkui-edge-l) var(--nkui-edge-r);
 }
 
 /* ── Gate-trio slots shrink instead of clipping (mobile) ──────────────────────
@@ -2758,8 +2850,21 @@ body.is-mobile .nkui-now-fatenote {
 body.is-mobile .workspace-leaf-content .view-content.nkui-now {
 	padding-block: var(--nkui-gap-l);
 }
+/* Screen-aware centring — the view stamps --nkui-screen-shift on the pane:
+   2×(screen centre − pane centre), positive = the content must sit LOWER to
+   centre on the GLASS rather than in the pane box. The spacers keep flex:
+   1 1 0 (equal shares of the slack); the shift rides their min-heights — the
+   top spacer grows for a positive shift, the bottom for a negative one — and
+   the bottom spacer's floor stays the navbar + safe-area clearance, so long
+   content still scrolls clear of the navbar. */
+body.is-mobile .nkui-now::before {
+	min-height: max(0px, var(--nkui-screen-shift, 0px));
+}
 body.is-mobile .nkui-now::after {
-	min-height: calc(max(var(--safe-area-inset-bottom, 0px), var(--nkui-gap-m)) + var(--mobile-navbar-height, 0px));
+	min-height: max(
+		calc(max(var(--safe-area-inset-bottom, 0px), var(--nkui-gap-m)) + var(--mobile-navbar-height, 0px)),
+		calc(-1 * var(--nkui-screen-shift, 0px))
+	);
 }
 /* The spacers' size comes from flex distribution, not a property change, so a
    fold's re-centre can't be transitioned in CSS — needs JS (pin the spacers'
@@ -2833,55 +2938,133 @@ body.is-mobile .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not
 	color: var(--text-muted);
 }
 
-/* ── Rounded mode (body.nkui-rounded) — one token flip re-rounds every plugin
-   surface: rows, heads, pills, badges, inputs, hold fills (border-radius:
-   inherit follows along). The audit below adds inline breathing room to the
-   TIGHT boxes so no digit or glyph sits inside the 10px corner curve. ──────── */
-body.nkui-rounded {
-	--nkui-radius: 10px;
-}
-body.nkui-rounded .nkui-now-count {
-	padding-inline: 0.7em;
-}
-body.nkui-rounded .nkui-inbox-count {
-	padding: 0 var(--nkui-gap-s);
-}
-body.nkui-rounded .nkui-weight-badge {
-	padding-inline: 0.55em;
-}
-body.nkui-rounded .nkui-close-offer {
-	padding-inline: 0.75em;
-}
-body.nkui-rounded .nkui-now-ackbtn {
-	padding-inline: 0.9em;
+/* ── Even end gutter — every list-item variant ends its text the same distance
+   from the band edge (the draft pill was sitting flush against the border).
+   One token across both surfaces (For You and the standalone queue); the left
+   indent steps (0.5em base, 1.55em member, 2.8em gate member) stay structural
+   and untouched. */
+.nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
+	padding-inline-end: var(--nkui-row-end);
 }
 
-/* ── Minimalist mode (body.nkui-minimal) — app chrome steps out of the way;
-   the SETTINGS PATH always stays visible (the gear is the exit). Conservative
-   scope: the main-area tab strip hides, but the icon-only sidebar tab headers
-   stay (hiding them strands the Files/Search switcher — the lost-file-view
-   lesson in css.ts); the mobile view-header stays (it carries the drawer
-   buttons that reach settings). ─────────────────────────────────────────────── */
-body.nkui-minimal .mod-root .workspace-tab-header-container {
+/* ── Rounded mode (body.nkui-rounded) — FULL pill: the iOS shape language. One
+   token flip re-rounds every plugin surface (a 1×1 box becomes a circle, a
+   long band a pill; hold fills follow via border-radius: inherit). The audit
+   below gives every tight box enough inline gutter that no glyph sits inside
+   an end curve — a full-pill end eats roughly half the band's height. ──────── */
+body.nkui-rounded {
+	--nkui-radius: 999px;
+}
+body.nkui-rounded .nkui-now-count {
+	padding-inline: 0.85em;
+}
+body.nkui-rounded .nkui-inbox-count {
+	padding: 0 0.8em;
+}
+body.nkui-rounded .nkui-weight-badge {
+	padding-inline: 0.8em;
+}
+body.nkui-rounded .nkui-close-offer {
+	padding-inline: 1em;
+}
+body.nkui-rounded .nkui-now-ackbtn {
+	padding-inline: 1.1em;
+}
+body.nkui-rounded .nkui-now-qaddinput {
+	padding-inline: 0.85em;
+}
+/* Section bands: the end curves clear the title and pressables; the flush
+   count pill's negative margin follows the token. The tokens hold for BOTH
+   open and collapsed states, so unfolding still moves nothing horizontally.
+   On mobile the safe-area edge gutters already exceed this floor. */
+body.nkui-rounded .nkui-now-group-head {
+	--nkui-head-pad-l: max(0.9em, var(--nkui-edge-l, 0px));
+	--nkui-head-pad-r: max(0.9em, var(--nkui-edge-r, 0px));
+}
+/* iOS breathing room — pills don't stack seamless the way sharp bands do: a
+   modest token gap between list rows, a step between dropdown sections. */
+body.nkui-rounded .nkui-now-group {
+	margin-block-end: var(--nkui-gap-s);
+}
+body.nkui-rounded .nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-gatemember) {
+	margin-block-end: var(--nkui-gap-2xs);
+}
+
+/* ── Minimalist mode (body.nkui-minimal) — DEEP silence: everything but the
+   left/right panes and the open tab's content steps away. The injected exit
+   control (.nkui-minimal-exit, mounted by the view bottom-left of the file
+   pane) is the guaranteed way back, so even the settings gear may go — the
+   old conservative carve-outs (gear-bearing ribbon action, gear navbar
+   action, mobile view-header) are retired with it. ──────────────────────────── */
+/* Tab strips — the main area AND the side docks/drawers. The exit control
+   replaces the lost-file-view safety net the sidebar strips used to provide. */
+body.nkui-minimal .workspace-tab-header-container {
 	display: none !important;
 }
-/* Ribbon actions hide EXCEPT anything carrying the settings gear. */
-body.nkui-minimal .workspace-ribbon .side-dock-ribbon-action:not(:has(.lucide-settings)) {
+/* Every view-header, mobile included, and the edit/read pill with it. */
+body.nkui-minimal .view-header,
+body.nkui-minimal .view-actions {
 	display: none !important;
 }
-/* Desktop view-header (title bar) hides; mobile keeps its header (drawer
-   access — see the scope note above). */
-body.nkui-minimal:not(.is-mobile) .mod-root .view-header {
+/* Pane nav-button rows (sort / collapse / new-note strips). */
+body.nkui-minimal .nav-buttons-container {
 	display: none !important;
 }
-/* Mobile navbar: only the settings action stays. */
-body.nkui-minimal.is-mobile .mobile-navbar-action:not(:has(.lucide-settings)) {
+/* The left pane's bottom info strip — desktop vault profile, mobile drawer
+   vault actions/switcher — and the drawer's header strip. */
+body.nkui-minimal .workspace-sidedock-vault-profile,
+body.nkui-minimal .workspace-drawer-vault-actions,
+body.nkui-minimal .workspace-drawer-vault-switcher,
+body.nkui-minimal .workspace-drawer-header {
 	display: none !important;
+}
+/* Ribbon goes entirely on desktop. */
+body.nkui-minimal:not(.is-mobile) .workspace-ribbon {
+	display: none !important;
+}
+/* The whole mobile navbar frame — including its empty bar — and the clearance
+   the For You bottom spacer reserved for it. */
+body.nkui-minimal.is-mobile .mobile-navbar {
+	display: none !important;
+}
+body.nkui-minimal.is-mobile {
+	--mobile-navbar-height: 0px;
 }
 /* Quiet text furniture leaves with the chrome. */
 body.nkui-minimal .nkui-now-version,
 body.nkui-minimal .nkui-queue-explain {
 	display: none !important;
+}
+/* The exit control — a small fixed ghost bottom-left, lifted above the safe
+   area: a comfortable thumb target that whispers until needed. */
+.nkui-minimal-exit {
+	position: fixed;
+	left: max(var(--nkui-gap-s), env(safe-area-inset-left, 0px));
+	bottom: max(var(--nkui-gap-s), env(safe-area-inset-bottom, 0px));
+	z-index: 30;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 40px;
+	min-height: 40px;
+	padding: 0.3em 0.6em;
+	border: none !important;
+	border-radius: var(--nkui-radius);
+	background: color-mix(in srgb, var(--background-primary) 80%, transparent) !important;
+	box-shadow: none !important;
+	color: var(--text-faint);
+	font-size: var(--font-ui-small, 13px);
+	cursor: pointer;
+	opacity: 0.7;
+	transition: opacity var(--nkui-fade) ease, color var(--nkui-fade) ease;
+}
+.nkui-minimal-exit:hover {
+	opacity: 1;
+	color: var(--text-muted);
+}
+/* Outside minimal mode the control has no job. */
+body:not(.nkui-minimal) .nkui-minimal-exit {
+	display: none;
 }
 /* Speed: the motion table at ×0.7 — re-declared literals (a calc() on the same
    custom property is a cycle). --nkui-hold / --nkui-count are NOT scaled: their
@@ -2892,7 +3075,7 @@ body.nkui-minimal {
 	--nkui-settle: 119ms; /* 170 ×0.7 */
 	--nkui-row-ms: 15ms; /* 22 ×0.7 */
 	--nkui-unroll-min: 67ms; /* 96 ×0.7 */
-	--nkui-unroll-max: 235ms; /* 336 ×0.7 */
+	--nkui-unroll-max: 336ms; /* 480 ×0.7 */
 }
 
 /* ── Settings on a phone — the colour grid and add-type row at hand scale ──── */

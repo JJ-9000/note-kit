@@ -8,6 +8,20 @@
  * tracks the configured commit time. */
 export const HOLD_MS = 395;
 
+/** Arm delay (ms) between the press and the VISIBLE hold (`is-holding`, the
+ * fill): a quick tap releases inside this window and never flashes the fill.
+ * The COMMIT still lands at the full configured hold — the fill just sweeps
+ * the remainder, so css.ts emits --nkui-hold as holdMs minus this delay
+ * (clamped; one source of truth, imported from here). */
+export const HOLD_ARM_DELAY_MS = 120;
+
+/** The arm delay in force for a given total hold: never so long it eats the
+ * fill below the 100ms css.ts clamps it to — a short configured hold shrinks
+ * the delay, not the visible sweep. */
+export function armDelayMs(holdMs: number): number {
+	return Math.max(0, Math.min(HOLD_ARM_DELAY_MS, holdMs - 100));
+}
+
 /** "close tab?" offer countdown (ms) — the hold fill run in reverse (see
  * main.ts injectCloseButton and the .nkui-close-offer transitions). Scales
  * with the configured hold (5x) so the pair keeps its shipped ratio. */
@@ -88,6 +102,9 @@ export interface HoldOpts {
 export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 	const hold = opts.holdMs ?? liveHoldMs;
 	let timer: number | undefined;
+	/** Delays the VISIBLE arm (`is-holding`) so a tap never flashes the fill;
+	 * the commit timer above still runs from the press itself. */
+	let armTimer: number | undefined;
 	let holding = false;
 	let committed = false;
 	/** True while a keyboard hold (keyHold mode) is arming — pointer end events
@@ -102,12 +119,24 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 		if (opts.armClass) opts.armTarget?.removeClass(opts.armClass);
 		if (timer) window.clearTimeout(timer);
 		timer = undefined;
+		if (armTimer) window.clearTimeout(armTimer);
+		armTimer = undefined;
 	};
 	const commit = (): void => {
 		committed = true;
 		lastCommitAt = Date.now();
 		end();
 		void opts.onCommit();
+	};
+	// The visible arm waits out the delay — a tap released inside it never
+	// flashes the fill. Releasing during the delay is still a tap (pointerup
+	// reads `holding`, set immediately), and the commit timer runs from the
+	// press, so the total hold time is unchanged.
+	const armSoon = (): void => {
+		armTimer = window.setTimeout(() => {
+			el.addClass("is-holding");
+			if (opts.armClass) opts.armTarget?.addClass(opts.armClass);
+		}, armDelayMs(hold));
 	};
 	el.addEventListener("pointerdown", (ev) => {
 		// A press landing on an interactive CHILD (a checkbox, a text field, a
@@ -130,8 +159,7 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 		committed = false;
 		startX = ev.clientX;
 		startY = ev.clientY;
-		el.addClass("is-holding");
-		if (opts.armClass) opts.armTarget?.addClass(opts.armClass);
+		armSoon();
 		timer = window.setTimeout(() => {
 			swallowNextRelease();
 			commit();
@@ -181,8 +209,7 @@ export function attachHold(el: HTMLElement, opts: HoldOpts): void {
 		holding = true;
 		committed = false;
 		keyHeld = true;
-		el.addClass("is-holding");
-		if (opts.armClass) opts.armTarget?.addClass(opts.armClass);
+		armSoon();
 		timer = window.setTimeout(commit, hold);
 	});
 	el.addEventListener("keyup", (ev) => {

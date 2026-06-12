@@ -260,7 +260,17 @@ export class ExplorerDecorator {
 		// hottest event stream in the plugin. The MOVES wait for the settled
 		// redraw (150ms); decoration stays synchronous below — that's the
 		// no-FOUC requirement (rows appear already-styled, pre-paint).
+		//
+		// ONE exception: the ROOT items container. Obsidian re-renders the root
+		// rows in native order on every folder toggle, and deferring their
+		// reorder to the 150ms redraw let the whole pane visibly snap into kit
+		// order a beat later (Archive jumping back to the top). The root is
+		// never the animating expand container — that's always an inserted
+		// .nav-folder-children — so reordering it synchronously, in this same
+		// pre-paint batch, cannot suppress the folder-open animation.
 		let childrenInserted = false;
+		const syncRoots = new Set<HTMLElement>();
+		let roots: Set<HTMLElement> | null = null;
 		for (const m of muts) {
 			if (m.type === "attributes" && m.target instanceof HTMLElement) {
 				if (m.target.matches(".nav-file-title, .nav-folder-title")) {
@@ -273,6 +283,16 @@ export class ExplorerDecorator {
 				}
 				continue;
 			}
+			// childList on the root items container → reorder it in this batch
+			// (the set is computed lazily, once per batch that needs it).
+			if (m.target instanceof HTMLElement) {
+				roots ??= new Set(
+					this.containers()
+						.map((c) => this.rootItemsContainer(c))
+						.filter((r): r is HTMLElement => r !== null)
+				);
+				if (roots.has(m.target)) syncRoots.add(m.target);
+			}
 			m.addedNodes.forEach((node) => {
 				if (!(node instanceof HTMLElement)) return;
 				if (node.matches(".nav-file-title, .nav-folder-title")) this.decorate(node, s);
@@ -284,6 +304,10 @@ export class ExplorerDecorator {
 				}
 			});
 		}
+		// Root reorder rides the same pre-paint batch (after the decoration
+		// above, so the moved rows land already-styled). Idempotent: an ordered
+		// root moves nothing, so the observer converges.
+		for (const r of syncRoots) this.reorderChildren(r);
 		if (childrenInserted) this.redraw();
 		// Counts only — the targeted work above already decorated every touched
 		// row. A full decorateAll per mutation batch made scrolling the

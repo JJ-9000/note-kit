@@ -171,6 +171,12 @@ export class NowView extends ItemView {
 		this.registerEvent(this.app.workspace.on("css-change", () => this.onResize()));
 		this.render();
 		await this.reloadAndRender();
+		// FIRST open: the renders above can run before the view has laid out
+		// (band heights 0, pre-font metrics), so the head pills keep the skinny
+		// CSS minimum until something re-triggers onResize. Measure again now
+		// the initial load is in; a still-hidden view skips the assignment and
+		// the next onResize catches it, as ever.
+		this.squareHeadPills();
 	}
 
 	async onClose(): Promise<void> {
@@ -341,6 +347,13 @@ export class NowView extends ItemView {
 		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
 
 		this.squareHeadPills();
+		// The view's FIRST render runs before its bands have laid out (height 0
+		// or pre-font metrics), so the pass above measures nothing useful and
+		// the pills sit at the skinny CSS minimum until something re-triggers
+		// onResize. One second pass on the next frame measures the settled
+		// layout; a hidden view still skips the assignment (heights filter to
+		// none) and the next onResize picks it up, as today.
+		window.requestAnimationFrame(() => this.squareHeadPills());
 
 		// Column widths come from live boxes; a render that raced the injected
 		// stylesheet or webfont measured the fallback font and locked stale
@@ -362,23 +375,48 @@ export class NowView extends ItemView {
 	 * page, so a diminished section's pill never shrinks below its peers
 	 * (tone and text do the talking; the box holds), and the bands equalize
 	 * (the head grows to its flush pill). Batched clear → measure → assign,
-	 * like equalizeMetaColumns. */
+	 * like equalizeMetaColumns. The mobile screen-centering shift
+	 * (applyScreenShift) measures in the same read phase, so the whole pass
+	 * stays one layout flush — no interleaved reflow. */
 	private squareHeadPills(): void {
 		const pills = Array.from(
 			this.contentEl.querySelectorAll<HTMLElement>(".nkui-now-group-head .nkui-now-count")
 		);
-		if (!pills.length) return;
+		// Phase 1 — clear (writes only), so the measure reads natural boxes.
 		for (const p of pills) {
 			p.style.minWidth = "";
 			p.style.minHeight = "";
 		}
+		// Phase 2 — measure (reads only; a single layout flush): pill heights
+		// plus the pane's own box for the screen shift.
 		const heights = pills.map((p) => p.getBoundingClientRect().height).filter((h) => h > 0);
-		if (!heights.length) return;
+		const pane = this.contentEl.getBoundingClientRect();
+		// Phase 3 — assign (writes only).
+		this.applyScreenShift(pane);
+		if (!heights.length) return; // hidden view — the next onResize re-measures
 		const side = Math.max(...heights);
 		for (const p of pills) {
 			p.style.minWidth = `${side}px`;
 			p.style.minHeight = `${side}px`;
 		}
+	}
+
+	/** Screen-space centering (mobile): the For You pane doesn't fill the
+	 * screen — the navbar and headers eat into it — so content centered to the
+	 * PANE sits visibly low on the phone. Publish how far the pane's center
+	 * sits from the SCREEN's center as --nkui-screen-shift on contentEl:
+	 * 2 × (screen center − pane center) px, positive when the pane's center is
+	 * above the screen's and the content must move DOWN. The stylesheet turns
+	 * the var into spacer min-heights. Desktop clears the var; a hidden pane
+	 * (height 0) keeps its last value and the next onResize re-measures. */
+	private applyScreenShift(pane: DOMRect): void {
+		if (!Platform.isMobile) {
+			this.contentEl.style.removeProperty("--nkui-screen-shift");
+			return;
+		}
+		if (pane.height <= 0) return;
+		const shift = window.innerHeight / 2 - (pane.top + pane.height / 2);
+		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift}px`);
 	}
 
 	private renderBucket(

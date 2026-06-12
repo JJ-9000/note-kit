@@ -18,7 +18,7 @@ from store import Store
 
 PROJECT_ROOT = "01-Projects"
 AREA_ROOT = "02-Areas"
-REFERENCE_ROOT = "03-Reference"
+REFERENCE_ROOT = "03-References"
 SNIPPETS_ROOT = "04-Snippets"
 
 

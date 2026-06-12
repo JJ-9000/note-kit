@@ -98,7 +98,7 @@ def _classify_para_position(para_position: str) -> dict[str, str | None]:
         out["owner"] = parts[1]
         out["area"] = parts[1]
         out["para_type"] = "area"
-    elif parts[0] == "03-Reference" and len(parts) >= 2:
+    elif parts[0] == "03-References" and len(parts) >= 2:
         out["domain"] = parts[1]
         out["para_type"] = "reference"
     elif parts[0] == "04-Snippets" and len(parts) >= 2:

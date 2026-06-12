@@ -11,7 +11,7 @@ not in instructional prose that would rot.
 What it does, given one filed plan:
 
     1. Move every completed (`- [x]`) item to the plan's changelog,
-       `01-<slug>-Changelog.md` beside the plan, under a dated heading and
+       `<slug>-Changelog.md` beside the plan, under a dated heading and
        grouped by the section each item came from. The changelog is created
        with frontmatter on first use.
     2. Write the open remainder (`- [ ]` items + structure) to `<inbox>` as a
@@ -324,7 +324,7 @@ def bifurcate_plan(
         )
 
     stem = re.sub(r"^\d+-", "", plan_path.stem)  # plans are unprefixed, but be safe
-    changelog_path = plan_path.parent / f"01-{stem}-Changelog.md"
+    changelog_path = plan_path.parent / f"{stem}-Changelog.md"
     inbox_draft = _inbox_dir(vault_root) / f"{stem}.md"
     archive_path = _archive_dir(vault_root) / f"{stem}-bifurcated-{date_str}.md"
 
@@ -408,9 +408,9 @@ def _run_self_tests() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
-        inbox = vault / (folder_for_wildcard("<inbox>") or "00-Inbox")
+        inbox = vault / (folder_for_wildcard("<inbox>") or "Inbox")
         archive = vault / _folder_by_semantic("archive")
-        plans = vault / "01-Projects" / "Demo" / "00-Plans"
+        plans = vault / "Projects" / "Demo" / "Plans"
         for d in (inbox, archive, plans):
             d.mkdir(parents=True, exist_ok=True)
 
@@ -440,7 +440,7 @@ def _run_self_tests() -> None:
             fail(f"A counts done={res.completed_count} open={res.open_count} (want 2/1)")
         if plan.exists():
             fail("A original plan still in place (should be archived)")
-        cl = plans / "01-Demo-Plan-Changelog.md"
+        cl = plans / "Demo-Plan-Changelog.md"
         if not cl.exists():
             fail("A changelog not created")
         else:
@@ -541,7 +541,7 @@ def _run_self_tests() -> None:
             encoding="utf-8",
         )
         bifurcate_plan(plan_f, vault, now=fixed_now)
-        cl_f = (plans / "01-Second-Plan-Changelog.md").read_text(encoding="utf-8")
+        cl_f = (plans / "Second-Plan-Changelog.md").read_text(encoding="utf-8")
         if cl_f.count("## 2026-06-02 — from Second-Plan") != 2:
             fail("F changelog did not accumulate two dated entries")
         elif "round one done" not in cl_f or "round two done" not in cl_f:
@@ -550,7 +550,7 @@ def _run_self_tests() -> None:
             print("OK   case F: second bifurcation appends a new dated entry")
 
         # --- Case G: refuse a plan under a dot-directory (scan-exclusion) -
-        kit_plans = vault / ".claude" / "skills" / "demo" / "00-Plans"
+        kit_plans = vault / ".claude" / "skills" / "demo" / "Plans"
         kit_plans.mkdir(parents=True, exist_ok=True)
         kit_plan = kit_plans / "Kit-Plan.md"
         kit_plan.write_text(

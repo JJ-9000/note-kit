@@ -357,7 +357,7 @@ def vault_get_references_for_path_tool(path: str) -> list[dict[str, Any]]:
     notes it cites, with citation counts and citing chunk IDs.
 
     Args:
-        path: Vault-relative path (e.g. "01-Projects/Example-Project/Example-Project.md").
+        path: Vault-relative path (e.g. "Projects/Example-Project/Example-Project.md").
     """
     if not STATE.warmed_up:
         return [{"error": "indexer warming up — try again in a moment"}]
@@ -413,7 +413,7 @@ def vault_find_similar_projects_tool(
     """Projects most similar to the given one by Jaccard over shared References.
 
     Args:
-        project: Project name (folder name under 01-Projects/), e.g. "Example-Project".
+        project: Project name (folder name under the projects root), e.g. "Example-Project".
         top_k: Number of results to return.
     """
     if not STATE.warmed_up:

@@ -84,24 +84,27 @@ def _is_index_title(title: str | None) -> bool:
 
 
 def _classify_para_position(para_position: str) -> dict[str, str | None]:
-    """Pull (project|area, domain) out of a vault-relative cwd path."""
+    """Pull (project|area, domain) out of a vault-relative cwd path. The root
+    segment is compared with any legacy numeric prefix stripped, so both
+    'Projects/X' and a legacy '01-Projects/X' classify identically."""
     parts = para_position.replace("\\", "/").strip("/").split("/")
     out: dict[str, str | None] = {
         "owner": None, "para_type": None, "domain": None, "area": None,
     }
     if not parts:
         return out
-    if parts[0] == "01-Projects" and len(parts) >= 2:
+    root = re.sub(r"^\d+-", "", parts[0])
+    if root == "Projects" and len(parts) >= 2:
         out["owner"] = parts[1]
         out["para_type"] = "project"
-    elif parts[0] == "01-Areas" and len(parts) >= 2:
+    elif root == "Areas" and len(parts) >= 2:
         out["owner"] = parts[1]
         out["area"] = parts[1]
         out["para_type"] = "area"
-    elif parts[0] == "01-References" and len(parts) >= 2:
+    elif root == "References" and len(parts) >= 2:
         out["domain"] = parts[1]
         out["para_type"] = "reference"
-    elif parts[0] == "01-Snippets" and len(parts) >= 2:
+    elif root == "Snippets" and len(parts) >= 2:
         out["domain"] = parts[1]
         out["para_type"] = "snippet"
     return out
@@ -739,11 +742,15 @@ def _quality_gaps_for_owner(topo: Any, owner: str | None) -> dict[str, list[str]
         return {}
     gaps = topo.quality_gaps
     out: dict[str, list[str]] = {}
-    project_path = f"01-Projects/{owner}"
-    if project_path in gaps.missing_project_md:
-        out["missing_project_md"] = [project_path]
-    if project_path in gaps.missing_open_issues:
-        out["missing_open_issues"] = [project_path]
+    # Gap paths carry the on-disk root (topology); match by owner suffix so
+    # plain ('Projects/X') and legacy ('01-Projects/X') roots both resolve.
+    suffix = f"/{owner}"
+    md_hits = [p for p in gaps.missing_project_md if p.endswith(suffix)]
+    if md_hits:
+        out["missing_project_md"] = md_hits[:1]
+    oi_hits = [p for p in gaps.missing_open_issues if p.endswith(suffix)]
+    if oi_hits:
+        out["missing_open_issues"] = oi_hits[:1]
     return out
 
 

@@ -15,7 +15,8 @@ What it does:
      inbox subfolders, and runs sync-config once.
   2. Asserts the fresh install is correct, not just non-crashing:
        - <tmp>/.mcp.json exists and registers the `vault` MCP server.
-       - <tmp>/<inbox>/00-Assets/ exists; retired surfaces are not scaffolded.
+       - <tmp>/<inbox-assets>/ exists; both queue files exist; retired
+         surfaces are not scaffolded.
   3. Runs, against that install, each deterministic entry point and asserts a
      clean exit (returncode 0, no traceback on stderr):
        - audit.py --dry-run                      (janitor deterministic layer)
@@ -56,12 +57,16 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent  # <vault>/.claude/ in an install, or the drop's .claude/
 
 # Resolve semantic folder names from the kit's own CONFIG.md so the snapshot
-# path below tracks CONFIG renames rather than hardcoding "99-Archive".
+# path below tracks CONFIG renames rather than hardcoding a literal archive name.
 sys.path.insert(0, str(_SCRIPTS_DIR))
-from config_variables import _folder_by_semantic  # noqa: E402
+from config_variables import _folder_by_semantic, token_path  # noqa: E402
 
 _INBOX_FOLDER = _folder_by_semantic("inbox")
 _ARCHIVE_FOLDER = _folder_by_semantic("archive")
+_INBOX_ASSETS_REL = token_path("inbox-assets")
+_LOGS_REL = token_path("logs")
+_USER_QUEUE_REL = token_path("user-queue")
+_MACHINE_QUEUE_REL = token_path("machine-queue")
 
 
 # ---------------------------------------------------------------------------
@@ -142,31 +147,39 @@ def _assert_mcp_json(tmp_vault: Path) -> None:
 
 
 def _assert_on_demand_dirs(tmp_vault: Path) -> None:
-    """The on-demand inbox subfolders skills write into must exist post-scaffold;
-    retired surfaces (00-Actions/, Checkpoints/) must NOT be scaffolded."""
+    """The on-demand inbox subfolders skills write into must exist post-scaffold,
+    both queue files must be seeded, and retired surfaces (00-Actions/,
+    Checkpoints/, the legacy 00-Action-Queue.md) must NOT be scaffolded."""
     inbox = tmp_vault / _INBOX_FOLDER
     for label, p in [
-        ("fresh-install: <inbox>/00-Assets/", inbox / "00-Assets"),
+        ("fresh-install: <inbox-assets>/", tmp_vault / _INBOX_ASSETS_REL),
+        ("fresh-install: <user-queue> seeded", tmp_vault / _USER_QUEUE_REL),
+        ("fresh-install: <machine-queue> seeded", tmp_vault / _MACHINE_QUEUE_REL),
     ]:
-        _record(label, p.is_dir(), "present" if p.is_dir() else f"MISSING: {p}")
-    retired = inbox / "00-Actions"
-    _record(
-        "fresh-install: retired <inbox>/00-Actions/ not scaffolded",
-        not retired.exists(),
-        "absent" if not retired.exists() else f"PRESENT (retired surface): {retired}",
-    )
+        _record(label, p.exists(), "present" if p.exists() else f"MISSING: {p}")
+    for label, p in [
+        ("fresh-install: retired <inbox>/00-Actions/ not scaffolded",
+         inbox / "00-Actions"),
+        ("fresh-install: retired 00-Action-Queue.md not scaffolded",
+         inbox / "00-Action-Queue.md"),
+    ]:
+        _record(
+            label,
+            not p.exists(),
+            "absent" if not p.exists() else f"PRESENT (retired surface): {p}",
+        )
 
 
 def _snapshot_path(tmp_vault: Path) -> Path:
     """The single shared state snapshot — <logs>/Vault-State-Index.md.
 
-    CONFIG-v005 § Log files: <logs> is <archive>/99-Logs/, and the snapshot
-    lives at its ROOT (not under an agent folder). build_state_index owns it;
-    audit.py refreshes it via build_state_index only under --apply — a
-    detect-only run writes nothing. There are no per-run log files in v005,
-    so this one file is the audit's whole proposed-work surface.
+    CONFIG § Log files: the snapshot lives at the <logs> ROOT (not under an
+    agent folder); the path resolves from the CONFIG token table.
+    build_state_index owns it; audit.py refreshes it via build_state_index only
+    under --apply — a detect-only run writes nothing. There are no per-run log
+    files in v005, so this one file is the audit's whole proposed-work surface.
     """
-    return tmp_vault / _ARCHIVE_FOLDER / "99-Logs" / "Vault-State-Index.md"
+    return tmp_vault / _LOGS_REL / "Vault-State-Index.md"
 
 
 def _assert_dry_run_wrote_nothing(tmp_vault: Path) -> None:
@@ -178,7 +191,7 @@ def _assert_dry_run_wrote_nothing(tmp_vault: Path) -> None:
         not snap.exists(),
         "none" if not snap.exists() else f"UNEXPECTED: {snap}",
     )
-    ledger_dir = tmp_vault / _ARCHIVE_FOLDER / "99-Logs" / "janitor-agent"
+    ledger_dir = tmp_vault / _LOGS_REL / "janitor-agent"
     _record(
         "detect-only: no ledger dir created by --dry-run",
         not ledger_dir.exists(),

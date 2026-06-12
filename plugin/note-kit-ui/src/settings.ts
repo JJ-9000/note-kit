@@ -133,7 +133,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	floatTopTypes: ["project", "index", "plan"],
 
 	reviewedField: "reviewed",
-	inboxFolders: ["00-Inbox"],
+	inboxFolders: ["Inbox"],
 	showRowBadge: true,
 	showInboxCount: true,
 
@@ -141,11 +141,11 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	nowReplaceNewTab: true,
 	nowRecentCount: 15,
 	nowActiveTypes: ["project", "area"],
-	nowQueueFolders: ["00-Outbox"],
+	nowQueueFolders: ["Outbox"],
 	nowCollapsedSections: ["Recent"],
 	nowExpandedGroups: [],
-	userQueuePath: "00-Inbox/00-User-Queue.md",
-	machineQueuePath: "00-Outbox/00-Machine-Queue.md",
+	userQueuePath: "Inbox/User-Queue.md",
+	machineQueuePath: "Outbox/Machine-Queue.md",
 	queueCleanView: true,
 	sidebarNow: true,
 	paletteMigrated: false,

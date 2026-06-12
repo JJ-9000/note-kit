@@ -5,7 +5,7 @@ tags:
   - standards
   - project
 date: 2026-06-02
-parent: "[[01-Format]]"
+parent: "[[Format]]"
 reviewed: true
 status: complete
 ---

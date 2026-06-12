@@ -39,7 +39,7 @@ Public API:
 
 Usage from a filing script:
     from index_helpers import add_child_link_to_index, MalformedIndexError
-    added = add_child_link_to_index(Path('01-References/Houdini-Index.md'), 'New-Note')
+    added = add_child_link_to_index(Path('References/Houdini-Index.md'), 'New-Note')
 """
 from __future__ import annotations
 

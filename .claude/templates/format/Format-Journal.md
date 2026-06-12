@@ -5,7 +5,7 @@ tags:
   - standards
   - journal
 date: 2026-06-01
-parent: "[[01-Format]]"
+parent: "[[Format]]"
 reviewed: true
 status: complete
 ---
@@ -17,7 +17,7 @@ tags:
   - journal
   - <topic>
 date: YYYY-MM-DD
-parent: "[[01-Journal]]"
+parent: "[[Journal]]"
 reviewed: false
 status: draft
 ---

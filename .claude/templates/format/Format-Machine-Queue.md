@@ -5,7 +5,7 @@ tags:
   - standards
   - queue
 date: 2026-06-10
-parent: "[[01-Format]]"
+parent: "[[Format]]"
 reviewed: true
 status: complete
 ---

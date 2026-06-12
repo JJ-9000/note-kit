@@ -5,7 +5,7 @@ tags:
   - standards
   - design
 date: 2026-06-01
-parent: "[[01-Format]]"
+parent: "[[Format]]"
 reviewed: true
 status: complete
 ---
@@ -18,7 +18,7 @@ tags:
   - standard
   - <domain>
 date: YYYY-MM-DD
-parent: "[[01-Design]]"
+parent: "[[Design]]"
 reviewed: false
 status: draft
 ---

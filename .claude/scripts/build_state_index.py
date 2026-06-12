@@ -35,7 +35,7 @@ Open findings emitted here (snapshot-derivable, deterministic detections):
     bytes appear at >1 path under one owning root (project/area/domain/snippets);
     pure redundancy. Asset folders (git/.hg/.svn, .keep-whole) are pruned from
     the walk, and `complete` (deployed) projects are skipped. Janitor archives
-    the redundant copies, keeping the 02-Assets canonical.
+    the redundant copies, keeping the asset-home (`Assets/`) canonical.
   - `diverged-asset` — the same loose-asset filename carrying DIFFERENT content
     at >1 path under one owning root; a version ambiguity. The janitor picks the
     canonical copy (version token, date, or date of related use in a plan/log)
@@ -101,10 +101,12 @@ from config_variables import (
     TYPES,
     CANONICAL_TYPE_KEYS,
     SCAN_EXCLUDE_DIRS,
+    ASSET_HOME_DIRS,
     _folder_by_semantic,
     is_excluded_dir,
     is_asset_folder,
     normalize_tag,
+    token_path,
 )
 from normalize_type import normalize_type
 from wikilink_helpers import extract_wikilinks
@@ -152,8 +154,8 @@ def main() -> None:
     # Semantic folder names
     # ---------------------------------------------------------------------------
 
-    INBOX_FOLDER = _folder_by_semantic("inbox")    # e.g. "00-Inbox"
-    ARCHIVE_FOLDER = _folder_by_semantic("archive")  # e.g. "99-Archive"
+    INBOX_FOLDER = _folder_by_semantic("inbox")    # e.g. "Inbox"
+    ARCHIVE_FOLDER = _folder_by_semantic("archive")  # e.g. "Archive"
 
     def _semantic_or(needle: str, fallback: str) -> str:
         try:
@@ -161,16 +163,17 @@ def main() -> None:
         except Exception:
             return fallback
 
-    PROJECTS_FOLDER = _semantic_or("projects", "01-Projects")
-    AREAS_FOLDER = _semantic_or("areas", "01-Areas")
-    REFERENCE_FOLDER = _semantic_or("reference", "01-References")
-    SNIPPETS_FOLDER = _semantic_or("snippets", "01-Snippets")
+    PROJECTS_FOLDER = _semantic_or("projects", "Projects")
+    AREAS_FOLDER = _semantic_or("areas", "Areas")
+    REFERENCE_FOLDER = _semantic_or("reference", "References")
+    SNIPPETS_FOLDER = _semantic_or("snippets", "Snippets")
 
     # ---------------------------------------------------------------------------
-    # Output paths — canonical 99-Logs root (NOT under an agent folder)
+    # Output paths — the canonical <logs> root (NOT under an agent folder)
     # ---------------------------------------------------------------------------
 
-    output_dir = VAULT_ROOT / ARCHIVE_FOLDER / "99-Logs"
+    LOGS_REL = token_path("logs", f"{ARCHIVE_FOLDER}/Logs")
+    output_dir = VAULT_ROOT / LOGS_REL
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "Vault-State-Index.md"
 
@@ -179,9 +182,9 @@ def main() -> None:
     # ---------------------------------------------------------------------------
 
     CONTROL_FILES = [
-        VAULT_ROOT / ARCHIVE_FOLDER / "99-Logs" / "Vault-State-Index.md",
-        VAULT_ROOT / INBOX_FOLDER / "00-Action-Queue.md",
-        VAULT_ROOT / ARCHIVE_FOLDER / "99-Logs" / "Sync-Log.md",
+        VAULT_ROOT / LOGS_REL / "Vault-State-Index.md",
+        VAULT_ROOT / token_path("user-queue", f"{INBOX_FOLDER}/User-Queue.md"),
+        VAULT_ROOT / LOGS_REL / "Sync-Log.md",
     ]
 
     # ---------------------------------------------------------------------------
@@ -246,7 +249,7 @@ def main() -> None:
                 if len(rel.parts) >= 2:
                     return True
 
-            # Exact filename match (e.g. '00-Action-Queue.md')
+            # Exact filename match (e.g. 'User-Queue.md')
             if path.name == pattern:
                 return True
 
@@ -569,7 +572,7 @@ def main() -> None:
 
     # Per-folder aggregates for the analyst's cluster detection. Folder is the
     # immediate containing folder relative to the vault root (e.g.
-    # "01-Projects/Glass-Fracture/Sessions"). For each folder we track the total .md
+    # "Projects/Glass-Fracture/Sessions"). For each folder we track the total .md
     # count, a per-type histogram, a per-tag histogram, and the per-file ages (days
     # since each file's `date` frontmatter). The analyst reads these columns and
     # applies its own relative-dominance + maturity thresholds — this script encodes
@@ -892,15 +895,17 @@ def main() -> None:
             size, mtime = 0, "unknown"
         _asset_groups[(root, npath.name)].append((rel, md5, size, mtime))
 
-    # One finding per multi-copy group; canonical hint = the 02-Assets copy when
-    # present (the Centralize standard's home), else the first path.
+    # One finding per multi-copy group; canonical hint = the asset-home copy
+    # when present (the Centralize standard's home — CONFIG § Asset folders
+    # `home` trigger, legacy `02-Assets` included), else the first path.
     asset_dedup_findings: list[tuple[str, str, str]] = []
     for (root, name), copies in sorted(_asset_groups.items()):
         if len(copies) < 2:
             continue
         copies = sorted(copies)
         canonical = next(
-            (rel for rel, _h, _s, _m in copies if "/02-Assets/" in f"/{rel}"),
+            (rel for rel, _h, _s, _m in copies
+             if any(f"/{home}/" in f"/{rel}" for home in ASSET_HOME_DIRS)),
             copies[0][0],
         )
         if len({c[1] for c in copies}) == 1:
@@ -1089,8 +1094,8 @@ def main() -> None:
                 size = 0
                 mtime = "unknown"
             notes = ""
-            # Action-queue large check
-            if cf.name == "00-Action-Queue.md" and size > 50 * 1024:
+            # Queue-file large check — a queue past 50 KiB needs a sweep.
+            if "Queue" in cf.name and size > 50 * 1024:
                 notes = "large"
             control_rows.append([rel_cf, "yes", str(size), mtime, notes])
         else:

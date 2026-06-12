@@ -62,6 +62,28 @@ _KIT_ROOT = _SCRIPTS_DIR.parent
 
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
+# ---------------------------------------------------------------------------
+# Shape gate — config_shape validates (and safely repairs) CONFIG.md BEFORE
+# config_variables parses it, so a repaired separator row or restored pipe is
+# what the parsers below actually read. A refusal (unsafe drift: missing
+# required row/column, duplicate token, unparseable literal) aborts the sync
+# with the corrector's file:line report.
+# ---------------------------------------------------------------------------
+import config_shape  # noqa: E402
+
+_shape_report = config_shape.run(config_shape.default_config_path())
+for _r in _shape_report.repairs:
+    print(f"[config-shape] REPAIR  {_r}")
+if not _shape_report.ok:
+    for _r in _shape_report.refusals:
+        print(f"[config-shape] REFUSE  {_r}", file=sys.stderr)
+    print(
+        "ERROR: sync aborted — CONFIG.md failed the shape check "
+        f"({len(_shape_report.refusals)} unsafe drift(s)). Fix CONFIG.md and re-run.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
 # Import after sys.path is updated
 from config_variables import (  # noqa: E402
     FILE_HANDLING,
@@ -71,6 +93,7 @@ from config_variables import (  # noqa: E402
     _folder_by_semantic,
     _CONFIG_TEXT,
     _parse_table,
+    token_path,
 )
 
 # Use the SAME CONFIG.md config_variables resolved (honors the NOTE_KIT_CONFIG
@@ -123,7 +146,7 @@ def _resolve_targets(vault_root: Path) -> tuple[Path, Path, Path]:
     vault_root = vault_root.resolve()
     claude_md = vault_root / ".claude" / "CLAUDE.md"
     agents_md = vault_root / ".claude" / "AGENTS.md"
-    sync_log = vault_root / _ARCHIVE_FOLDER / "99-Logs" / "Sync-Log.md"
+    sync_log = vault_root / token_path("logs", f"{_ARCHIVE_FOLDER}/Logs") / "Sync-Log.md"
     return claude_md, agents_md, sync_log
 
 
@@ -276,7 +299,7 @@ def _typical_folder_for(key: str, trow) -> str:
     """The type's session-start home cell.
 
     Prefer CONFIG § Types' own `default-home` cell (v005+) verbatim — it is the
-    canonical, display-ready home (`<projects>`, `parent's 01-Voice`, `01-Ideas`,
+    canonical, display-ready home (`<projects>`, `parent's <voice>/ subfolder`,
     …). Fall back to deriving from FOLDER_ROUTING / SUBFOLDERS only when a row
     carries no default-home (older CONFIG without the column).
     """

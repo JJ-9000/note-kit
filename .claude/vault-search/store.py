@@ -554,7 +554,7 @@ class Store:
     def wikilink_count(self) -> tuple[int, int]:
         """Returns (total, resolved). Excludes [[CVF-NNNN]] citations that point at
         Sources tree files which are intentionally not indexed (config.yaml
-        excludes 01-References/99-Sources/). Those citations cannot resolve by
+        excludes an excluded sources subfolder). Those citations cannot resolve by
         design; counting them as unresolved pollutes the metric. See
         the wikilink-resolution refinement spec."""
         with self._lock:

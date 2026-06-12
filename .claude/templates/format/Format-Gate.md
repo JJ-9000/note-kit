@@ -5,7 +5,7 @@ tags:
   - standards
   - gate
 date: 2026-06-09
-parent: "[[01-Format]]"
+parent: "[[Format]]"
 reviewed: true
 status: complete
 ---

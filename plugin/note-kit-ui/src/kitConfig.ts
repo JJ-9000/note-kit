@@ -7,16 +7,19 @@ import { App } from "obsidian";
  * what the plugin displays. One-way: the plugin only ever reads CONFIG.
  */
 export interface KitFacts {
-	/** literal folder names, e.g. "00-Inbox" */
+	/** literal folder names, e.g. "Inbox" (legacy installs: "00-Inbox") */
 	inboxLiteral: string;
 	outboxLiteral: string;
-	/** the archive root from § Folders, e.g. "99-Archive" — "" when CONFIG
+	/** the archive root from § Folders, e.g. "Archive" — "" when CONFIG
 	 * carries no `<archive>` row (consumers fall back to their own heuristic) */
 	archiveLiteral: string;
-	/** resolved queue file paths, e.g. "00-Inbox/00-User-Queue.md" */
+	/** resolved queue file paths, e.g. "Inbox/User-Queue.md" */
 	userQueuePath: string;
 	machineQueuePath: string;
-	/** numeric structural prefixes from § Numbering, e.g. ["00","01","02","99"] */
+	/** numeric structural prefixes from § Numbering, e.g. ["00","01","02","99"].
+	 * The plain-name kit documents these as the LEGACY scheme; parsing them is
+	 * harmless on plain installs (no name starts with a token, so they style
+	 * nothing) and keeps legacy installs styled. May be empty. */
 	prefixes: string[];
 	/** the type vocabulary from § Types */
 	types: string[];
@@ -37,7 +40,7 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 		return null; // no kit in this vault — manual settings apply
 	}
 
-	// Wildcard → literal rows: | `<inbox>` | `00-Inbox` | …  (also captures the
+	// Wildcard → literal rows: | `<inbox>` | `Inbox` | …  (also captures the
 	// token table, whose second cell opens with a backticked value).
 	const tokens = new Map<string, string>();
 	for (const m of text.matchAll(/^\|\s*`<([\w-]+)>`\s*\|\s*`([^`]+)`/gm)) {

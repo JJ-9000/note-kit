@@ -48,7 +48,7 @@ The plan is a live log of run state, not a one-time draft.
 - **Uncheck an item when later work reopens it**, revising the item so the box reflects the real state.
 - **Revise stale framing when a decision settles.** When a gate resolves or a stream is committed, edit the items it touched so none still reads as open or provisional.
 - **Mark a parked or decided item inline** with its date and reason.
-- **Move completed work to a changelog** when finished items crowd the live plan, leaving the plan showing what remains. The changelog is `02-`, sitting just below the plan it tracks (CONFIG § Numbering); the opening line links it.
+- **Move completed work to a changelog** when finished items crowd the live plan, leaving the plan showing what remains. The changelog is `<Plan-Name>-Changelog`, sitting beside the plan it tracks; the opening line links it.
 - **Label distinct revision passes.** A reopened plan does not un-check work completed by a full review or revision pass. Either label the old plan and move it to the `<plans>/` subfolder, or label and append the new plan to the old one.
 
 ## The note

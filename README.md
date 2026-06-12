@@ -264,7 +264,7 @@ Remember: **register the scheduled agents on only one machine.** Two machines ru
 
 ## Third-party plugins that pair well
 
-The kit is complete without community plugins — `note-kit-ui` already shows types, prefixes, and review flags. These add something the kit doesn't do, and each is optional:
+The kit is complete without community plugins — `note-kit-ui` already shows types, folder covers, and review flags. These add something the kit doesn't do, and each is optional:
 
 - **Obsidian Git** — commits and pushes the vault from inside Obsidian on a schedule. The natural companion to the git sync setup above.
 - **Dataview**, or the core **Bases** feature — dashboards over the kit's frontmatter: every `status: active` project, drafts waiting on review, notes by type.

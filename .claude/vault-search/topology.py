@@ -7,6 +7,7 @@ incremental updates — full rebuild on demand.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -16,10 +17,18 @@ from typing import Any
 from store import Store
 
 
-PROJECT_ROOT = "01-Projects"
-AREA_ROOT = "01-Areas"
-REFERENCE_ROOT = "01-References"
-SNIPPETS_ROOT = "01-Snippets"
+# Semantic root names (the kit defaults). A legacy install's numeric prefix
+# ("01-Projects") is stripped before comparison, and constructed paths reuse
+# the root segment actually observed on disk, so both schemes work unchanged.
+PROJECT_ROOT = "Projects"
+AREA_ROOT = "Areas"
+REFERENCE_ROOT = "References"
+SNIPPETS_ROOT = "Snippets"
+
+
+def _root_name(segment: str) -> str:
+    """Strip a legacy numeric prefix: '01-Projects' and 'Projects' -> 'Projects'."""
+    return re.sub(r"^\d+-", "", segment)
 
 
 @dataclass
@@ -118,10 +127,10 @@ def build_topology(store: Store) -> VaultTopology:
     for row in rows:
         d = dict(row)
         file_by_path[d["path"]] = d
-        for root in files_by_root:
-            if d["path"].startswith(root + "/"):
-                files_by_root[root].append(d)
-                break
+        seg0 = d["path"].replace("\\", "/").split("/", 1)[0]
+        root = _root_name(seg0)
+        if root in files_by_root and "/" in d["path"].replace("\\", "/"):
+            files_by_root[root].append(d)
 
     projects = _build_projects(store, files_by_root[PROJECT_ROOT])
     areas = _build_areas(files_by_root[AREA_ROOT])
@@ -158,6 +167,17 @@ def _has_complete_frontmatter(frontmatter_json: str | None) -> bool:
     return all(k in meta for k in ("type", "tags", "date"))
 
 
+def _on_disk_root(files: list[dict[str, Any]], default: str) -> str:
+    """The root segment as it exists on disk (e.g. 'Projects', or a legacy
+    '01-Projects'), read from the first member's path so constructed paths
+    match either naming scheme."""
+    for f in files:
+        seg0 = f["path"].replace("\\", "/").split("/", 1)[0]
+        if seg0:
+            return seg0
+    return default
+
+
 def _build_projects(
     store: Store, project_files: list[dict[str, Any]]
 ) -> dict[str, ProjectInfo]:
@@ -176,8 +196,9 @@ def _build_projects(
             reverse=True,
         )
         non_session_files = [f for f in files if f["para_type"] != "session"]
+        disk_root = _on_disk_root(files, PROJECT_ROOT)
 
-        project_md = _find_project_root_md(owner, non_session_files)
+        project_md = _find_project_root_md(owner, non_session_files, disk_root)
         architecture_md = _find_named(non_session_files, "Architecture.md")
         open_issues_md = _find_named(non_session_files, "Open-Issues.md")
 
@@ -198,7 +219,7 @@ def _build_projects(
 
         projects[owner] = ProjectInfo(
             name=owner,
-            path=f"{PROJECT_ROOT}/{owner}",
+            path=f"{disk_root}/{owner}",
             project_md=project_md,
             architecture_md=architecture_md,
             open_issues_md=open_issues_md,
@@ -212,12 +233,12 @@ def _build_projects(
 
 
 def _find_project_root_md(
-    owner: str, files: list[dict[str, Any]]
+    owner: str, files: list[dict[str, Any]], disk_root: str = PROJECT_ROOT
 ) -> str | None:
-    """Heuristic: prefer 01-Projects/<owner>/<owner>.md, else Project.md, else
-    any single file whose para_type == 'project'."""
-    expected_a = f"{PROJECT_ROOT}/{owner}/{owner}.md"
-    expected_b = f"{PROJECT_ROOT}/{owner}/Project.md"
+    """Heuristic: prefer <projects>/<owner>/<owner>.md (the folder-note cover),
+    else Project.md, else any single file whose para_type == 'project'."""
+    expected_a = f"{disk_root}/{owner}/{owner}.md"
+    expected_b = f"{disk_root}/{owner}/Project.md"
     paths = {f["path"]: f for f in files}
     if expected_a in paths:
         return expected_a
@@ -279,7 +300,7 @@ def _build_areas(area_files: list[dict[str, Any]]) -> dict[str, AreaInfo]:
         last_mod = max((f["last_modified"] or 0.0) for f in files) if files else 0.0
         areas[owner] = AreaInfo(
             name=owner,
-            path=f"{AREA_ROOT}/{owner}",
+            path=f"{_on_disk_root(files, AREA_ROOT)}/{owner}",
             sessions=sessions,
             last_modified=last_mod,
         )
@@ -300,13 +321,14 @@ def _build_domains(
 
     domains: dict[str, ReferenceDomainInfo] = {}
     for owner, files in by_owner.items():
+        disk_root = _on_disk_root(files, root)
         index_path = _find_index(owner, files)
         child_refs = sorted(f["path"] for f in files)
-        citing_projects = _citing_projects_for_domain(store, owner, root)
+        citing_projects = _citing_projects_for_domain(store, owner, disk_root)
         last_mod = max((f["last_modified"] or 0.0) for f in files) if files else 0.0
         domains[owner] = ReferenceDomainInfo(
             name=owner,
-            path=f"{root}/{owner}",
+            path=f"{disk_root}/{owner}",
             index_path=index_path,
             child_refs=child_refs,
             citing_projects=citing_projects,

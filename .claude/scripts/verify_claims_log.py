@@ -7,7 +7,7 @@ CONFIG.md § Helper-script automation.
 Keeps per-run verdict stats OUT of the verified note's frontmatter by
 appending a single kit-format pipe line per run to:
 
-    <archive>/99-Logs/verify-claims/verify-claims-runs.md
+    <logs>/verify-claims/verify-claims-runs.md
 
 Line format (the kit's run-log format — parsed, not read):
 
@@ -32,7 +32,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables import _folder_by_semantic  # noqa: E402
+from config_variables import _folder_by_semantic, token_path  # noqa: E402
 
 
 def _resolve_vault_root(cli_root: Path | None, archive: str) -> Path | None:
@@ -72,7 +72,7 @@ def main() -> int:
                         "<vault>/.claude/scripts/); errors out if none resolves.")
     args = p.parse_args()
 
-    archive = _folder_by_semantic("archive")  # e.g. "99-Archive"
+    archive = _folder_by_semantic("archive")  # e.g. "Archive"
     if not archive:
         sys.exit("Error: could not resolve the <archive> folder from CONFIG.md.")
 
@@ -88,7 +88,7 @@ def main() -> int:
     if not vault_root.is_dir():
         sys.exit(f"Error: vault root is not a directory: {vault_root}")
 
-    log_dir = vault_root / archive / "99-Logs" / "verify-claims"
+    log_dir = vault_root / token_path("logs", f"{archive}/Logs") / "verify-claims"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "verify-claims-runs.md"
 

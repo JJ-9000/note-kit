@@ -13,8 +13,8 @@ What it does
 ------------
 Walk `<archive>`. For each file whose modification time is older than
 `archive-retention` days, move it into `<history>`, preserving its path relative
-to the archive root (so `<archive>/01-Projects/Foo/2026-01-01-bar.md` lands at
-`<history>/01-Projects/Foo/2026-01-01-bar.md`). The move is archive-first by
+to the archive root (so `<archive>/Projects/Foo/2026-01-01-bar.md` lands at
+`<history>/Projects/Foo/2026-01-01-bar.md`). The move is archive-first by
 nature (copy to the cold-store destination, confirm it, then remove the source);
 nothing is deleted outright (CONFIG § Versioning and archiving discipline).
 
@@ -205,12 +205,12 @@ def _run_self_tests() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         archive = vault / _folder_by_semantic("archive")
-        (archive / "01-Projects" / "Demo").mkdir(parents=True, exist_ok=True)
+        (archive / "Projects" / "Demo").mkdir(parents=True, exist_ok=True)
         (vault / HISTORY_DIRNAME).mkdir(parents=True, exist_ok=True)
 
-        old = archive / "01-Projects" / "Demo" / "old-session.md"
+        old = archive / "Projects" / "Demo" / "old-session.md"
         old.write_text("old\n", encoding="utf-8")
-        recent = archive / "01-Projects" / "Demo" / "recent-session.md"
+        recent = archive / "Projects" / "Demo" / "recent-session.md"
         recent.write_text("recent\n", encoding="utf-8")
 
         # Backdate `old` well past the window; keep `recent` fresh.
@@ -223,14 +223,14 @@ def _run_self_tests() -> int:
         dry = age_archive_to_history(vault, now=fixed_now, apply=False)
         if len(dry.moved) != 1 or not dry.moved[0][0].endswith("old-session.md"):
             fail(f"A dry-run moved set wrong: {dry.moved}")
-        if not old.exists() or (vault / HISTORY_DIRNAME / "01-Projects" / "Demo" / "old-session.md").exists():
+        if not old.exists() or (vault / HISTORY_DIRNAME / "Projects" / "Demo" / "old-session.md").exists():
             fail("A dry-run mutated the filesystem")
         else:
             print("OK   case A: dry-run identifies the aged file, writes nothing")
 
         # --- Case B: apply moves the old file, preserves the recent one ------
         res = age_archive_to_history(vault, now=fixed_now, apply=True)
-        moved_dest = vault / HISTORY_DIRNAME / "01-Projects" / "Demo" / "old-session.md"
+        moved_dest = vault / HISTORY_DIRNAME / "Projects" / "Demo" / "old-session.md"
         if old.exists():
             fail("B old file still in archive after apply")
         if not moved_dest.exists():

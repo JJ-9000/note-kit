@@ -72,8 +72,15 @@ def _load_canonical_types() -> frozenset[str]:
 
 VALID_FRONTMATTER_TYPES = _load_canonical_types()
 
-# Must match inbox_folder in config.yaml — update both together if you rename your inbox.
-INBOX_FOLDER = "00-Inbox"
+# Must match inbox_folder in config.yaml — update both together if you rename
+# your inbox (e.g. a legacy "00-Inbox" install).
+INBOX_FOLDER = "Inbox"
+
+
+def _root_name(segment: str) -> str:
+    """A top-level folder's semantic name: the segment with any legacy numeric
+    prefix stripped ("01-Projects" and "Projects" both -> "Projects")."""
+    return re.sub(r"^\d+-", "", segment)
 
 
 def _normalize_link_target(raw: str) -> str | None:
@@ -342,29 +349,30 @@ def classify_para(rel_path: str, frontmatter_meta: dict) -> tuple[str, str | Non
     fm_type = frontmatter_meta.get("type")
     parts = rel_path.replace("\\", "/").split("/")
 
+    root = _root_name(parts[0]) if parts else ""
     if isinstance(fm_type, str) and fm_type in VALID_FRONTMATTER_TYPES:
         para_type = fm_type
     else:
         if not parts:
             para_type = "unknown"
-        elif parts[0] == INBOX_FOLDER:
+        elif parts[0] == INBOX_FOLDER or root == "Inbox":
             para_type = "inbox"
-        elif parts[0] == "01-Projects":
+        elif root == "Projects":
             para_type = "session" if (len(parts) >= 4 and parts[2] == "Sessions") else "project"
-        elif parts[0] == "01-Areas":
+        elif root == "Areas":
             para_type = "session" if (len(parts) >= 4 and parts[2] == "Sessions") else "area"
-        elif parts[0] == "01-References":
+        elif root == "References":
             para_type = "reference"
-        elif parts[0] == "01-Snippets":
+        elif root == "Snippets":
             para_type = "snippet"
-        elif parts[0] == "99-Archive":
+        elif root == "Archive":
             para_type = "archive"
         else:
             para_type = "unknown"
 
     para_owner: str | None = None
-    if len(parts) >= 2 and parts[0] in {
-        "01-Projects", "01-Areas", "01-References", "01-Snippets"
+    if len(parts) >= 2 and root in {
+        "Projects", "Areas", "References", "Snippets"
     }:
         para_owner = parts[1]
 

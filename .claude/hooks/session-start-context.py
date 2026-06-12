@@ -21,8 +21,41 @@ import urllib.error
 
 DAEMON_BASE = "http://127.0.0.1:8765"
 TIMEOUT_SEC = 2.0
-MACHINE_QUEUE_REL = os.path.join("00-Outbox", "00-Machine-Queue.md")
-USER_QUEUE_REL = os.path.join("00-Inbox", "00-User-Queue.md")
+# Fallback queue paths (the kit defaults) when CONFIG.md is unreadable.
+_DEFAULT_MACHINE_QUEUE_REL = os.path.join("Outbox", "Machine-Queue.md")
+_DEFAULT_USER_QUEUE_REL = os.path.join("Inbox", "User-Queue.md")
+
+
+def _queue_paths(cwd: str) -> tuple[str, str]:
+    """(machine-queue, user-queue) vault-relative paths from the vault's own
+    `.claude/CONFIG.md` § Folders tables, so the hook follows a rename (or a
+    legacy prefixed install) instead of hardcoding the kit defaults. Reads the
+    `| `<token>` | `value` …` rows the same way the UI plugin does; embedded
+    `<wildcard>` references expand against the parsed map. Falls back to the
+    kit defaults when CONFIG is absent or a token is missing."""
+    tokens: dict[str, str] = {}
+    try:
+        with open(os.path.join(cwd, ".claude", "CONFIG.md"), encoding="utf-8") as f:
+            text = f.read()
+        for m in re.finditer(r"^\|\s*`<([\w-]+)>`\s*\|\s*[^`|\n]*`([^`]+)`", text, re.MULTILINE):
+            if m.group(1) not in tokens:
+                tokens[m.group(1)] = m.group(2).strip().rstrip("/")
+    except OSError:
+        pass
+
+    def resolve(token: str, fallback: str) -> str:
+        raw = tokens.get(token)
+        if not raw:
+            return fallback
+        resolved = re.sub(r"<([\w-]+)>", lambda m: tokens.get(m.group(1), m.group(0)), raw)
+        if "<" in resolved:
+            return fallback
+        return os.path.join(*resolved.split("/"))
+
+    return (
+        resolve("machine-queue", _DEFAULT_MACHINE_QUEUE_REL),
+        resolve("user-queue", _DEFAULT_USER_QUEUE_REL),
+    )
 
 
 def _start_daemon_if_down(cwd: str) -> bool:
@@ -51,7 +84,8 @@ def _start_daemon_if_down(cwd: str) -> bool:
 
 def pending_live_session_items(cwd: str) -> list[str]:
     """Open machine-queue items annotated needs-live-session — work for THIS session."""
-    path = os.path.join(cwd, MACHINE_QUEUE_REL)
+    machine_queue_rel, _ = _queue_paths(cwd)
+    path = os.path.join(cwd, machine_queue_rel)
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
@@ -71,7 +105,8 @@ def pending_user_queue_clusters(cwd: str) -> list[str]:
     the annotation appears in its body (agents write `needs-live-session`,
     the user sometimes writes it with spaces). Returns the item headings.
     """
-    path = os.path.join(cwd, USER_QUEUE_REL)
+    _, user_queue_rel = _queue_paths(cwd)
+    path = os.path.join(cwd, user_queue_rel)
     try:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()

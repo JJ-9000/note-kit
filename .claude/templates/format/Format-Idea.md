@@ -5,7 +5,7 @@ tags:
   - standards
   - idea
 date: 2026-06-01
-parent: "[[01-Format]]"
+parent: "[[Format]]"
 reviewed: true
 status: complete
 ---

@@ -112,7 +112,7 @@ Orchestrator only, manifest in hand, noise floor subtracted:
 For each blind spot, charged layer by charged layer:
 
 1. **Raw-layer miss** → a new or extended detector in the instrument. **Lens-layer miss** → a lens fix; the instrument is innocent, do not touch it. **Solver-layer miss** → a framing or report-ordering fix, or accept as solver variance.
-2. Version the instrument — copy to the next `vNNN` in `instrument/`, never edit the prior version (CONFIG § Numbering).
+2. Version the instrument — copy to the next `vNNN` in `instrument/`, never edit the prior version (CONFIG § File handling, version token).
 3. Gates, all three before the version is used in play: **quiet-on-healthy** (nothing new on any control in the corpus) · **catch** (the motivating variant now surfaces) · **budget** (control-output size within the Phase-0 budget; a detector that buys one catch with a flood of new tokens is rejected as written).
 4. **Regression sweep:** re-run the new version over every prior variant and diff verdicts against the log. A formerly-caught fault now missed blocks the version.
 5. A blind spot the architecture cannot reach → **documented-hard**, with its named resolution path, in the Round Index. After 2 hardening attempts on one blind spot, stop and classify (CONFIG § Loop budget); raise genuine judgment calls to the `<user-queue>`.

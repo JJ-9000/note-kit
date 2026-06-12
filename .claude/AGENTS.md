@@ -53,7 +53,7 @@ _Generated from CONFIG.md by sync_config — do not hand-edit; edit CONFIG.md in
 | idea | parent's `<idea>/` subfolder, else `<areas>/<ideas>/` | Title-Case-Hyphens | type, tags, date, parent | single-shot capture of a spark |
 | snippet | `<snippets>/` | kebab-case | type, tags, date, parent | functional code, ready to paste |
 | source | parent's `<sources>/` subfolder, else `<areas>/<sources>/` | Title-Case-Hyphens | type, tags, date, parent | external artifact supporting another document |
-| index | the folder it covers (its `00-` or `01-` cover note, § Numbering) | Title-Case-Hyphens | type, tags, date | a folder's cover note linking **every** child for scoped navigation; only the direct children of a root (project, area, reference domain, snippet group) carry one — never a deeper subfolder or the archive |
+| index | the folder it covers (its folder-note cover — the file named after the folder, § Numbering) | Title-Case-Hyphens | type, tags, date | a folder's cover note linking **every** child for scoped navigation; only the direct children of a root (project, area, reference domain, snippet group) carry one — never a deeper subfolder or the archive |
 | addendum | `<inbox>/` if unreviewed, `<archive>/<inbox>/<addendum>/` when completed | Title-Case-Hyphens | type, tags, date, target | transient edit merging into its target |
 | log | parent's `<logs>/` subfolder, else `<archive>/<logs>/<agent> or <skill>/` | kebab-case | type, tags, date | operational log scoped to an agent or session run |
 | revision | target's `<notes>/<revision>-<version>` subfolder, else `<archive>/<target>/<revisions>/` | Title-Case-Hyphens | type, tags, date, target | edited working copy produced by the review skill |

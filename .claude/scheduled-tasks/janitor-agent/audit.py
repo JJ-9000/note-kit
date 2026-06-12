@@ -71,7 +71,7 @@ from config_variables import (
     FILE_HANDLING, TYPES, FOLDER_ROUTING, SUBFOLDERS, TAGS, ACTIONS, SKILL_SLUGS,
     CANONICAL_TYPE_KEYS, CANONICAL_TAG_KEYS, SCAN_EXCLUDE_DIRS,
     _folder_by_semantic, is_excluded_dir, is_asset_folder, ASSET_HOME_DIRS,
-    HISTORY_DIRNAME,
+    HISTORY_DIRNAME, token_path,
 )
 from wikilink_helpers import (
     normalize_link_target, extract_wikilinks, rewrite_wikilink_interior,
@@ -99,11 +99,17 @@ VAULT_ROOT = Path(vault_root_str).resolve()
 
 INBOX_FOLDER = VAULT_ROOT / _folder_by_semantic("inbox")
 ARCHIVE_FOLDER = VAULT_ROOT / _folder_by_semantic("archive")
+# Token-table paths (CONFIG § Folders): the inbox asset-staging folder and the
+# logs root, with their legacy literals as fallback for an older CONFIG.
+INBOX_ASSETS_REL = token_path("inbox-assets", "00-Inbox/00-Assets")
+LOGS_REL = token_path("logs", "99-Archive/99-Logs")
+_ASSETS_DIR_NAME = Path(INBOX_ASSETS_REL).name   # e.g. "Assets"
+_LOGS_DIR_NAME = Path(LOGS_REL).name             # e.g. "Logs"
 
 # Directories under which a non-markdown file is a *placed* asset, not loose: the
-# inbox staging `00-Assets`, plus the configured asset homes (`02-Assets`,
-# `99-Assets`/`<catchall>`). CONFIG § Asset folders.
-_PLACED_ASSET_DIRS = frozenset({"00-Assets"}) | ASSET_HOME_DIRS
+# inbox staging (<inbox-assets>), plus the configured asset homes (`Assets`,
+# legacy `02-Assets`/`99-Assets`/`<catchall>`). CONFIG § Asset folders.
+_PLACED_ASSET_DIRS = frozenset({_ASSETS_DIR_NAME, "00-Assets"}) | ASSET_HOME_DIRS
 PROJECTS_FOLDER = VAULT_ROOT / _folder_by_semantic("projects")
 
 # ---------------------------------------------------------------------------
@@ -158,7 +164,7 @@ if not DRY_RUN:
 # ---------------------------------------------------------------------------
 
 AGENT_NAME = "janitor-agent"
-log_dir = ARCHIVE_FOLDER / "99-Logs" / AGENT_NAME
+log_dir = VAULT_ROOT / LOGS_REL / AGENT_NAME
 # Created lazily in _write_logs, only when an event line is actually appended —
 # a detect-only run writes NOTHING, directories included.
 
@@ -1253,10 +1259,10 @@ def pass9_orphan_detection(
 # ---------------------------------------------------------------------------
 
 def pass10_loose_assets(all_md: list[Path], all_non_md: list[Path]) -> None:
-    """Relocate orphaned non-.md assets to `<inbox>/00-Assets/`.
+    """Relocate orphaned non-.md assets to `<inbox-assets>`.
 
     Per CONFIG § File handling: orphaned non-markdown assets (not already under
-    a `*/00-Assets/` folder) route to `<inbox>/00-Assets/` for the user to place —
+    a placed-asset folder) route to `<inbox-assets>` for the user to place —
     never the bare inbox root, never a new top-level folder. Assets are
     frontmatter-exempt: this pass moves the file only and never stamps `type`,
     `tags`, `date`, or any metadata on it.
@@ -1282,9 +1288,9 @@ def pass10_loose_assets(all_md: list[Path], all_non_md: list[Path]) -> None:
                 referenced.add(ref.strip())
                 referenced.add(Path(ref).name)
 
-    # Orphan assets route to `<inbox>/00-Assets/` (CONFIG § File handling) — not
+    # Orphan assets route to `<inbox-assets>` (CONFIG § File handling) — not
     # the bare inbox root.
-    orphan_folder = INBOX_FOLDER / "00-Assets"
+    orphan_folder = VAULT_ROOT / INBOX_ASSETS_REL
 
     for asset_path in all_non_md:
         # Skip if in inbox or any project subtree
@@ -1304,8 +1310,8 @@ def pass10_loose_assets(all_md: list[Path], all_non_md: list[Path]) -> None:
         except ValueError:
             pass
 
-        # Skip assets already living under a placed-asset home (inbox staging
-        # `00-Assets`, or a `02-Assets`/`99-Assets` home) — they are placed.
+        # Skip assets already living under a placed-asset home (the inbox
+        # staging folder or a CONFIG § Asset folders home) — they are placed.
         if _PLACED_ASSET_DIRS & set(asset_path.parts):
             continue
 
@@ -1354,8 +1360,8 @@ def pass11_project_folder(path: Path, fm: dict, basename_index: dict[str, list[P
         return
 
     # The `project:` value is a WIKILINK, not a literal folder name — e.g.
-    # `project: "[[00-X]]"` points at the project's index note
-    # `01-Projects/X/00-X.md`. The project exists when the link target
+    # `project: "[[X]]"` points at the project's folder-note cover
+    # `<projects>/X/X.md` (legacy: `00-X.md`). The project exists when the link target
     # resolves anywhere under the projects root; the check is link
     # resolution, not folder-name equality. (Fixes the live false positive
     # where every index-linked project was reported missing.)
@@ -1525,19 +1531,20 @@ def _build_known_dir_names() -> frozenset[str]:
     """
     known: set[str] = set()
     for folder_str in FOLDER_ROUTING:
-        # Add each path segment (e.g. '02-Areas/00-Journal' adds both parts)
+        # Add each path segment (e.g. 'Areas/Journal' adds both parts)
         for part in Path(folder_str).parts:
             known.add(part)
     for subfolder in SUBFOLDERS:
         # Add each path segment, dropping `<placeholder>` parts so e.g.
-        # '99-Logs/<agent-name>' contributes the literal '99-Logs'.
+        # 'Logs/<agent-name>' contributes the literal 'Logs'.
         for part in Path(subfolder).parts:
             if not (part.startswith("<") and part.endswith(">")):
                 known.add(part)
-    # Operational folders the scaffold creates on demand: the inbox action /
-    # checkpoint staging (CONFIG § Types `checkpoint`), the asset staging, and the
-    # asset homes (`02-Assets`, `99-Assets`/`<catchall>`; CONFIG § Asset folders).
-    known.update({"00-Actions", "Checkpoints", "00-Assets"} | ASSET_HOME_DIRS)
+    # Operational folders the scaffold creates on demand: the asset staging
+    # (<inbox-assets>), the asset homes (CONFIG § Asset folders), and retired
+    # legacy surfaces still present in older installs.
+    known.update({"00-Actions", "Checkpoints", "00-Assets", _ASSETS_DIR_NAME}
+                 | ASSET_HOME_DIRS)
     return frozenset(known)
 
 
@@ -1562,8 +1569,9 @@ def _is_known_dir(dir_path: Path) -> bool:
     for slug in container_slugs:
         if name.endswith(f"-{slug}"):
             return True
-    # A per-agent log subfolder under 99-Logs (CONFIG § Subfolders: log → 99-Logs/<agent-name>)
-    if dir_path.parent.name == "99-Logs":
+    # A per-agent log subfolder under the logs root (CONFIG § Subfolders:
+    # log → Logs/<agent-name>; legacy installs used 99-Logs).
+    if dir_path.parent.name in (_LOGS_DIR_NAME, "99-Logs"):
         return True
     # A direct child of a content root (a FOLDER_ROUTING folder carrying a
     # type-default — projects, areas, reference, snippets) is a typed-content
@@ -1610,7 +1618,7 @@ def pass15_unprocessed_content(all_md: list[Path], all_non_md: list[Path]) -> No
     Three categories, with the frontmatter-exception and hands-off sets
     subtracted first so protected files never qualify:
 
-    1. Loose non-.md files not already under a `*/00-Assets/` folder.
+    1. Loose non-.md files not already under a placed-asset folder.
     2. Markdown files missing one or more required frontmatter fields
        (`type`, `tags`, `date`), excluding files that are frontmatter-exempt
        per CONFIG § File handling.
@@ -1620,17 +1628,17 @@ def pass15_unprocessed_content(all_md: list[Path], all_non_md: list[Path]) -> No
 
     Detections are emitted via `_log_detect` and collected into the
     `## Unprocessed content` section of the run log. The stage-to-inbox step
-    (moving detected items to `<inbox>/00-Assets/`) is the janitor agent's
+    (moving detected items to `<inbox-assets>`) is the janitor agent's
     responsibility, not the script's, so this pass only logs.
     """
     inbox_folder_path = INBOX_FOLDER
-    assets_folder_name = "00-Assets"
+    assets_folder_name = _ASSETS_DIR_NAME
     required_fields = set(FILE_HANDLING.global_frontmatter)  # typically type, tags, date
 
     # Category 1: loose non-.md files not under a placed-asset home
     for p in all_non_md:
         if _PLACED_ASSET_DIRS & set(p.parts):
-            continue  # already placed (00-Assets staging, 02-/99-Assets homes)
+            continue  # already placed (inbox staging or an asset home)
         if _is_hands_off(p):
             continue
         _log_detect("loose-non-md", _rel(p))
@@ -1971,7 +1979,7 @@ def pass18_hooks_registration() -> None:
 
 def pass13_drift_detection() -> None:
     """Compare types in vault-state-index to normalize_type to find drift."""
-    state_index = ARCHIVE_FOLDER / "99-Logs" / "Vault-State-Index.md"
+    state_index = VAULT_ROOT / LOGS_REL / "Vault-State-Index.md"
     if not state_index.exists():
         return
 

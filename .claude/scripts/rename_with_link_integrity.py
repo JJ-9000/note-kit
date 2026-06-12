@@ -13,7 +13,7 @@ Resolution pattern:
        source is gone, return a no-op success (re-run on completed rename).
     2. Enumerate inbound wikilinks: glob `**/*.md` under `vault_root`, find
        every `[[<source-basename>]]`, `[[<source-basename>|alias]]`, or
-       `[[<source-basename>#section|alias]]` outside `99-Archive/` and outside
+       `[[<source-basename>#section|alias]]` outside the `<archive>` root and outside
        every dot-directory (CONFIG § Folders / Scan exclusions — `.claude`,
        `.obsidian`, `.trash`, …).
     3. Copy source -> dest (the new location IS the preserved copy — never
@@ -21,10 +21,10 @@ Resolution pattern:
     4. Update every inbound wikilink to point to the new basename, keeping
        any `#section` anchor and `|alias` display text.
     5. Verify zero stragglers: re-grep for `[[<source-basename>]]` outside
-       `99-Archive/`. Anything left aborts the operation.
+       the `<archive>` root. Anything left aborts the operation.
     6. Remove the original source only after the destination is verified to
        exist with matching content.
-    7. Append a log entry to `99-Archive/Rename-Log.md` (source, dest, every
+    7. Append a log entry to `<archive>/Rename-Log.md` (source, dest, every
        updated file, replacement count).
 
 Public API:
@@ -58,6 +58,7 @@ from wikilink_helpers import (  # noqa: E402
 
 
 ARCHIVE_PREFIX = _folder_by_semantic("archive")
+PROJECTS_PREFIX = _folder_by_semantic("projects")
 DEFAULT_LOG_RELATIVE = f"{ARCHIVE_PREFIX}/Rename-Log.md"
 
 
@@ -78,7 +79,7 @@ class RenameResult:
 
 
 def _iter_vault_md(vault_root: Path) -> list[Path]:
-    """All `.md` files under `vault_root` outside `99-Archive/` and outside any
+    """All `.md` files under `vault_root` outside the `<archive>` root and outside any
     dot-directory.
 
     Dot-directories (CONFIG § Folders / Scan exclusions — the kit's own
@@ -281,45 +282,45 @@ def _run_integration_tests() -> None:
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
-        (vault / "01-Projects").mkdir()
-        (vault / "01-Projects" / "Other").mkdir()
-        (vault / "99-Archive").mkdir()
+        (vault / PROJECTS_PREFIX).mkdir()
+        (vault / PROJECTS_PREFIX / "Other").mkdir()
+        (vault / ARCHIVE_PREFIX).mkdir()
         # A dot-directory holding a kit file that references the source — the
         # rename must NOT descend into it (scan-exclusion).
         (vault / ".claude").mkdir()
 
-        source = vault / "01-Projects" / "Old-Name.md"
+        source = vault / PROJECTS_PREFIX / "Old-Name.md"
         source.write_text(
             "---\ntype: project\n---\n\n# Old Name\n\nbody\n",
             encoding="utf-8",
         )
-        (vault / "01-Projects" / "ref-bare.md").write_text(
+        (vault / PROJECTS_PREFIX / "ref-bare.md").write_text(
             "See [[Old-Name]] for details.\n", encoding="utf-8"
         )
-        (vault / "01-Projects" / "ref-alias.md").write_text(
+        (vault / PROJECTS_PREFIX / "ref-alias.md").write_text(
             "See [[Old-Name|the old project]] for context.\n", encoding="utf-8"
         )
-        (vault / "01-Projects" / "Other" / "ref-section.md").write_text(
+        (vault / PROJECTS_PREFIX / "Other" / "ref-section.md").write_text(
             "Per [[Old-Name#Architecture|design]], the layout was foo.\n",
             encoding="utf-8",
         )
         # Path-prefixed reference (Obsidian disambiguation form).
-        (vault / "01-Projects" / "ref-path-prefix.md").write_text(
-            "See [[01-Projects/Old-Name]] for full path form.\n",
+        (vault / PROJECTS_PREFIX / "ref-path-prefix.md").write_text(
+            f"See [[{PROJECTS_PREFIX}/Old-Name]] for full path form.\n",
             encoding="utf-8",
         )
         # .md-suffixed reference.
-        (vault / "01-Projects" / "ref-md-suffix.md").write_text(
+        (vault / PROJECTS_PREFIX / "ref-md-suffix.md").write_text(
             "See [[Old-Name.md]] with explicit extension.\n",
             encoding="utf-8",
         )
         # Path-prefixed + section anchor + alias (compound form).
-        (vault / "01-Projects" / "ref-path-section.md").write_text(
-            "Per [[01-Projects/Old-Name#Architecture|the spec]], proceed.\n",
+        (vault / PROJECTS_PREFIX / "ref-path-section.md").write_text(
+            f"Per [[{PROJECTS_PREFIX}/Old-Name#Architecture|the spec]], proceed.\n",
             encoding="utf-8",
         )
         # Archive reference should NOT be touched.
-        (vault / "99-Archive" / "old-session.md").write_text(
+        (vault / ARCHIVE_PREFIX / "old-session.md").write_text(
             "Notes about [[Old-Name]] from earlier.\n", encoding="utf-8"
         )
         # Dot-directory (kit) reference must NOT be touched — it is config, not
@@ -329,8 +330,8 @@ def _run_integration_tests() -> None:
             "Kit doc mentioning [[Old-Name]].\n", encoding="utf-8"
         )
 
-        dest = vault / "01-Projects" / "New-Name.md"
-        log = vault / "99-Archive" / "Rename-Log.md"
+        dest = vault / PROJECTS_PREFIX / "New-Name.md"
+        log = vault / ARCHIVE_PREFIX / "Rename-Log.md"
 
         # --- Case A: fresh rename ---------------------------------------
         result = rename_with_links(source, dest, vault, log)
@@ -361,15 +362,15 @@ def _run_integration_tests() -> None:
             ("ref-md-suffix.md", "[[New-Name]]"),
             ("ref-path-section.md", "[[New-Name#Architecture|the spec]]"),
         ]:
-            content = (vault / "01-Projects" / name).read_text(encoding="utf-8")
+            content = (vault / PROJECTS_PREFIX / name).read_text(encoding="utf-8")
             if expect not in content:
                 print(f"FAIL {name} missing {expect}")
                 failures += 1
-            if "[[Old-Name" in content or "[[01-Projects/Old-Name" in content:
-                print(f"FAIL {name} still contains [[Old-Name... or [[01-Projects/Old-Name...")
+            if "[[Old-Name" in content or f"[[{PROJECTS_PREFIX}/Old-Name" in content:
+                print(f"FAIL {name} still contains [[Old-Name... or [[{PROJECTS_PREFIX}/Old-Name...")
                 failures += 1
         # Archive reference must remain untouched
-        archive_content = (vault / "99-Archive" / "old-session.md").read_text(
+        archive_content = (vault / ARCHIVE_PREFIX / "old-session.md").read_text(
             encoding="utf-8"
         )
         if "[[Old-Name]]" not in archive_content:
@@ -405,8 +406,8 @@ def _run_integration_tests() -> None:
 
         # --- Case C: missing source, missing dest -----------------------
         result3 = rename_with_links(
-            vault / "01-Projects" / "Nonexistent.md",
-            vault / "01-Projects" / "Whatever.md",
+            vault / PROJECTS_PREFIX / "Nonexistent.md",
+            vault / PROJECTS_PREFIX / "Whatever.md",
             vault,
             log,
         )
@@ -417,8 +418,8 @@ def _run_integration_tests() -> None:
             print("OK   case C: missing source aborted as expected")
 
         # --- Case D: dest already exists, source still present ---------
-        src_d = vault / "01-Projects" / "D-Source.md"
-        dst_d = vault / "01-Projects" / "D-Dest.md"
+        src_d = vault / PROJECTS_PREFIX / "D-Source.md"
+        dst_d = vault / PROJECTS_PREFIX / "D-Dest.md"
         src_d.write_text("source\n", encoding="utf-8")
         dst_d.write_text("dest\n", encoding="utf-8")
         result4 = rename_with_links(src_d, dst_d, vault, log)

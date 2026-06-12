@@ -15,17 +15,19 @@ The kit's only user-editable definitions, and the one source of truth its script
 
 The **seven top-level roots** the kit creates and routes to. Everything else is a subfolder under one of these (§ Subfolders) or a named path (the token table below). The `script-skip` column lists the globs the deterministic scripts and linters never touch (`*` = the whole tree, `<name>` matches one segment); agent access is stated in § Agent responsibilities, not here. The inbox `script-skip` globs are the configurable knob for inbox linting — loose drafts are normalized, the listed queue and skill containers are left alone.
 
-| wildcard      | literal       | type-defaults | script-skip                                                  | description                                                                                                                          |
-| ------------- | ------------- | ------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `<inbox>`     | `00-Inbox`    |               | `<user-queue>`, `<type>-`, `<agent>-`, `<skill>-` subfolders | AI drafts land for the user to review — the human review gate; holds `<user-queue>`. Loose drafts are linted; queue + containers skipped |
-| `<outbox>`    | `00-Outbox`   |               | `*`                                                          | the user drops material here for the action-agent to ingest or run — the machine gate; holds `<machine-queue>`                       |
-| `<projects>`  | `01-Projects` | project       |                                                              | active projects                                                                                                                    |
-| `<areas>`     | `01-Areas`    | area          |                                                              | maintained roles and systems; holds the vault-global per-type catch-alls and `<catchall>` (the asset sink)                          |
-| `<reference>` | `01-References`| reference     |                                                              | evergreen knowledge                                                                                                                |
-| `<snippets>`  | `01-Snippets` | snippet       |                                                              | code snippets                                                                                                                      |
-| `<archive>`   | `99-Archive`  |               | `*`                                                          | archived documents and logs; not in active use                                                                                    |
+| wildcard      | literal      | type-defaults | script-skip                                                  | description                                                                                                                          |
+| ------------- | ------------ | ------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `<inbox>`     | `Inbox`      |               | `<user-queue>`, `<type>-`, `<agent>-`, `<skill>-` subfolders | AI drafts land for the user to review — the human review gate; holds `<user-queue>`. Loose drafts are linted; queue + containers skipped |
+| `<outbox>`    | `Outbox`     |               | `*`                                                          | the user drops material here for the action-agent to ingest or run — the machine gate; holds `<machine-queue>`                       |
+| `<projects>`  | `Projects`   | project       |                                                              | active projects                                                                                                                    |
+| `<areas>`     | `Areas`      | area          |                                                              | maintained roles and systems; holds the vault-global per-type catch-alls and `<catchall>` (the asset sink)                          |
+| `<reference>` | `References` | reference     |                                                              | evergreen knowledge                                                                                                                |
+| `<snippets>`  | `Snippets`   | snippet       |                                                              | code snippets                                                                                                                      |
+| `<archive>`   | `Archive`    |               | `*`                                                          | archived documents and logs; not in active use                                                                                    |
 
 A kit folder manually renamed off its `literal` is reverted by `audit.py` and the attempt logged (`folder-reverted`); the analyst proposes adopting a repeated rename here rather than fighting it on disk.
+
+**Explorer order is presentation, never load-bearing.** With the optional UI plugin installed (§ Optional UI plugin), the file explorer sorts the roots semantically — Inbox, Outbox, Projects, Areas, References, Snippets, …, Archive last; without it they sort plain-alphabetically. Nothing reads, routes, or files by position — only the literals above carry meaning.
 
 | token             | resolves to                                                                                                                            |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,13 +35,13 @@ A kit folder manually renamed off its `literal` is reverted by `audit.py` and th
 | `<user-home>`     | the OS home directory of the current user                                                                                              |
 | `<kit-root>`      | `<vault-root>/.claude/` — holds `CONFIG.md`, `CLAUDE.md`, `AGENTS.md`, `RULES.md`, `settings.json`, `settings.local.json` (generated per install), `skills/`, `scheduled-tasks/`, `scripts/`, `hooks/`, `vault-search/` |
 | `<skills>`        | `<kit-root>/skills/`                                                                                                                   |
-| `<inbox-assets>`  | `<inbox>/00-Assets/` — the inbox asset-staging folder; a loose asset found in `<inbox>` moves under an `<asset>-`-named parent here (§ Asset folders) |
-| `<user-queue>`    | `<inbox>/00-User-Queue.md` — the AI writes proposals; the user checks them off                                                         |
-| `<machine-queue>` | `<outbox>/00-Machine-Queue.md` — the user writes a checklist; the AI acts on it                                                        |
-| `<logs>`          | `<archive>/99-Logs/`                                                                                                                   |
+| `<inbox-assets>`  | `<inbox>/Assets/` — the inbox asset-staging folder; a loose asset found in `<inbox>` moves under an `<asset>-`-named parent here (§ Asset folders) |
+| `<user-queue>`    | `<inbox>/User-Queue.md` — the AI writes proposals; the user checks them off                                                            |
+| `<machine-queue>` | `<outbox>/Machine-Queue.md` — the user writes a checklist; the AI acts on it                                                           |
+| `<logs>`          | `<archive>/Logs/`                                                                                                                      |
 | `<history>`       | `<vault-root>/.history/` — cold storage                                                                                                |
 | `<sandbox-vault>` | `<user-home>/Documents/Notes-Sandbox` — the expendable red-team sandbox vault: structure-altering tests and adversarial rounds against vault mechanisms run **only** there, never in the canon vault |
-| `<catchall>`      | `<areas>/99-Assets` — the universal catch-all (sink): unclaimed assets, untyped/unrecognized content, items gone stale in inbox/outbox |
+| `<catchall>`      | `<areas>/Assets` — the universal catch-all (sink): unclaimed assets, untyped/unrecognized content, items gone stale in inbox/outbox |
 
 The vault root itself is the user's draft space (§ File handling); only the folders above are kit-managed.
 
@@ -63,31 +65,31 @@ The `type:` vocabulary. `additional-frontmatter` is the keys required beyond the
 | idea      | Title-Case-Hyphens    | parent                 | parent's `<idea>/` subfolder, else `<areas>/<ideas>/`                                     | single-shot capture of a spark                                                                                                                                                                               |
 | snippet   | kebab-case            | parent                 | `<snippets>/`                                                                             | functional code, ready to paste                                                                                                                                                                              |
 | source    | Title-Case-Hyphens    | parent                 | parent's `<sources>/` subfolder, else `<areas>/<sources>/`                                | external artifact supporting another document                                                                                                                                                                |
-| index     | Title-Case-Hyphens    |                        | the folder it covers (its `00-` or `01-` cover note, § Numbering)                         | a folder's cover note linking **every** child for scoped navigation; only the direct children of a root (project, area, reference domain, snippet group) carry one — never a deeper subfolder or the archive |
+| index     | Title-Case-Hyphens    |                        | the folder it covers (its folder-note cover — the file named after the folder, § Numbering) | a folder's cover note linking **every** child for scoped navigation; only the direct children of a root (project, area, reference domain, snippet group) carry one — never a deeper subfolder or the archive |
 | addendum  | Title-Case-Hyphens    | target                 | `<inbox>/` if unreviewed, `<archive>/<inbox>/<addendum>/` when completed                  | transient edit merging into its target                                                                                                                                                                       |
 | log       | kebab-case            |                        | parent's `<logs>/` subfolder, else `<archive>/<logs>/<agent> or <skill>/`                 | operational log scoped to an agent or session run                                                                                                                                                            |
 | revision  | Title-Case-Hyphens    | target                 | target's `<notes>/<revision>-<version>` subfolder, else `<archive>/<target>/<revisions>/` | edited working copy produced by the review skill                                                                                                                                                             |
 
 ## Subfolders
 
-Patterns accepted under a parent folder, so a project's design or format notes live under that project. The `type-role` is the lookup key; the `subfolder` is its on-disk literal. Agents consult this list against their produced content for inference. The numeric prefix orders and emphasizes folders visually. **Subfolders are optional and on-demand** — created only when content needs one; an empty one is pruned automatically (the housekeeping script). No rigid pre-built tree, no hard boundary beyond what organizes the content.
+Patterns accepted under a parent folder, so a project's design or format notes live under that project. The `type-role` is the lookup key; the `subfolder` is its on-disk literal — a plain type-derived name (a legacy install's prefixed names are still recognised, § Numbering). Agents consult this list against their produced content for inference. **Subfolders are optional and on-demand** — created only when content needs one; an empty one is pruned automatically (the housekeeping script). No rigid pre-built tree, no hard boundary beyond what organizes the content.
 
-| type-role | subfolder              | description                                 |
-| --------- | ---------------------- | ------------------------------------------- |
-| session   | `01-Sessions`          | session work logs scoped to the parent      |
-| research  | `01-Research`          | research notes scoped to the parent         |
-| note      | `01-Notes`             | plain notes scoped to the parent            |
-| voice     | `01-Voice`             | prose-voice notes scoped to the parent      |
-| design    | `01-Design`            | design notes scoped to the parent           |
-| format    | `01-Format`            | format notes scoped to the parent           |
-| source    | `01-Sources`           | source material scoped to the parent        |
-| idea      | `01-Ideas`             | quick ideas                                 |
-| journal   | `00-Journal`           | journal entries (always the Areas home; never parent-scoped — § Types one-rung) |
-| plan      | `00-Plans`             | plans for future work                       |
-| revision  | `01-Review`            | review working copies filed under a project |
-| (asset)   | `02-Assets`            | non-markdown assets scoped to the parent    |
-| log       | `99-Logs`              | operational logs scoped to the parent       |
-| log       | `99-Logs/<agent-name>` | one log subfolder per agent                 |
+| type-role | subfolder            | description                                 |
+| --------- | -------------------- | ------------------------------------------- |
+| session   | `Sessions`           | session work logs scoped to the parent      |
+| research  | `Research`           | research notes scoped to the parent         |
+| note      | `Notes`              | plain notes scoped to the parent            |
+| voice     | `Voice`              | prose-voice notes scoped to the parent      |
+| design    | `Design`             | design notes scoped to the parent           |
+| format    | `Format`             | format notes scoped to the parent           |
+| source    | `Sources`            | source material scoped to the parent        |
+| idea      | `Ideas`              | quick ideas                                 |
+| journal   | `Journal`            | journal entries (always the Areas home; never parent-scoped — § Types one-rung) |
+| plan      | `Plans`              | plans for future work                       |
+| revision  | `Revisions`          | review working copies filed under a project |
+| (asset)   | `Assets`             | non-markdown assets scoped to the parent    |
+| log       | `Logs`               | operational logs scoped to the parent       |
+| log       | `Logs/<agent-name>`  | one log subfolder per agent                 |
 
 ## File handling
 
@@ -100,9 +102,9 @@ Required frontmatter on every vault `.md`: `type`, `tags`, `date`, plus the per-
 | `*/<skill-name>/*.md` | none | skill-internal docs |
 | `<archive>/**`, `<history>/**` | preserved as filed | archive and cold storage are never normalized |
 | `<user-queue>`, `<machine-queue>` | none | user-interaction files |
-| `99-Assets/*`, `02-Assets/*` | none | assets carry no metadata (the `<catchall>` sink and any project asset subfolder) |
+| `Assets/*` | none | assets carry no metadata (the `<catchall>` sink, `<inbox-assets>` staging, and any parent asset subfolder) |
 
-The kit-root files (`CONFIG.md`, `CLAUDE.md`, `AGENTS.md`, `RULES.md`) and `<vault-root>/README.md` are exempt by § Scan exclusions and § Operational documents. **Version token:** `vNNN`, zero-padded — `-vNNN` for hyphen/kebab names, `_vNNN` for snake_case. **A revision increments to the next single `vNNN`** (`v005` → `v006`); stacked suffixes (`v005_v002`) are malformed and corrected on sight. Title case and numbering prefixes are enforced by `audit.py` (§ Numbering; the format note holds the title-case rule). The idea lifecycle (handoff stamps, the janitor archives) and orphaned-asset routing are defined in those agents' SKILLs.
+The kit-root files (`CONFIG.md`, `CLAUDE.md`, `AGENTS.md`, `RULES.md`) and `<vault-root>/README.md` are exempt by § Scan exclusions and § Operational documents. **Version token:** `vNNN`, zero-padded — `-vNNN` for hyphen/kebab names, `_vNNN` for snake_case. **A revision increments to the next single `vNNN`** (`v005` → `v006`); stacked suffixes (`v005_v002`) are malformed and corrected on sight. Title case is enforced by `audit.py` (the format note holds the title-case rule); legacy numbering prefixes stay recognised but are never added (§ Numbering). The idea lifecycle (handoff stamps, the janitor archives) and orphaned-asset routing are defined in those agents' SKILLs.
 
 **A queue-approved frontmatter repair keeps `reviewed: true`; a content edit resets it.**
 
@@ -121,16 +123,18 @@ A **living document** — a project or area cover, a canonical plan — is **mai
 
 ## Numbering
 
-Depth markers prefix a folder or a structural note file; authored content (notes, entries, references, sources, snippets) stays unprefixed. A script reads a marker by role and re-orders files by association as they arrive and leave.
+**The folder-note cover convention is the default.** A folder's cover note is the file named exactly after the folder — `Note-Kit/Note-Kit.md`, `<projects>/Glass-Fracture/Glass-Fracture.md` — and folders carry plain type-derived names with no depth markers. Authored content (notes, entries, references, sources, snippets) is never prefixed; nothing in the default scheme carries a numeric marker, and a fresh scaffold creates none.
 
-| marker | depth  | role                                                                                                                                                                        |
+An index is the folder's folder-note cover and keeps a current link to **every** child, so a scoped lookup never needs a whole-vault search (`audit` checks the links, the janitor corrects them, an empty index is pruned). An index entry always points at a **filed** home, never an `<inbox>` path; an entry made early is corrected in the pass that files its member.
+
+**Legacy numeric markers.** Existing installs may still run the prefixed scheme below. The tokens stay recognised by the scripts and the UI plugin — a legacy cover (`00-X.md` / `01-X.md`) still reads as the folder's index, and a prefixed folder still resolves to its role — but they are no longer scaffolded and never added to new content.
+
+| marker | depth  | role (legacy)                                                                                                                                                                |
 | ------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `00-`  | top    | intake or operational file, a project/area cover note, a singular plan when it is the root's top note. `00-` is reserved first for operational files; content that supersedes others of its type. |
-| `01-`  | sub    | a sub-element below the top: a canonical plan when it is not the top note, supporting content, **or a root's cover index** (the live convention — `01-Houdini`, `01-Design`).                     |
-| `02-`  | detail | a detail of a sub-element: Ex: a plan's changelog, sources and one-off notes.                                                                                               |
-| `99-`  | sink   | cold material that sorts out of sight: logs, archived content                                                                                                               |
-
-An index is the folder's `00-` **or `01-`** cover note (both valid; `00-` is reserved first for operational/intake files) and keeps a current link to **every** child, so a scoped lookup never needs a whole-vault search (`audit` checks the links, the janitor corrects them, an empty index is pruned). An index entry always points at a **filed** home, never an `<inbox>` path; an entry made early is corrected in the pass that files its member. A project's canonical plan is `00-` when it is the project's top note, else `01-`; a plan's split changelog is `02-`. Correct the role to specify specific type handling.
+| `00-`  | top    | intake or operational file, a project/area cover note, a singular plan when it is the root's top note; reserved first for operational files                                  |
+| `01-`  | sub    | a sub-element below the top: a canonical plan when it is not the top note, supporting content, or a root's cover index (`01-Houdini`, `01-Design`)                            |
+| `02-`  | detail | a detail of a sub-element: a plan's changelog, sources and one-off notes                                                                                                     |
+| `99-`  | sink   | cold material that sorts out of sight: logs, archived content                                                                                                                |
 
 ## Loop budget
 
@@ -150,13 +154,13 @@ The vault walk never descends into a directory whose name begins with `.` — to
 
 ## Asset folders
 
-A folder classified as an **asset** is an opaque, hands-off unit — a repo, a structured export, a captured file tree. The deterministic walk never descends into it, the linters never touch its interior, and the filing-agent moves it **whole** to its home (a project's `02-Assets/<folder>/`, else `<catchall>`) rather than scattering its members by type. The classification holds **wherever the folder lives — in the inbox and after filing** — so a filed asset is never re-flagged or over-corrected: like `script-skip`, but earned by classification rather than fixed to a root.
+A folder classified as an **asset** is an opaque, hands-off unit — a repo, a structured export, a captured file tree. The deterministic walk never descends into it, the linters never touch its interior, and the filing-agent moves it **whole** to its home (a project's `Assets/<folder>/`, else `<catchall>`) rather than scattering its members by type. The classification holds **wherever the folder lives — in the inbox and after filing** — so a filed asset is never re-flagged or over-corrected: like `script-skip`, but earned by classification rather than fixed to a root.
 
 A folder is an asset when **any** trigger below fires. `config_variables` parses this table and exposes `is_asset_folder(path)`; `audit.py` and `build_state_index` prune an asset folder from the walk (one outer record, interior never enumerated); the filing, action, and janitor agents read the same predicate **as the first check, before any inference, stamp, or in-folder action** — a file inside an asset folder is never typed, parented, or normalized — and a destructive op is refused inside one.
 
 **A live-process tree is immovable.** A tree a running process is writing into stays where it is until the process ends — no filing, no relocation, no linting.
 
-**A plan gates its linked assets.** The inbox draft gate (`reviewed`) governs notes; an asset's review is its plan's approval. When a plan files — or is already filed — each workspace it names lands whole in the plan's project `02-Assets/`, the plan's path references repaired in the same pass. **The source decides the verb:** a workspace inside `<vault-root>` (the inbox, a root-level folder) **moves** (copy → verify → delete); a workspace outside `<vault-root>` — a repo, a tool directory, any external path — is **copied, never moved or deleted**. The external original stays untouched, and the copy notes its source path and date.
+**A plan gates its linked assets.** The inbox draft gate (`reviewed`) governs notes; an asset's review is its plan's approval. When a plan files — or is already filed — each workspace it names lands whole in the plan's project `Assets/`, the plan's path references repaired in the same pass. **The source decides the verb:** a workspace inside `<vault-root>` (the inbox, a root-level folder) **moves** (copy → verify → delete); a workspace outside `<vault-root>` — a repo, a tool directory, any external path — is **copied, never moved or deleted**. The external original stays untouched, and the copy notes its source path and date.
 
 **A loose asset in `<inbox>`** (an image, PDF, binary, or export not already under an asset folder) moves under an `<asset>-`-named parent in `<inbox-assets>`; the filing-agent creates the parent when none exists. Never stamped, never sent to a new top-level folder, never left at the bare inbox root.
 
@@ -166,7 +170,7 @@ A folder is an asset when **any** trigger below fires. `config_variables` parses
 | `marker`   | the folder holds a `.keep-whole` sentinel file                                    |
 | `vcs`      | the folder holds `.git`, `.hg`, or `.svn`                                          |
 | `manifest` | the folder holds `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, or `Makefile` |
-| `home`     | the folder sits under an asset home — `02-Assets` or `99-Assets`                   |
+| `home`     | the folder sits under an asset home — `Assets` (legacy `02-Assets`, `99-Assets`)   |
 
 Beyond this table, the filing-agent also treats a container whose members carry **no kit frontmatter at all** as an asset (it has nothing to file by type); mining a folder *into* notes instead is the deliberate note-kit-processor path, not the default.
 
@@ -282,8 +286,8 @@ The one home for what blocks work and what is pre-approved; both tables are **us
 | ----- | ------------------ | ------------ |
 | approved kit fix | an `[x]` queue item naming the kit file and the change — scripts, SKILLs, hooks, CONFIG | archive-first; apply; re-read and diff-verify; one log line |
 | local agent redeploy | copy vault-source `scheduled-tasks/` SKILLs to `<user-home>/.claude/scheduled-tasks/note-kit-*` on an approved item | hash-compare every copied file; pre-redeploy copies archived |
-| note-kit-ui pipeline | edit plugin source in the repo working tree (`01-Areas/Note-Kit/02-Assets/note-kit/plugin/note-kit-ui/src/` — a named development workspace), esbuild, deploy `main.js`+`styles.css` to `.obsidian/plugins/note-kit-ui/`, reload | desktop screenshot via obsidian-cli; only the on-device mobile look stays user-presence |
-| local automation build | build and test headless tooling on this machine (e.g. a hython/headless-Houdini spawner) under a project's `02-Assets/` workspace | the build's own test output; anything needing a licensed GUI app or the user's eyes splits off as user-presence |
+| note-kit-ui pipeline | edit plugin source in the repo working tree (`<areas>/Note-Kit/Assets/note-kit/plugin/note-kit-ui/src/` — a named development workspace), esbuild, deploy `main.js`+`styles.css` to `.obsidian/plugins/note-kit-ui/`, reload | desktop screenshot via obsidian-cli; only the on-device mobile look stays user-presence |
+| local automation build | build and test headless tooling on this machine (e.g. a hython/headless-Houdini spawner) under a project's `Assets/` workspace | the build's own test output; anything needing a licensed GUI app or the user's eyes splits off as user-presence |
 
 ## Harness permissions
 
@@ -395,7 +399,7 @@ Scheduled agents run from `<user-home>/.claude/scheduled-tasks/note-kit-*` via t
 
 Importing cold material (`<history>`, an old vault) back into active use is a gated protocol, never an ad-hoc copy:
 
-1. One container per batch: `<inbox>/<domain>-Review/` with a `00-Reintegration-Manifest.md` **gate file** (contents, compatibility check, proposed homes).
+1. One container per batch: `<inbox>/<domain>-Review/` with a `Reintegration-Manifest.md` **gate file** (contents, compatibility check, proposed homes).
 2. **Copy, never move** — the cold original stays in place until the import is filed and confirmed.
 3. Every batch updates its row in the **History-Reintegration-Tracker** (a filed canonical note under the Note-Kit area — not an inbox draft), which dispositions every cold set as keep-cold or import. Cold content has no other route into the corpus.
 
@@ -422,7 +426,8 @@ A new script registers its trigger here in the same change.
 | script | trigger |
 |---|---|
 | `config_variables.py` | imported by every kit script at startup |
-| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Regenerates the CLAUDE/AGENTS orientation tables and `## Always-on rules` blocks, generates `RULES.md` from § Rules (reminder column, full text where empty), stamps the § Pipeline protocol block into the pipeline skills, and mirrors § Harness permissions into `settings.local.json` (merge, hand-added entries preserved) |
+| `config_shape.py` | head of every `sync_config.py` run (sync aborts on a refusal); manual invocation supported. Validates this file's load-bearing tables (§ Folders, § Types, § Numbering, § Rules): repairs safe drift in place (whitespace, missing pipes, separator rows) and refuses unsafe drift (missing required row/column, duplicate token, unparseable literal) with a file:line report |
+| `sync_config.py` | end of any session that edited `CONFIG.md`; daily. Runs `config_shape.py` first, regenerates the CLAUDE/AGENTS orientation tables and `## Always-on rules` blocks, generates `RULES.md` from § Rules (reminder column, full text where empty), stamps the § Pipeline protocol block into the pipeline skills, and mirrors § Harness permissions into `settings.local.json` (merge, hand-added entries preserved) |
 | `build_state_index.py` | start of each janitor-agent run (apply mode — a detect-only audit refreshes nothing); consumed again by analyst-agent. Records a per-file body content hash in the snapshot; `reviewed-stale` fires only on a recorded content change newer than the review, with bulk-touch (≥10 shared mtimes) and reciprocal-pair findings suppressed; counts archived members for lifecycle types so a healthy lifecycle never reads `type-unused`; flags a loose non-md asset whose identical bytes recur (`duplicate-asset`) or whose filename carries divergent content (`diverged-asset`) within one owning root — asset folders (git/`.keep-whole`) and `complete` projects excluded, the janitor reconciles |
 | `audit.py` (at `<kit-root>/scheduled-tasks/janitor-agent/`) | each janitor-agent run; detect-only by default, writes only with `--apply`; invokes normalize_type, normalize_tag, rename_with_link_integrity, and subfolder_housekeeping inline; reverts an off-canon kit folder name; resolves missing dates deterministically (archive provenance → session date → import date, tagged `inferred`); flags a duplicate canonical plan per scope (`duplicate-canonical-plan`); validates hook registrations in `settings.json`/`settings.local.json` — a malformed matcher group is silently ignored by the runner, so a dead or script-less registration is flagged (`dead-hook-registration`, `missing-hook-script`, `hooks-settings-unparseable`); never walks the vault root's loose files or an asset folder's interior |
 | `subfolder_housekeeping.py` | inline by audit.py each janitor run; prunes empty subfolders and empty indexes (deterministic) |

@@ -33,6 +33,10 @@ normalize_tag(value: str) -> str | None
 levenshtein_le1(a: str, b: str) -> bool
 folder_for_wildcard(wildcard: str) -> str | None
 is_excluded_dir(name: str) -> bool       dot-directory scan-exclusion test
+token_path(token: str, fallback: str | None = None) -> str
+                                         vault-relative path for a § Folders
+                                         token-table token (`<user-queue>`,
+                                         `<logs>`, `<inbox-assets>`, …)
 """
 
 from __future__ import annotations
@@ -281,7 +285,7 @@ def _parse_folders(text: str) -> dict[str, RoutingRow]:
     layout) becomes RoutingRow.folder and the dict key; the `<token>` wildcard
     becomes RoutingRow.wildcard. Backticks are stripped from every cell —
     CONFIG-v005 writes the literal, wildcard, and each hands-off token wrapped in
-    backticks (e.g. `00-Inbox`, `<inbox>`, `*`), and the hands-off matchers
+    backticks (e.g. `Inbox`, `<inbox>`, `*`), and the hands-off matchers
     downstream compare against the bare token (`*`, `<name>`, `Sessions/`).
     """
     # Discover which columns this CONFIG actually presents, then map the two
@@ -699,10 +703,66 @@ def _parse_cold_storage(text: str) -> tuple[int, str]:
     return retention_days, history_dir
 
 
+def _parse_named_token_paths(text: str) -> dict[str, str]:
+    """Parse the § Folders token table (`token | resolves to`) into raw values.
+
+    Each parsed row's first cell is one backticked `<token>` and its value is
+    the FIRST backticked span of the second cell (e.g. `<inbox>/User-Queue.md`).
+    Rows whose second cell carries no backticked span — pure-prose resolutions
+    like `<user-home>` — are skipped. Values stay raw here; `token_path`
+    expands embedded `<wildcard>` references against § Folders.
+    """
+    result: dict[str, str] = {}
+    row_re = re.compile(r"^\|\s*`<([\w-]+)>`\s*\|\s*([^\n]*)\|\s*$", re.MULTILINE)
+    for m in row_re.finditer(text):
+        token, rest = m.group(1), m.group(2)
+        span = re.search(r"`([^`]+)`", rest)
+        if span and token not in result:
+            result[token] = span.group(1).strip()
+    return result
+
+
+def token_path(token: str, fallback: Optional[str] = None) -> str:
+    """Vault-relative path for a § Folders token-table token.
+
+    Accepts the token with or without angle brackets. Embedded `<wildcard>`
+    references expand against the § Folders literals first (`<inbox>` →
+    `Inbox`), then against the token table itself; the result is returned with
+    any trailing slash stripped (e.g. token_path('<logs>') -> 'Archive/Logs').
+    Raises ConfigLookupError when the token is undefined and no fallback is
+    given — scripts must never silently invent a path.
+    """
+    key = token.strip().strip("<>")
+    raw = NAMED_TOKEN_PATHS.get(key)
+    if raw is None:
+        if fallback is not None:
+            return fallback
+        raise ConfigLookupError(
+            f"No `<{key}>` row in the CONFIG § Folders token table. "
+            f"Known tokens: {sorted(NAMED_TOKEN_PATHS)}"
+        )
+
+    def _expand(value: str, depth: int = 0) -> str:
+        if depth > 4:  # cycle guard
+            return value
+        def repl(m: "re.Match[str]") -> str:
+            inner = m.group(1)
+            by_folder = folder_for_wildcard(inner)
+            if by_folder is not None:
+                return by_folder
+            nested = NAMED_TOKEN_PATHS.get(inner)
+            if nested is not None:
+                return _expand(nested, depth + 1)
+            return m.group(0)
+        return re.sub(r"<([\w-]+)>", repl, value)
+
+    return _expand(raw).strip().strip("/")
+
+
 def folder_for_wildcard(wildcard: str) -> Optional[str]:
     """Return the literal folder name for a `<wildcard>` token, or None.
 
-    Resolves against the `wildcard` column (e.g. '<inbox>' -> '00-Inbox').
+    Resolves against the `wildcard` column (e.g. '<inbox>' -> 'Inbox').
     Accepts the token with or without angle brackets.
     """
     token = wildcard.strip()
@@ -719,16 +779,16 @@ def _folder_by_semantic(needle: str) -> str:
 
     Resolution order:
         1. The `wildcard` column — '<inbox>' etc. (exact, unambiguous).
-        2. Numeric-prefix-stripped basename equality, which supports an older
-           CONFIG format without a wildcard column (e.g. '00-Inbox' -> 'inbox').
+        2. Numeric-prefix-stripped basename equality, which supports a legacy
+           CONFIG without a wildcard column (e.g. '00-Inbox' -> 'inbox').
 
     Returns the folder path string (as stored in FOLDER_ROUTING). Raises
     ConfigLookupError if zero or multiple rows match.
 
     Examples:
-        '00-Inbox'    -> needle 'inbox'    matches
-        '99-Archive'  -> needle 'archive'  matches
-        '01-Snippets' -> needle 'snippets' matches
+        'Inbox'       -> needle 'inbox'    matches
+        '99-Archive'  -> needle 'archive'  matches (legacy prefixed literal)
+        'Snippets'    -> needle 'snippets' matches
     """
     needle_lower = needle.lower().strip()
 
@@ -819,6 +879,9 @@ _CONFIG_TEXT = _CONFIG.read_text(encoding="utf-8")
 
 # Parse in dependency order: FOLDER_ROUTING first (needed by _folder_by_semantic)
 FOLDER_ROUTING: dict[str, RoutingRow] = _parse_folders(_CONFIG_TEXT)
+# § Folders token table — named paths (`<user-queue>`, `<logs>`, …), raw values;
+# resolve through token_path().
+NAMED_TOKEN_PATHS: dict[str, str] = _parse_named_token_paths(_CONFIG_TEXT)
 TYPES: dict[str, TypeRow] = _parse_types(_CONFIG_TEXT)
 SUBFOLDERS: dict[str, SubfolderRow] = _parse_subfolders(_CONFIG_TEXT)
 TAGS: dict[str, TagRow] = _parse_tags(_CONFIG_TEXT)
@@ -897,6 +960,15 @@ if __name__ == "__main__":
     # Wildcard column resolution
     print(f"folder_for_wildcard('<projects>') -> {folder_for_wildcard('<projects>')!r}")
     assert folder_for_wildcard("<archive>") == archive
+
+    # Token-table named paths (queues, staging, logs, catchall)
+    for tok in ("user-queue", "machine-queue", "inbox-assets", "logs", "catchall"):
+        resolved = token_path(tok)
+        print(f"token_path({tok!r}) -> {resolved!r}")
+        assert resolved and "<" not in resolved, f"token_path({tok!r}) unresolved: {resolved!r}"
+    assert token_path("user-queue").startswith(inbox), "user-queue must live under <inbox>"
+    assert token_path("logs").startswith(archive), "<logs> must live under <archive>"
+    assert token_path("no-such-token", "X") == "X", "token_path fallback failed"
 
     # Scan exclusions — named subset parsed, dot-directory convention applied.
     assert ".claude" in SCAN_EXCLUDE_DIRS, "SCAN_EXCLUDE_DIRS missing .claude"

@@ -6,12 +6,11 @@ Creates a clean, self-consistent vault from this kit's own CONFIG.md.
 
 Produces:
   - Folder structure declared in CONFIG.md § Folders (wildcard rows skipped),
-    plus the on-demand inbox subfolders the skills write into first
-    (<inbox>/00-Assets/) and
-    <archive>/99-Logs/.
+    plus the on-demand subfolders the skills write into first
+    (<inbox-assets> and <logs>, both resolved from the CONFIG token table).
   - The two queue files, seeded with worked example items a new user can check
-    off or delete: <machine-queue> (<outbox>/00-Machine-Queue.md, a user->AI
-    checklist) and <user-queue> (<inbox>/00-User-Queue.md, one example proposal
+    off or delete: <machine-queue> (<outbox>/Machine-Queue.md, a user->AI
+    checklist) and <user-queue> (<inbox>/User-Queue.md, one example proposal
     in the canonical proposal shape).
   - Optionally (--with-ui-plugin <dir>): installs the note-kit-ui Obsidian
     plugin (main.js / manifest.json / styles.css copied into
@@ -28,7 +27,6 @@ Produces:
   - A <vault>/.mcp.json registering the vault-search daemon as the `vault`
     HTTP MCP server, so mcp__vault__vault_search is available once the daemon
     is installed + running and the server is approved in Claude Code.
-  - An empty 00-Inbox/00-Action-Queue.md carrying the queue preamble.
   - A sync-config pass (--vault-root) populating .claude/CLAUDE.md §
     Session-start defaults and .claude/AGENTS.md.
 
@@ -75,7 +73,12 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent
 
 sys.path.insert(0, str(_SCRIPTS_DIR))
-from config_variables import FOLDER_ROUTING, SUBFOLDERS, _folder_by_semantic  # noqa: E402
+from config_variables import (  # noqa: E402
+    FOLDER_ROUTING,
+    SUBFOLDERS,
+    _folder_by_semantic,
+    token_path,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -311,19 +314,19 @@ def main() -> None:
 
     # On-demand inbox/archive subfolders the skills and agents write into before
     # anything else creates them — so a first asset or log write does not land in
-    # a missing directory. (Checkpoints and the 00-Actions drop folder are retired
-    # surfaces: the outbox owns drops, and resume state lives in working sets.)
-    _inbox_root = vault / _folder_by_semantic("inbox")
-    _archive_root = vault / _folder_by_semantic("archive")
+    # a missing directory. Both paths come from the CONFIG § Folders token table
+    # (<inbox-assets>, <logs>). (Checkpoints and the 00-Actions drop folder are
+    # retired surfaces: the outbox owns drops, and resume state lives in working
+    # sets.)
     _on_demand_dirs = [
-        _inbox_root / "00-Assets",
-        _archive_root / "99-Logs",
+        vault / token_path("inbox-assets"),
+        vault / token_path("logs"),
     ]
     for d in _on_demand_dirs:
         d.mkdir(parents=True, exist_ok=True)
     print(f"[scaffold] Created {len(_on_demand_dirs)} on-demand inbox/archive subfolders.")
 
-    # § Subfolders (00-Sessions, 00-Research, 00-Plans, 00-Notes, etc.) are
+    # § Subfolders (Sessions, Research, Plans, Notes, etc.) are
     # parent-scoped: they live under a project or area, not at the vault root.
     # A fresh vault has no parent yet, so seeding them globally would produce
     # dangling orphan folders that do not belong to any declared parent. The
@@ -465,43 +468,29 @@ def main() -> None:
 
 
     # ---------------------------------------------------------------------------
-    # 5. 00-Inbox/00-Action-Queue.md — queue preamble, no entries
+    # 5. Seed the two queue files with worked example items (CONFIG § Queue
+    #     protocol): <machine-queue> (<outbox>/Machine-Queue.md — the user
+    #     writes a checklist; the AI acts on it) and <user-queue>
+    #     (<inbox>/User-Queue.md — the AI writes proposals; the user checks
+    #     them off). Both paths resolve from the CONFIG token table. The
+    #     examples are clearly marked so a new user can learn the loop by
+    #     watching it run, then check them off or delete them. Existing queue
+    #     files (in-place / re-run installs) are never clobbered.
     # ---------------------------------------------------------------------------
 
     inbox_folder = _folder_by_semantic("inbox")
     inbox_path = vault / inbox_folder
     inbox_path.mkdir(parents=True, exist_ok=True)
 
-    queue_dest = inbox_path / "00-Action-Queue.md"
-
-    queue_dest.write_text(
-        "# Action Queue\n\n"
-        "Authorized producers: `filing-agent`, `janitor-agent`, `analyst-agent`.\n\n"
-        "<!-- No entries. -->\n",
-        encoding="utf-8",
-    )
-
-    print(f"[scaffold] 00-Action-Queue.md written to {inbox_folder}/.")
-
-
-    # ---------------------------------------------------------------------------
-    # 5b. Seed the two queue files with worked example items (CONFIG § Queue
-    #     protocol): <machine-queue> at <outbox>/00-Machine-Queue.md (the user
-    #     writes a checklist; the AI acts on it) and <user-queue> at
-    #     <inbox>/00-User-Queue.md (the AI writes proposals; the user checks
-    #     them off). The examples are clearly marked so a new user can learn
-    #     the loop by watching it run, then check them off or delete them.
-    #     Existing queue files (in-place / re-run installs) are never clobbered.
-    # ---------------------------------------------------------------------------
-
     outbox_folder = _folder_by_semantic("outbox")
     outbox_path = vault / outbox_folder
     outbox_path.mkdir(parents=True, exist_ok=True)
     _today = date.today().isoformat()
 
-    machine_queue = outbox_path / "00-Machine-Queue.md"
+    machine_queue = vault / token_path("machine-queue")
+    machine_queue.parent.mkdir(parents=True, exist_ok=True)
     if machine_queue.exists():
-        print(f"[scaffold] 00-Machine-Queue.md already present — left as-is.")
+        print(f"[scaffold] {machine_queue.name} already present — left as-is.")
     else:
         machine_queue.write_text(
             "# Machine Queue\n\n"
@@ -515,7 +504,7 @@ def main() -> None:
             "- [ ] plan a small first project so I can watch the project workflow run\n",
             encoding="utf-8",
         )
-        print(f"[scaffold] 00-Machine-Queue.md seeded with example items in {outbox_folder}/.")
+        print(f"[scaffold] {machine_queue.name} seeded with example items in {outbox_folder}/.")
 
     _notes_sub = next(
         (row.subfolder for row in SUBFOLDERS.values()
@@ -527,9 +516,10 @@ def main() -> None:
         else _folder_by_semantic('areas')
     )
 
-    user_queue = inbox_path / "00-User-Queue.md"
+    user_queue = vault / token_path("user-queue")
+    user_queue.parent.mkdir(parents=True, exist_ok=True)
     if user_queue.exists():
-        print(f"[scaffold] 00-User-Queue.md already present — left as-is.")
+        print(f"[scaffold] {user_queue.name} already present — left as-is.")
     else:
         user_queue.write_text(
             "# User Queue\n\n"
@@ -544,7 +534,7 @@ def main() -> None:
             "### Welcome-Note.md needs a home (example)\n\n"
             "An inbox draft needs a home; choose where it files.\n\n"
             f"- [ ] file it as a note under `{_example_note_home}/Welcome-Note.md`\n"
-            "- [ ] keep it in `00-Inbox/` for now\n"
+            f"- [ ] keep it in `{inbox_folder}/` for now\n"
             "- [ ] delete this item — it is only an example\n\n"
             f"_proposed: {_today} by scaffold (example)_\n\n"
             "### Unlisted tag `recipes` (example)\n\n"
@@ -554,7 +544,7 @@ def main() -> None:
             f"_proposed: {_today} by scaffold (example)_\n",
             encoding="utf-8",
         )
-        print("[scaffold] 00-User-Queue.md seeded with example proposals in "
+        print(f"[scaffold] {user_queue.name} seeded with example proposals in "
               f"{inbox_folder}/.")
 
 

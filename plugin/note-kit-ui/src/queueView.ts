@@ -1,0 +1,443 @@
+import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, setIcon, debounce } from "obsidian";
+import {
+	Decision,
+	QueueItem,
+	autoGrow,
+	isOpenDecision,
+	isResolvedDecision,
+	parseDecisions,
+	parseQueueItems,
+	plainText,
+	renderAddTaskBox,
+	renderMachineItemRow,
+	renderReducedRow,
+} from "./nowView";
+import * as queueWrites from "./queueWrites";
+import { CHECKBOX_RE } from "./queueWrites";
+import { attachKeyActivate } from "./holds";
+import type NoteKitUiPlugin from "./main";
+
+export const QUEUE_VIEW_TYPE = "note-kit-queue";
+
+/**
+ * Per-session raw-escape memory: queue paths the user switched to the raw
+ * markdown editor. While a path is here, main.ts does NOT re-route opens of
+ * that file to the clean view — the user has escaped until the session ends
+ * or the "Reopen queue in clean view" command (main.ts) clears it. Module
+ * scope, deliberately: it survives view re-creation but not an app restart.
+ */
+export const rawEscapes = new Set<string>();
+
+/**
+ * Standalone clean view for a queue FILE — the user queue (decisions) or the
+ * machine queue (checklist), path carried in the view state. Renders the same
+ * clean rows the For You buckets show, composed from nowView's exported
+ * renderers, and writes with the same file conventions ([x] pick, the
+ * "*(item skipped)*" marker, appended `- [ ]` tasks).
+ */
+export class QueueView extends ItemView {
+	plugin: NoteKitUiPlugin;
+	/** Vault path of the queue file this leaf shows (view state). */
+	private filePath = "";
+	private decisions: Decision[] = [];
+	private items: QueueItem[] = [];
+	/** Machine mode: lines the clean checklist hides (headings, prose) — counted
+	 * so the view can say they exist instead of silently dropping them. */
+	private otherLines = 0;
+	/** The add-task box (machine mode) — re-focused after an add re-render. */
+	private addInput: HTMLTextAreaElement | null = null;
+	private scheduleRender: () => void;
+
+	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+		this.scheduleRender = debounce(
+			() => {
+				// Never wipe a field the user is typing in — same guard as NowView.
+				const ae = document.activeElement;
+				if (
+					ae instanceof HTMLElement &&
+					(ae.tagName === "TEXTAREA" || ae.tagName === "INPUT") &&
+					this.contentEl.contains(ae)
+				) {
+					this.scheduleRender();
+					return;
+				}
+				void this.reloadAndRender();
+			},
+			250,
+			false
+		);
+	}
+
+	getViewType(): string {
+		return QUEUE_VIEW_TYPE;
+	}
+	getDisplayText(): string {
+		// `.pop()` on an unset path yields "" (never undefined) — `||` catches it.
+		const base = this.filePath.split("/").pop() || "Queue";
+		return base.replace(/\.md$/, "");
+	}
+	getIcon(): string {
+		return "list-checks";
+	}
+
+	getState(): Record<string, unknown> {
+		return { file: this.filePath };
+	}
+
+	async setState(state: unknown, result: ViewStateResult): Promise<void> {
+		const file = (state as { file?: unknown } | null)?.file;
+		this.filePath = typeof file === "string" ? file : "";
+		await super.setState(state as Record<string, unknown>, result);
+		await this.reloadAndRender();
+	}
+
+	async onOpen(): Promise<void> {
+		// React to the queue file changing under us (an agent pass, a sync).
+		this.registerEvent(
+			this.app.vault.on("modify", (f) => {
+				if (f.path === this.filePath) this.scheduleRender();
+			})
+		);
+		this.registerEvent(
+			this.app.vault.on("rename", (f, oldPath) => {
+				// A renamed file carries its raw-escape with it — the old path's
+				// entry would otherwise go stale (and the new path lose its escape).
+				if (rawEscapes.has(oldPath)) {
+					rawEscapes.delete(oldPath);
+					rawEscapes.add(f.path);
+				}
+				if (oldPath === this.filePath) this.filePath = f.path;
+				this.scheduleRender();
+			})
+		);
+		await this.reloadAndRender();
+	}
+
+	async onClose(): Promise<void> {
+		this.contentEl.empty();
+	}
+
+	private file(): TFile | null {
+		const f = this.app.vault.getAbstractFileByPath(this.filePath);
+		return f instanceof TFile ? f : null;
+	}
+
+	/** True when this leaf shows the user queue (decisions); else the machine
+	 * checklist shape applies. */
+	private isUserQueue(): boolean {
+		return this.filePath === this.plugin.settings.userQueuePath;
+	}
+
+	private async reloadAndRender(): Promise<void> {
+		const f = this.file();
+		this.otherLines = 0;
+		if (f) {
+			const content = await this.app.vault.cachedRead(f);
+			if (this.isUserQueue()) {
+				this.decisions = parseDecisions(content);
+				this.items = [];
+			} else {
+				this.items = parseQueueItems(content);
+				this.decisions = [];
+				this.otherLines = countOtherLines(content);
+			}
+		} else {
+			this.decisions = [];
+			this.items = [];
+		}
+		this.render();
+	}
+
+	// ── rendering ──────────────────────────────────────────────────────────────
+
+	private render(): void {
+		const c = this.contentEl;
+		c.empty();
+		this.addInput = null;
+		c.addClass("nkui-now");
+		c.addClass("nkui-queue");
+
+		const f = this.file();
+		const user = this.isUserQueue();
+		const openCount = user
+			? this.decisions.filter(isOpenDecision).length
+			: this.items.filter((i) => !i.done).length;
+
+		// Header — file name, open-item count, and the raw-editor escape.
+		const head = c.createDiv("nkui-queue-head");
+		const tb = head.createDiv("nkui-queue-titleblock");
+		tb.createDiv({ cls: "nkui-queue-title", text: this.getDisplayText() });
+		tb.createDiv({
+			cls: "nkui-queue-itemcount",
+			text: f
+				? `${openCount} open ${openCount === 1 ? "item" : "items"}`
+				: "file not found",
+		});
+		const raw = head.createEl("button", { cls: "clickable-icon nkui-queue-rawbtn" });
+		setIcon(raw, "file-pen-line");
+		raw.setAttr("aria-label", "Edit raw — open the markdown file (re-open restores the clean view via the command)");
+		raw.setAttr("title", "Edit raw");
+		raw.addEventListener("click", () => void this.openRaw());
+
+		if (!f) return;
+		const list = c.createDiv("nkui-now-list");
+		if (user) this.renderDecisions(list);
+		else this.renderChecklist(list);
+	}
+
+	/** Switch this leaf to the normal markdown view for the file. The path joins
+	 * the session's raw-escape set first, so the file-open router doesn't bounce
+	 * the editor straight back into this view. */
+	private async openRaw(): Promise<void> {
+		const f = this.file();
+		if (!f) return;
+		rawEscapes.add(f.path);
+		await this.leaf.setViewState({
+			type: "markdown",
+			state: { file: f.path },
+			active: true,
+		});
+	}
+
+	// ── machine queue — checklist rows + add box ───────────────────────────────
+
+	private renderChecklist(list: HTMLElement): void {
+		for (const item of this.items) {
+			renderMachineItemRow(list, item, {
+				onSkip: (it) => void this.skipItem(it),
+				onEdit: (main, it) => this.editItem(main, it),
+			});
+		}
+		if (!this.items.length) {
+			list.createDiv({ cls: "nkui-queue-empty", text: "Nothing queued." });
+		}
+		// The clean checklist hides any non-checklist lines — say so, faintly,
+		// instead of letting them vanish; the row opens the raw editor.
+		if (this.otherLines > 0) {
+			const n = this.otherLines;
+			const row = list.createDiv({
+				cls: "nkui-now-more nkui-queue-otherlines",
+				text: `${n} other ${n === 1 ? "line" : "lines"} — open raw`,
+			});
+			const aria = "Lines the clean checklist hides (headings, prose) — open the raw markdown to see them";
+			row.setAttr("aria-label", aria);
+			row.setAttr("title", aria);
+			row.setAttr("role", "button");
+			row.setAttr("tabindex", "0");
+			row.addEventListener("click", () => void this.openRaw());
+			attachKeyActivate(row, () => void this.openRaw());
+		}
+		this.addInput = renderAddTaskBox(list, (text) => void this.addItem(text));
+	}
+
+	/** Cross off / restore an item — the shared skip semantics (the
+	 * "*(item skipped)*" marker beside the [x]). */
+	private async skipItem(item: QueueItem): Promise<void> {
+		const f = this.file();
+		if (f) await queueWrites.toggleSkip(this.app.vault, f, item);
+		await this.reloadAndRender();
+	}
+
+	private async addItem(text: string): Promise<void> {
+		const f = this.file();
+		if (!f) return;
+		await queueWrites.appendTask(this.app.vault, f, text);
+		await this.reloadAndRender();
+		const box = this.addInput;
+		if (box) {
+			box.focus();
+			autoGrow(box);
+		}
+	}
+
+	/** Replace an open task's text in place, keeping its checkbox state. */
+	private async updateItem(oldText: string, newText: string): Promise<void> {
+		const f = this.file();
+		if (f) await queueWrites.updateTask(this.app.vault, f, oldText, newText);
+		await this.reloadAndRender();
+	}
+
+	/** Turn a task row into a live editor — Enter saves, Esc or blur cancels.
+	 * Mirrors NowView.editMachineItem. */
+	private editItem(main: HTMLElement, item: QueueItem): void {
+		main.empty();
+		const ta = main.createEl("textarea", {
+			cls: "nkui-now-qaddinput nkui-now-qedit-field",
+			attr: { rows: "1" },
+		});
+		ta.value = item.text;
+		ta.addEventListener("input", () => autoGrow(ta));
+		window.setTimeout(() => {
+			autoGrow(ta);
+			ta.focus();
+			ta.setSelectionRange(ta.value.length, ta.value.length);
+		}, 0);
+		let done = false;
+		const save = (): void => {
+			if (done) return;
+			done = true;
+			const v = ta.value.trim();
+			if (v && v !== item.text) void this.updateItem(item.text, v);
+			else void this.reloadAndRender();
+		};
+		ta.addEventListener("keydown", (ev) => {
+			if (ev.key === "Enter" && !ev.shiftKey) {
+				ev.preventDefault();
+				save();
+			} else if (ev.key === "Escape") {
+				ev.preventDefault();
+				done = true;
+				void this.reloadAndRender();
+			}
+		});
+		ta.addEventListener("blur", save);
+	}
+
+	// ── user queue — decision rows ─────────────────────────────────────────────
+
+	private renderDecisions(list: HTMLElement): void {
+		const open = this.decisions.filter(isOpenDecision);
+		const resolved = this.decisions.filter(isResolvedDecision);
+		for (const d of open) this.renderOpenDecision(list, d);
+		for (const d of resolved) this.renderResolvedDecision(list, d);
+		if (!open.length && !resolved.length) {
+			list.createDiv({ cls: "nkui-queue-empty", text: "Nothing to decide." });
+		}
+	}
+
+	/** One open decision — title, context, and its options as clickable picks
+	 * (writes [x], the same convention the For You Decide bucket uses). A
+	 * fill-in REPLACE-WITH-<WHAT> placeholder renders as a text input whose
+	 * value replaces the placeholder as the box checks. An option-less
+	 * (drifted) decision gets an open-to-read row plus Acknowledge. */
+	private renderOpenDecision(list: HTMLElement, d: Decision): void {
+		const card = list.createDiv("nkui-now-decision");
+		if (d.title) {
+			card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
+		}
+		if (d.context) card.createDiv({ cls: "nkui-now-decision-context", text: plainText(d.context) });
+
+		if (!d.options.length) {
+			const row = card.createDiv("nkui-now-needsread");
+			row.setAttr("role", "button");
+			row.setAttr("tabindex", "0");
+			setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
+			row.createSpan({ cls: "nkui-now-needsread-text", text: "Read-only — open the raw file to read" });
+			row.addEventListener("click", () => void this.openRaw());
+			attachKeyActivate(row, () => void this.openRaw());
+			if (d.title) {
+				const ack = row.createEl("button", { cls: "nkui-now-ackbtn", text: "Acknowledge" });
+				ack.setAttr("aria-label", "Acknowledge — cross this off; the agent clears it on its next pass");
+				ack.addEventListener("click", (ev) => {
+					ev.stopPropagation();
+					void this.acknowledge(d);
+				});
+			}
+			return;
+		}
+
+		for (const o of d.options.filter((x) => x.state !== "-")) {
+			const row = card.createDiv("nkui-now-optrow");
+			const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+			const fm = o.text.match(/REPLACE-WITH-([A-Z0-9-]+)/);
+			if (fm) {
+				const [pre, post] = o.text.split(fm[0], 2);
+				if (pre.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
+				const fill = row.createEl("input", {
+					cls: "nkui-now-fillin",
+					attr: { type: "text", placeholder: fm[1].toLowerCase().replace(/-/g, " ") },
+				});
+				if (post && post.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
+				const submit = (): void => {
+					const v = fill.value.trim();
+					if (!v) {
+						cb.checked = false;
+						fill.focus();
+						return;
+					}
+					void this.pickOptionFilled(o.text, o.text.replace(fm[0], v));
+				};
+				cb.addEventListener("change", submit);
+				fill.addEventListener("keydown", (ev) => {
+					if (ev.key === "Enter" && fill.value.trim()) {
+						ev.preventDefault();
+						cb.checked = true;
+						submit();
+					}
+				});
+				continue;
+			}
+			cb.addEventListener("change", () => void this.pickOption(o.text));
+			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
+		}
+	}
+
+	/** A resolved decision lingers as the shared reduced row; unchecking re-opens it. */
+	private renderResolvedDecision(list: HTMLElement, d: Decision): void {
+		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
+		if (!picked) return;
+		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
+		renderReducedRow(list, {
+			title: label,
+			note: "runs next agent pass",
+			struck: true,
+			checkbox: {
+				checked: true,
+				onChange: async () => {
+					await this.setChecked(picked.text, false);
+					await this.reloadAndRender();
+				},
+			},
+			ariaLabel: "Approved — the agent executes and clears this on its next pass. Uncheck to re-open.",
+		});
+	}
+
+	/** Toggle a checkbox by matching its text — robust to the file shifting. */
+	private async setChecked(text: string, checked: boolean): Promise<void> {
+		const f = this.file();
+		if (f) await queueWrites.setChecked(this.app.vault, f, text, checked);
+	}
+
+	private async pickOption(text: string): Promise<void> {
+		await this.setChecked(text, true);
+		await this.reloadAndRender();
+	}
+
+	/** Approve a fill-in option: replace its placeholder and check it in one write. */
+	private async pickOptionFilled(rawText: string, filledText: string): Promise<void> {
+		const f = this.file();
+		if (f) await queueWrites.pickOptionFilled(this.app.vault, f, rawText, filledText);
+		await this.reloadAndRender();
+	}
+
+	/** Acknowledge a non-choice notification — the shared write appends the
+	 * sanctioned option text checked under its heading, so it resolves like a
+	 * picked decision (NowView.acknowledge). */
+	private async acknowledge(d: Decision): Promise<void> {
+		const f = this.file();
+		if (f) await queueWrites.acknowledge(this.app.vault, f, d);
+		await this.reloadAndRender();
+	}
+}
+
+/** Lines the machine checklist's clean render hides: not blank, not a checkbox
+ * item, not the YAML frontmatter block. */
+function countOtherLines(content: string): number {
+	const lines = content.split("\n");
+	let i = 0;
+	if (lines[0]?.trim() === "---") {
+		for (i = 1; i < lines.length; i++) {
+			if (lines[i].trim() === "---") {
+				i++;
+				break;
+			}
+		}
+	}
+	let n = 0;
+	for (; i < lines.length; i++) {
+		if (lines[i].trim() && !lines[i].match(CHECKBOX_RE)) n++;
+	}
+	return n;
+}

@@ -65,7 +65,9 @@ export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): 
 			// Drop the file-tree indentation guide lines.
 			".nav-folder-children { border-left: none !important; }",
 			// File-explorer toolbar icons: faint until hovered.
-			".nav-buttons-container .clickable-icon { opacity: 0.35; transition: opacity 120ms ease; }",
+			// Durations reference the motion tokens in styles.css (:root), so a
+			// timing change stays one edit even for these emitted rules.
+			".nav-buttons-container .clickable-icon { opacity: 0.35; transition: opacity var(--nkui-fade, 120ms) ease; }",
 			".nav-buttons-container:hover .clickable-icon { opacity: 0.7; }",
 			".nav-buttons-container .clickable-icon:hover { opacity: 1; }",
 			// Tab bar quieting is scoped to the MAIN editor area (.mod-root) only.
@@ -82,7 +84,7 @@ export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): 
 			".mod-root .workspace-tab-header:hover { opacity: 1; }",
 			".mod-root .workspace-tab-header.is-active .workspace-tab-header-inner-title { font-weight: 700; color: var(--text-normal); }",
 			// Close button: hidden until the tab is hovered.
-			".mod-root .workspace-tab-header .workspace-tab-header-inner-close-button { opacity: 0; transition: opacity 120ms ease; }",
+			".mod-root .workspace-tab-header .workspace-tab-header-inner-close-button { opacity: 0; transition: opacity var(--nkui-fade, 120ms) ease; }",
 			".mod-root .workspace-tab-header:hover .workspace-tab-header-inner-close-button { opacity: 0.65; }"
 		);
 	}

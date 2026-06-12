@@ -6,11 +6,36 @@
 :root {
 	--nkui-dot-size: 8px;
 	--nkui-dot-gap: 6px;
-	/* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)
-	   take their colour from the THEME's accent, not a hardcoded default, so they
-	   sit with whatever theme is active. Override in a snippet if desired. */
-	--nkui-draft-color: var(--text-accent, var(--interactive-accent));
 	--nkui-accent-width: 3px;
+	/* ── Corner geometry — sharp quads. Every plugin-authored border-radius routes
+	   through this one token; 0 (sharp) is the default. Re-round the whole plugin
+	   in a snippet by setting this once. Circles (type/draft dots) stay 50% — they
+	   are markers, not boxes. */
+	--nkui-radius: 0px;
+	/* ── Motion — every plugin duration in one place, so a timing change is one
+	   edit. JS twins (keep in sync by hand): HOLD_MS in holds.ts pairs with
+	   --nkui-hold; CLOSE_OFFER_MS in holds.ts pairs with --nkui-count. */
+	--nkui-hold: 303ms; /* press-and-hold commit fill (approve gate / approve all) */
+	--nkui-count: 1517ms; /* close-offer depleting window */
+	--nkui-fade: 120ms; /* hover / opacity micro-fades */
+	--nkui-arm: 100ms; /* arming wash while a hold is in progress */
+	--nkui-settle: 170ms; /* a resolved card softening before re-render */
+	/* Unroll/collapse scales with the section's length: the view sets --nkui-rows
+	   (child row count) on the unrolling container; duration is one step per row,
+	   clamped, so short and long sections feel the same speed per row. */
+	--nkui-row-ms: 28ms;
+	--nkui-unroll-min: 120ms;
+	--nkui-unroll-max: 420ms;
+}
+
+/* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)
+   take their colour from the THEME's accent. Declared on body, NOT :root:
+   themes define --text-accent on body, so a :root-level var() substitutes at
+   the html element where the accent doesn't exist yet — the chain resolves
+   invalid and the pill background silently computes to transparent (the
+   long-unreproduced "inbox pill missing" report). Override in a snippet. */
+body {
+	--nkui-draft-color: var(--text-accent, var(--interactive-accent));
 }
 
 /* ── (c) per-type dot on explorer rows ─────────────────────────────────────── */
@@ -53,10 +78,11 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rende
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-header-4, .cm-header-5, .cm-header-6) {
 	color: var(--nkui-tm);
 }
-/* One shared "lighter" type tone — the tone the inline code text uses. Bold,
-   italic, code, and the frontmatter property controls all draw from it, so they
-   read as one family and a single tweak moves them together. Defined on the
-   typed leaf, where --nkui-type-color resolves. */
+/* One shared "lighter" type tone — the tone the inline code text uses. Code and
+   the frontmatter property controls draw from it, so they read as one family and
+   a single tweak moves them together (bold/italic moved up to the stronger
+   emphasis tone --nkui-tb; see below). Defined on the typed leaf, where
+   --nkui-type-color resolves. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
 	--nkui-type-ink: var(--nkui-tk);
 }
@@ -92,6 +118,56 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-prope
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value .multi-select-pill {
 	background: color-mix(in srgb, var(--nkui-type-color) 16%, var(--background-secondary)) !important;
 }
+/* …and the pill's edit-only × joins the tint instead of staying theme grey. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value .multi-select-pill-remove-button {
+	color: var(--nkui-tm);
+}
+/* Tag pills sit CENTRED on the property row's text line — the pill (and the
+   trailing add-tag input) otherwise rides high/low against the key text beside
+   it. Centring the container's items and the pill's own content covers both the
+   pill box and the label inside it. Not tint-dependent: alignment is geometry. */
+.metadata-property-value .multi-select-container {
+	align-items: center;
+}
+.metadata-property-value .multi-select-pill {
+	align-self: center;
+}
+.metadata-property-value .multi-select-pill .multi-select-pill-content {
+	display: inline-flex;
+	align-items: center;
+}
+/* ── Tint leaf sweep — the property block's remaining default-coloured leaves
+   join the tint family, so no stray theme-grey glyph sits in a tinted strip. ── */
+/* The UNCHECKED reviewed box: Obsidian draws an unchecked box with the checkbox
+   border vars only (the fill vars above cover the checked state), so an empty
+   box stayed theme grey beside tinted text. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value {
+	--checkbox-border-color: var(--nkui-tm);
+	--checkbox-border-color-hover: var(--nkui-ts);
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value input[type="checkbox"]:not(:checked) {
+	border-color: var(--nkui-tm);
+}
+/* The date property's CALENDAR icon — a native webkit picker glyph, not an SVG
+   we can colour. Repaint it: drop the native artwork (the `background`
+   shorthand resets it) and mask a solid calendar in the shared ink, the same
+   currentColor-mask approach as the solid folder icon below. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value input[type="date"]::-webkit-calendar-picker-indicator,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+	background: var(--nkui-type-ink, var(--text-muted));
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 2v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zM5 10h14v10H5V10z'/%3E%3C/svg%3E") center / contain no-repeat;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 2v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zM5 10h14v10H5V10z'/%3E%3C/svg%3E") center / contain no-repeat;
+	opacity: 0.8;
+}
+/* Text carets and the remaining value-side icon buttons (the date row's action
+   icon, a longtext's affordances) follow the same ink as the text they sit in. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.metadata-property-key, .metadata-property-value) :is(input, textarea, .metadata-input-longtext, .metadata-input-text, .multi-select-input) {
+	caret-color: var(--nkui-type-ink);
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value .clickable-icon,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value .input-right-decorator {
+	color: var(--nkui-type-ink);
+}
 /* A fenced code BLOCK's background is washed toward the type colour too (reading +
    live preview), so the block sits on the same tinted surface as the note. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered pre,
@@ -113,14 +189,21 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rende
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-line {
 	color: color-mix(in srgb, var(--nkui-type-color) 13%, var(--text-normal));
 }
-/* Bold draws the tint with !important — many themes hard-set a `strong`/`b` colour
-   (a bold-colour variable) that otherwise wins and leaves bold un-tinted. */
+/* Bold and italic take the EMPHASIS tone (--nkui-tb): near-canon strength with a
+   saturation boost, a clear stop stronger than the body wash and the shared ink,
+   so emphasis reads as emphasis against the tinted background — hue-true (a
+   saturation boost deepens the same hue; it never leans pink). Bold draws it with
+   !important — many themes hard-set a `strong`/`b` colour (a bold-colour
+   variable) that otherwise wins and leaves bold un-tinted. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(strong, b),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong {
-	color: var(--nkui-tk) !important;
+	color: var(--nkui-tb, var(--nkui-tk)) !important;
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(em, i),
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em {
+	color: var(--nkui-tb, var(--nkui-type-ink));
+}
+/* Inline code stays on the shared lighter ink — it is annotation, not emphasis. */
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered code,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-inline-code {
 	color: var(--nkui-type-ink);
@@ -209,7 +292,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	min-width: 1.35em;
 	height: 1.4em;
 	padding: 0 6px;
-	border-radius: 9px;
+	border-radius: var(--nkui-radius);
 	background: var(--nkui-draft-color);
 	color: var(--text-on-accent, #fff);
 	font-size: var(--font-ui-smaller, 11px);
@@ -295,7 +378,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	gap: var(--nkui-gap-s);
 	padding: 0.25em 0.4em;
 	margin-inline: -0.4em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 	cursor: pointer;
 	user-select: none;
 }
@@ -323,7 +406,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	flex: 0 0 auto;
 	padding: 0 0.35em;
 	border: none;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 	background: transparent;
 	box-shadow: none;
 	color: var(--nkui-tm, var(--interactive-accent));
@@ -354,19 +437,19 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 }
 .nkui-now-group-head .nkui-now-approveall.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 303ms linear;
+	transition: transform var(--nkui-hold) linear;
 }
 /* While a hold is in progress, the section's draft candidates light up in their
    own type colour, so it's clear what the approval would file. */
 .nkui-now-group.is-arming .nkui-now-row-draft {
 	background: color-mix(in srgb, var(--nkui-row-color, var(--interactive-accent)) 16%, transparent);
-	transition: background 100ms ease;
+	transition: background var(--nkui-arm) ease;
 }
 /* The dropdown header lights up with the candidates — its title takes the section
    colour and the header a matching wash, so the whole section reads as "arming". */
 .nkui-now-group.is-arming > .nkui-now-group-head {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 14%, transparent);
-	transition: background 100ms ease;
+	transition: background var(--nkui-arm) ease;
 }
 .nkui-now-group.is-arming > .nkui-now-group-head .nkui-now-group-title {
 	color: var(--nkui-section-color, var(--text-normal));
@@ -376,11 +459,22 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	display: none;
 }
 
-/* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr */
+/* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr.
+   Duration scales with the section's length: the view stamps --nkui-rows (its
+   child row count) on the foldwrap; one --nkui-row-ms step per row, clamped to
+   the min/max in :root, so a 3-row and a 30-row section both unroll at the same
+   per-row pace instead of one snapping and the other crawling. Defaults to 6
+   rows until the JS sets the var. */
 .nkui-now-foldwrap {
 	display: grid;
 	grid-template-rows: 1fr;
-	transition: grid-template-rows 170ms ease, opacity 170ms ease;
+	transition-property: grid-template-rows, opacity;
+	transition-timing-function: ease;
+	transition-duration: clamp(
+		var(--nkui-unroll-min),
+		calc(var(--nkui-rows, 6) * var(--nkui-row-ms)),
+		var(--nkui-unroll-max)
+	);
 }
 .nkui-now-group.is-collapsed .nkui-now-foldwrap {
 	grid-template-rows: 0fr;
@@ -417,7 +511,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	min-width: 1.7em;
 	height: 1.45em;
 	padding: 0 0.5em;
-	border-radius: 10px;
+	border-radius: var(--nkui-radius);
 	background: var(--text-faint);
 	color: var(--text-on-accent, #fff);
 	font-size: var(--font-ui-smaller, 12px);
@@ -456,7 +550,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	min-height: 26px;
 	padding: 0.12em 0.5em;
 	margin: 0 -0.5em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 	cursor: pointer;
 }
 .nkui-now-row:hover {
@@ -485,23 +579,20 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	text-overflow: ellipsis;
 	color: var(--text-normal);
 }
+/* Layout (display/columns/gaps) is owned by the shared column grid — the
+   nkui-col-meta cell subgrids onto the meta tracks; only typography stays here. */
 .nkui-now-rowmeta {
-	flex: 0 0 auto;
-	display: inline-flex;
-	align-items: baseline;
-	gap: var(--nkui-gap-s); /* same step as the row gap — px-stable, immune to the smaller meta font */
-	margin-right: var(--nkui-gap-s); /* a little padding so meta isn't flush to the edge */
 	font-size: var(--font-ui-smaller, 11px);
 	color: var(--text-faint);
 	white-space: nowrap;
 }
-/* Meta columns: each column's width is set at render time to its widest member
-   (equalizeMetaColumns in nowView.ts — measured, not guessed), so the meta block
-   is the same width on every row and every internal gap is exactly the block's
-   8px step. When a column is uniform (every Active row says "project") the box
-   equals the text and there is zero slack. The type right-aligns (any slack hugs
-   the pill side of a rare short word); the age left-aligns so the gap before it
-   never varies — its slack trails into the row margin where nothing sits. */
+/* Meta columns: cross-row width alignment is owned by the shared column grid —
+   the type and age are subgrid tracks (see .nkui-now-colgrid below), so every
+   row's meta block lines up by track, not by measured width. (equalizeMetaColumns
+   in nowView.ts now only measures the gate trio — wait note / +N / pill slots.)
+   The type right-aligns (any slack hugs the pill side of a rare short word); the
+   age left-aligns so the gap before it never varies — its slack trails into the
+   row margin where nothing sits. */
 .nkui-now-metatype {
 	display: inline-block;
 	text-align: right;
@@ -637,7 +728,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	gap: var(--nkui-gap-s);
 	padding: 0.18em calc(0.5em + var(--nkui-gap-s)) 0.18em 1.55em;
 	margin: 0 -0.5em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 }
 /* An open task: its text on top, a quiet "edit?" affordance beneath (like the
    crossed-off fate note), stacked so a long task wraps without smushing. */
@@ -647,17 +738,6 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	display: flex;
 	flex-direction: column;
 	gap: 1px;
-}
-.nkui-now-qedit {
-	align-self: flex-start;
-	font-size: var(--font-ui-smaller, 11px);
-	font-style: italic;
-	color: var(--text-muted);
-	cursor: pointer;
-}
-.nkui-now-qedit:hover {
-	color: var(--text-normal);
-	text-decoration: underline;
 }
 .nkui-now-qrow:hover {
 	background: var(--nkui-hover);
@@ -720,7 +800,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	height: 22px;
 	padding: 0;
 	border: none !important;
-	border-radius: 0;
+	border-radius: var(--nkui-radius);
 	background: transparent !important;
 	box-shadow: none !important;
 	cursor: pointer;
@@ -748,7 +828,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	background: transparent;
 	border: none;
 	border-bottom: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s, 6px) var(--radius-s, 6px) 0 0; /* small top radius for the focus highlight; never the theme's text-clipping pill */
+	border-radius: var(--nkui-radius) var(--nkui-radius) 0 0; /* top corners follow the shared radius token (sharp by default); never the theme's text-clipping pill */
 	padding: 0.3em 0.5em; /* breathing room so text/placeholder and the focus highlight aren't flush */
 	color: var(--text-normal);
 	font-family: inherit;
@@ -757,7 +837,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	resize: none;
 	overflow: hidden;
 	overflow-wrap: anywhere;
-	transition: background 120ms ease, border-color 120ms ease;
+	transition: background var(--nkui-fade) ease, border-color var(--nkui-fade) ease;
 }
 .nkui-now-qaddinput:focus {
 	background: var(--nkui-hover);
@@ -778,7 +858,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 /* Picking an option softens the card over the fold animation's step before
    the re-render swaps it for its resolved row — a transition, not a snap. */
 .nkui-now-decision {
-	transition: opacity 170ms ease;
+	transition: opacity var(--nkui-settle) ease;
 }
 .nkui-now-decision.is-resolving {
 	opacity: 0.3;
@@ -840,7 +920,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	gap: var(--nkui-gap-s);
 	padding: 0.18em calc(0.5em + var(--nkui-gap-s)) 0.18em 0.5em;
 	margin: 0 -0.5em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 }
 .nkui-now-optrow:hover {
 	background: var(--nkui-hover);
@@ -864,7 +944,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	gap: var(--nkui-gap-s);
 	padding: 0.18em 0.5em;
 	margin: 0 -0.5em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 	cursor: pointer;
 	color: var(--text-muted);
 }
@@ -890,7 +970,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 .nkui-now-ackbtn {
 	flex: 0 0 auto;
 	padding: 0.12em 0.7em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 	border: 1px solid var(--background-modifier-border);
 	background: transparent;
 	color: var(--text-muted);
@@ -1010,7 +1090,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
    so a checked reviewed checkbox keeps its checkmark. */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
 	opacity: 0.8;
-	transition: opacity 120ms ease;
+	transition: opacity var(--nkui-fade) ease;
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:hover,
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:focus-within {
@@ -1087,12 +1167,6 @@ body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
 body.is-mobile .nkui-now-approveall {
 	padding: 0.2em 0.45em;
 }
-/* "edit?" is a touch target on mobile — give it a comfortable tap area and a
-   readable size (it's tiny on desktop where a cursor is precise). */
-body.is-mobile .nkui-now-qedit {
-	padding: 0.35em 0;
-	font-size: var(--font-ui-small, 13px);
-}
 /* "un-approve" is a touch target on mobile — give it a tap area. */
 body.is-mobile .nkui-now-unapprove {
 	padding: 0.25em 0;
@@ -1152,12 +1226,12 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	gap: var(--nkui-gap-s);
 	padding: 0.08em calc(0.5em + var(--nkui-gap-s)) 0.08em 1.55em;
 	margin: 0 -0.5em;
-	border-radius: var(--radius-s, 6px);
+	border-radius: var(--nkui-radius);
 	/* Recessed but legible — a lower opacity here multiplies against the already
 	   muted title/note and made them hard to read; the struck title and muted note
 	   carry the "settled" read on their own. */
 	opacity: 0.78;
-	transition: opacity 120ms ease, background 120ms ease;
+	transition: opacity var(--nkui-fade) ease, background var(--nkui-fade) ease;
 }
 .nkui-now-reducedrow:hover {
 	opacity: 1;
@@ -1198,33 +1272,13 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-/* A waiting gate's note line — gate pill · +N · status · un-approve — stays on ONE
-   line (smaller than the title above it); if it overflows, the status text is the
-   part that truncates with an ellipsis, so the pill and un-approve never get
-   pushed off and the row never bloats vertically. */
-.nkui-now-waitline {
-	display: flex;
-	flex-wrap: nowrap;
-	align-items: center;
-	gap: var(--nkui-gap-2xs) var(--nkui-gap-s);
-	white-space: nowrap;
-	overflow: hidden;
-	font-size: var(--font-ui-smaller, 11px);
-}
 .nkui-now-waittext {
 	flex: 0 0 auto; /* never shrink — "awaiting filing" always shows in full */
 	color: var(--text-muted);
 }
 /* un-approve — same pressable language as "edit?" / "approve all?" (small italic,
-   underline on hover), in the action accent. A FIXED-width, left-aligned column so
-   its left edge lands at the same x on every waiting row (gate or lone file); the
-   constant-width "approved — awaiting filing" text just left of it then aligns too,
-   regardless of the "un-approve" vs "un-approve gate +N" label length. */
-body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
-	flex: 0 0 auto;
-	min-width: 4.5em;
-	text-align: left;
-}
+   underline on hover), in the action accent. Alignment across waiting rows is
+   owned by the shared column grid (track 5), not a fixed width. */
 .nkui-now-unapprove {
 	color: var(--text-accent, var(--interactive-accent));
 	font-style: italic;
@@ -1267,8 +1321,9 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 10%, transparent);
 }
 
-/* Square highlights — drop the rounded corners on the dropdown headers, the For You
-   rows, and the explorer selection, so a highlight reads as a crisp band, not a pill. */
+/* Square highlights — dropdown headers, For You rows, and the explorer selection
+   follow the shared radius token (sharp by default), so a highlight reads as a
+   crisp band, not a pill. !important outranks the theme's own row radius. */
 .nkui-now-group-head,
 .nkui-now-row,
 .nkui-now-qrow,
@@ -1277,7 +1332,7 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 .nkui-now-needsread,
 .nav-file-title,
 .nav-folder-title {
-	border-radius: 0 !important;
+	border-radius: var(--nkui-radius) !important;
 }
 
 /* ── File explorer: queue / floated files are coloured (not barred) so they read as
@@ -1291,9 +1346,10 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 .nav-file-title[data-nkui-float] .nav-file-title-content {
 	/* placeholder to keep the float attribute referenced; colour is set below */
 }
-/* A queue file's colour reflects state:
-   muted when idle (nothing to act on), accent + bold only when it holds an open
-   decision/task (data-nkui-queue-active, set by updateQueueState). */
+/* A queue file's colour: muted when idle (nothing to act on). The accent+bold
+   active state below is currently dormant — the decorator strips
+   data-nkui-queue-active ("never colour-emphasise a queue") and nothing sets it;
+   the 0.4.42 plain-number rules further down also override this colour. */
 .nav-file-title[data-nkui-queue] .nav-file-title-content {
 	color: var(--text-muted);
 	font-weight: var(--font-normal, 400);
@@ -1445,7 +1501,7 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	cursor: pointer;
 	touch-action: none;
 	user-select: none;
-	border-radius: var(--radius-s, 4px);
+	border-radius: var(--nkui-radius);
 	/* Room around the label so the depleting timer fill doesn't crowd the text. */
 	padding: 0.1em 0.55em;
 }
@@ -1465,7 +1521,7 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 }
 .nkui-now-gateapprove.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 303ms linear;
+	transition: transform var(--nkui-hold) linear;
 }
 
 /* Pressable button texts (approve all, +N gated / approve, undo, draft) read a stop
@@ -1477,7 +1533,7 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 .nkui-now-unapprove,
 .nkui-now-draftpill {
 	opacity: 0.6;
-	transition: opacity 120ms ease;
+	transition: opacity var(--nkui-fade) ease;
 }
 .nkui-now-approveall:hover,
 .nkui-now-gateapprove:hover,
@@ -1489,18 +1545,13 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	opacity: 1;
 }
 
-/* Waiting gate on ONE line: subject (flex, truncates) + status inline. */
+/* Waiting gate on ONE line: subject (flexes, truncates) + status inline. */
 .nkui-now-waitgate {
 	align-items: center;
 }
 .nkui-now-waitgate .nkui-now-reducedtitle {
-	flex: 1 1 auto;
 	min-width: 0;
 	font-size: var(--font-ui-small, 13px);
-}
-.nkui-now-waitgate .nkui-now-waitline {
-	flex: 0 0 auto;
-	overflow: visible;
 }
 
 /* ── Animations (body.nkui-anim, toggleable) ─────────────────────────────────
@@ -1532,7 +1583,7 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	font-size: var(--font-ui-small, 13px);
 	cursor: pointer;
 	padding: 0 0.4em;
-	border-radius: var(--radius-s, 4px);
+	border-radius: var(--nkui-radius);
 	opacity: 1;
 }
 .nkui-close-offer::before {
@@ -1548,16 +1599,16 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 }
 .nkui-close-offer.is-counting {
 	opacity: 0.4;
-	transition: opacity 1517ms linear;
+	transition: opacity var(--nkui-count) linear;
 }
 .nkui-close-offer.is-counting::before {
 	transform: scaleX(0);
-	transition: transform 1517ms linear;
+	transition: transform var(--nkui-count) linear;
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;
 	text-decoration: underline;
-	transition: opacity 120ms ease;
+	transition: opacity var(--nkui-fade) ease;
 }
 .nkui-close-offer:hover::before {
 	transform: scaleX(1);
@@ -1583,4 +1634,398 @@ body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
 }
 .popover.hover-popover[class*="nkui-type-"] :is(.markdown-embed-title, .inline-title, .markdown-preview-view h1) {
 	color: var(--nkui-type-color);
+}
+
+/* ── Version marker — the plugin version, in the For You footer and the settings
+   header. A quiet stamp: small, low-contrast, monospace; it identifies the build
+   without competing with anything. One typographic rule for both placements. */
+.nkui-now-version,
+.nkui-settings-version {
+	font-family: var(--font-monospace, monospace);
+	font-size: var(--font-ui-smaller, 11px);
+	font-weight: var(--font-normal, 400);
+	font-style: normal;
+	letter-spacing: 0.02em;
+	color: var(--text-faint);
+	user-select: text; /* a version is for copying into a bug report */
+}
+/* Footer placement: its own centred line below the last section. */
+.nkui-now-version {
+	display: block;
+	margin-top: var(--nkui-gap-l);
+	text-align: center;
+}
+/* Settings-header placement: inline beside the heading, sitting on its baseline. */
+.nkui-settings-version {
+	display: inline-block;
+	margin-left: var(--nkui-gap-s);
+	vertical-align: baseline;
+}
+
+/* ── Shared column grid — the For You row contract ────────────────────────────
+   The section LIST (`.nkui-now-colgrid`) owns five tracks: main (flexes,
+   truncates) · action · meta-type · meta-age · meta-pill. Rows (`.nkui-cols`)
+   subgrid onto them, so cross-row alignment comes from tracks, not measured
+   widths. The meta cell spans the last three tracks and subgrids again so the
+   type/age/pill columns align across rows. A waiting row (`.nkui-now-waitgate`)
+   carries one status cell (track 4) with the undo control outermost (track 5).
+   Spacing is owned by the cells' padding — no track gap. */
+.nkui-now-colgrid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) max-content max-content max-content max-content;
+}
+.nkui-now-colgrid > * {
+	grid-column: 1 / -1;
+}
+.nkui-now-colgrid > .nkui-cols {
+	display: grid;
+	grid-template-columns: subgrid;
+	align-items: center;
+	/* The legacy flex row gap (.nkui-now-row / .nkui-now-reducedrow) must not
+	   add a second gutter to the subgrid tracks — padding owns the spacing. */
+	gap: 0;
+}
+.nkui-cols > .nkui-col-main {
+	grid-column: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+}
+.nkui-cols > .nkui-col-action {
+	grid-column: 2;
+	justify-self: end;
+	padding-left: var(--nkui-gap-s);
+}
+.nkui-cols > .nkui-col-meta {
+	grid-column: 3 / span 3;
+	display: grid;
+	grid-template-columns: subgrid;
+	align-items: baseline;
+}
+.nkui-cols > .nkui-col-meta > * {
+	padding-left: var(--nkui-gap-s);
+}
+.nkui-now-waitgate.nkui-cols > .nkui-col-meta {
+	grid-column: 4;
+	display: block;
+	padding-left: var(--nkui-gap-s);
+}
+.nkui-now-waitgate.nkui-cols > .nkui-col-action {
+	grid-column: 5;
+}
+/* Narrow pane (~mobile): the grid stacks — main keeps row 1 with the action
+   beside it (still reachable); meta drops to a quiet second, left-aligned line.
+   Container query against the For You pane itself, so a narrow desktop split
+   behaves like a phone; body.is-mobile mirrors it for any webview that lacks
+   container-query support. */
+.nkui-now {
+	container-type: inline-size;
+	container-name: nkui-now;
+}
+@container nkui-now (max-width: 420px) {
+	.nkui-now-colgrid {
+		grid-template-columns: minmax(0, 1fr) max-content;
+	}
+	.nkui-cols > .nkui-col-main {
+		grid-column: 1;
+		grid-row: 1;
+	}
+	.nkui-cols > .nkui-col-action,
+	.nkui-now-waitgate.nkui-cols > .nkui-col-action {
+		grid-column: 2;
+		grid-row: 1;
+	}
+	.nkui-cols > .nkui-col-meta,
+	.nkui-now-waitgate.nkui-cols > .nkui-col-meta {
+		grid-column: 1 / -1;
+		grid-row: 2;
+		display: flex;
+		justify-content: flex-start;
+		text-align: left;
+		padding-left: 0;
+	}
+	.nkui-cols > .nkui-col-meta > * {
+		padding-left: 0;
+	}
+	.nkui-cols > .nkui-col-meta > * + * {
+		padding-left: var(--nkui-gap-s);
+	}
+}
+body.is-mobile .nkui-now-colgrid {
+	grid-template-columns: minmax(0, 1fr) max-content;
+}
+body.is-mobile .nkui-cols > .nkui-col-main {
+	grid-column: 1;
+	grid-row: 1;
+}
+body.is-mobile .nkui-cols > .nkui-col-action,
+body.is-mobile .nkui-now-waitgate.nkui-cols > .nkui-col-action {
+	grid-column: 2;
+	grid-row: 1;
+}
+body.is-mobile .nkui-cols > .nkui-col-meta,
+body.is-mobile .nkui-now-waitgate.nkui-cols > .nkui-col-meta {
+	grid-column: 1 / -1;
+	grid-row: 2;
+	display: flex;
+	justify-content: flex-start;
+	text-align: left;
+	padding-left: 0;
+}
+body.is-mobile .nkui-cols > .nkui-col-meta > * {
+	padding-left: 0;
+}
+body.is-mobile .nkui-cols > .nkui-col-meta > * + * {
+	padding-left: var(--nkui-gap-s);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Wave-2 merge — edit pencil · gate members · outbox drops · cover emphasis ·
+   settings polish · standalone queue view
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Pencil edit button on an open queue task — a bare icon like the "+" submit:
+   no border/box/background at any state, only the glyph brightens on hover. */
+.nkui-now-qeditbtn,
+.nkui-now-qeditbtn:hover,
+.nkui-now-qeditbtn:focus {
+	flex: 0 0 auto;
+	align-self: flex-end;
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: none !important;
+	border-radius: var(--nkui-radius);
+	background: transparent !important;
+	box-shadow: none !important;
+	cursor: pointer;
+}
+.nkui-now-qeditbtn {
+	color: var(--text-faint);
+}
+.nkui-now-qeditbtn:hover {
+	color: var(--text-normal);
+}
+.nkui-now-qeditbtn .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+/* Gate members — the transient peek list a tap on "+N gated" / "undo +N" unfolds
+   beneath its row. The box is inserted/removed synchronously, so the unfold is
+   intentionally instant — no transition. */
+.nkui-now-gatemembers {
+	display: flex;
+	flex-direction: column;
+}
+.nkui-now-gatemember {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	padding: 0.06em 0.5em 0.06em 2.8em;
+	margin: 0 -0.5em;
+	font-size: var(--font-ui-small, 13px);
+	cursor: pointer;
+	border-radius: var(--nkui-radius);
+}
+.nkui-now-gatemember:hover {
+	background: var(--nkui-hover);
+}
+.nkui-now-gatemember-name {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+body.nkui-type-tint .nkui-now-gatemember-name {
+	color: var(--nkui-tm, var(--text-muted));
+}
+/* Outbox drops — loose files/folders beside the machine queue, one row each. */
+.nkui-now-qdrop {
+	align-items: center;
+	cursor: pointer;
+}
+.nkui-now-qdropicon {
+	flex: 0 0 auto;
+	display: inline-flex;
+	color: var(--nkui-tm, var(--text-muted));
+}
+.nkui-now-qdropicon .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+.nkui-now-qdropname {
+	flex: 1 1 auto;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+body.nkui-type-tint .nkui-now-qdropname {
+	color: var(--nkui-tm, var(--text-normal));
+}
+/* A waiting gate's title keeps its type tint, a stop muted. */
+body.nkui-type-tint .nkui-now-waitgate .nkui-now-reducedtitle {
+	color: var(--nkui-tm, var(--text-muted));
+}
+
+/* Plain-name scheme cover emphasis — a cover note with no numeric prefix still
+   reads as its folder's heading (the 00- prefix rule covers legacy installs). */
+.nav-file-title[data-nkui-cover]:not([data-nkui-prefix]) .nav-file-title-content {
+	font-weight: 800;
+	font-size: 1.2em;
+}
+
+/* Settings polish — the advanced <details> groups and compact rows. */
+.nkui-settings-advanced {
+	margin: 4px 0 18px;
+}
+.nkui-settings-advanced-summary {
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	padding: 6px 0;
+	user-select: none;
+}
+.nkui-settings-advanced[open] > .nkui-settings-advanced-summary {
+	color: var(--text-normal);
+}
+/* Open state shows in colour only (the summary recolours above) — no added bar;
+   a small indent keeps the body reading as the summary's contents. */
+.nkui-settings-advanced-body {
+	padding-left: 8px;
+}
+.nkui-compact-row.setting-item {
+	padding: 4px 0;
+	border-top: none;
+}
+.nkui-compact-row .setting-item-info {
+	flex: 0 0 auto;
+	min-width: 90px;
+}
+/* Type colour grid — compact cells that wrap to the pane width. */
+.nkui-type-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	gap: 6px;
+	margin: 8px 0;
+}
+.nkui-type-grid-cell {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.nkui-type-grid-name {
+	font-size: var(--font-ui-small);
+}
+/* One rule for both swatch modes — the read-only span and the editable
+   <input type="color"> render at the same 22px box. */
+.nkui-type-grid-swatch {
+	flex: 0 0 auto;
+	box-sizing: border-box;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--nkui-radius);
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	background: none;
+}
+input.nkui-type-grid-swatch {
+	cursor: pointer;
+}
+.nkui-type-grid-remove:hover {
+	opacity: 1 !important;
+	color: var(--text-error);
+}
+
+/* ── Standalone queue view — a queue FILE rendered as the same clean rows the
+   For You sections show. The body reuses the nkui-now-* row classes; only the
+   header (name · count · raw toggle) is the view's own. ─────────────────────── */
+.nkui-queue-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--nkui-gap-m);
+	margin-bottom: var(--nkui-gap-l);
+}
+.nkui-queue-titleblock {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15em;
+	min-width: 0;
+}
+.nkui-queue-title {
+	font-size: 1.6em;
+	font-weight: 800;
+	line-height: 1.1;
+	letter-spacing: -0.02em;
+	color: var(--h2-color, var(--text-accent, var(--interactive-accent)));
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.nkui-queue-itemcount {
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+}
+.nkui-queue-rawbtn {
+	flex: 0 0 auto;
+}
+.nkui-queue-empty {
+	color: var(--text-faint);
+	font-style: italic;
+	padding: 0.3em 0;
+}
+
+/* ── Condensed For You (sidebar) — Decide stays live; everything else is a
+   count line that opens the full page. ──────────────────────────────────────── */
+.nkui-now-condensed {
+	padding: 1em 0.9em 2em;
+}
+.nkui-now-condensed .nkui-now-title {
+	font-size: 1.25em;
+}
+.nkui-now-condensed .nkui-now-head {
+	margin-bottom: var(--nkui-gap-m);
+}
+.nkui-now-condline {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	min-height: 28px;
+	padding: 0.18em 0.4em;
+	margin: 0 -0.4em;
+	border-radius: var(--nkui-radius);
+	cursor: pointer;
+}
+.nkui-now-condline:hover {
+	background: var(--nkui-hover);
+}
+.nkui-now-condline-label {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	text-transform: capitalize;
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-normal);
+}
+/* An empty count line (count 0) recedes like the full view's empty section
+   (.nkui-now-group-empty): the line fades, the label lightens, and the count
+   bubble shrinks — colour/opacity only, no bars. */
+.nkui-now-condline.is-empty {
+	opacity: 0.5;
+}
+.nkui-now-condline.is-empty .nkui-now-condline-label {
+	font-weight: var(--font-normal, 400);
+	color: var(--text-muted);
+}
+.nkui-now-condline.is-empty .nkui-now-count {
+	min-width: 1.4em;
+	height: 1.2em;
+	font-size: var(--font-ui-smaller, 11px);
 }

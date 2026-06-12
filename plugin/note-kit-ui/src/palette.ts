@@ -198,11 +198,16 @@ export function tone(hexStr: string, dL: number, sMul = 1): string {
 /** The standard derived tone set for one canon colour, as CSS custom-property
  * declarations to set on whatever element carries that colour. Consumers read
  * `--nkui-ts` (strong), `--nkui-tm` (mid), `--nkui-tk` (ink) for every tinted use,
- * so the whole tint family follows the canon hue. */
+ * plus `--nkui-tb` (emphasis ink: bold/italic), so the whole tint family follows
+ * the canon hue. `--nkui-tb` sits near canon strength with a saturation boost —
+ * emphasis must hold its own against the tinted/washed note background, and the
+ * boost raises chroma at the SAME hue (project red reads as a stronger red,
+ * never pink — pink is what desaturating toward white produces). */
 export function toneVars(hexStr: string): Record<string, string> {
 	return {
 		"--nkui-ts": tone(hexStr, 0.06),
 		"--nkui-tm": tone(hexStr, 0.13),
 		"--nkui-tk": tone(hexStr, 0.09, 0.92),
+		"--nkui-tb": tone(hexStr, 0.04, 1.15),
 	};
 }

@@ -10,8 +10,17 @@ import type NoteKitUiPlugin from "./main";
  * "needs you" pill on inbox folder rows (d) — drafts awaiting a decision, not
  * sets already approved and waiting on the filing-agent.
  *
+ * Also ORDERS the explorer when float-to-top is on (settings.floatTopTypes):
+ * inside each folder the cover/index note leads, then floated types, then the
+ * queues; at the vault root the kit folders take their semantic order (inbox →
+ * outbox → projects → areas → references → snippets, archive last). Ordering is
+ * a physical DOM reorder (insertBefore inside .nav-folder-children) — NEVER a
+ * flex/order CSS override on the container, which broke Obsidian's collapse
+ * height animation and clipped rows (removed in 0.4.52).
+ *
  * All DOM writes are idempotent: re-running on an already-decorated row produces
- * no mutation, so the MutationObserver that drives re-decoration cannot loop.
+ * no mutation, and re-running the reorder on an ordered container moves nothing,
+ * so the MutationObserver that drives re-decoration cannot loop.
  */
 export class ExplorerDecorator {
 	private plugin: NoteKitUiPlugin;
@@ -22,6 +31,7 @@ export class ExplorerDecorator {
 	private sinkSet = new Set<string>();
 	private typeColors = new Set<string>();
 	private floatSet = new Set<string>();
+	private floatEnabled = false;
 	private hideRe: RegExp | null = null;
 
 	constructor(plugin: NoteKitUiPlugin) {
@@ -76,12 +86,17 @@ export class ExplorerDecorator {
 		for (const o of this.observers) o.disconnect();
 		this.observers = [];
 		this.clearAll();
+		// Hand the row order back to Obsidian — observers are gone, so this can't loop.
+		this.resortExplorer();
 	}
 
 	refresh(): void {
 		this.compile();
 		this.attachObservers();
 		this.clearAll();
+		// Ordering just switched off → restore native order; reorderChildren alone
+		// can't, because it only ever moves rows toward the float layout.
+		if (!this.floatEnabled) this.resortExplorer();
 		this.decorateAll();
 	}
 
@@ -101,6 +116,9 @@ export class ExplorerDecorator {
 		);
 		this.typeColors = new Set(this.plugin.typeStyles().filter((t) => t.color).map((t) => t.type));
 		this.floatSet = new Set(s.floatTopTypes ?? []);
+		// One gate for ALL explorer ordering (per-folder float AND the root's
+		// semantic folder order): the "Float types to top" setting, off when empty.
+		this.floatEnabled = this.floatSet.size > 0;
 		if (s.enableHidePrefix && this.prefixSet.size) {
 			const alt = [...this.prefixSet].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 			this.hideRe = new RegExp(`^(?:${alt})[ _-]+`);
@@ -151,10 +169,19 @@ export class ExplorerDecorator {
 	 */
 	private onMutations(muts: MutationRecord[]): void {
 		const s = this.plugin.settings;
+		// Containers whose rows changed this batch — reordered once, after every row
+		// is decorated. Our own insertBefore moves re-enter here on the next callback,
+		// where the already-ordered container produces zero mutations (fixed point),
+		// so observing our own reorder converges instead of looping.
+		const toOrder = new Set<HTMLElement>();
 		for (const m of muts) {
 			if (m.type === "attributes" && m.target instanceof HTMLElement) {
 				if (m.target.matches(".nav-file-title, .nav-folder-title")) this.decorate(m.target, s);
 				continue;
+			}
+			if (m.target instanceof HTMLElement) {
+				const cc = m.target.closest<HTMLElement>(".nav-folder-children");
+				if (cc) toOrder.add(cc);
 			}
 			m.addedNodes.forEach((node) => {
 				if (!(node instanceof HTMLElement)) return;
@@ -162,8 +189,11 @@ export class ExplorerDecorator {
 				node
 					.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title")
 					.forEach((el) => this.decorate(el, s));
+				if (node.matches(".nav-folder-children")) toOrder.add(node);
+				node.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((el) => toOrder.add(el));
 			});
 		}
+		for (const cc of toOrder) this.reorderChildren(cc);
 		this.redraw();
 	}
 
@@ -173,7 +203,12 @@ export class ExplorerDecorator {
 		const sel = `.nav-file-title[data-path="${cssEscape(path)}"], .nav-folder-title[data-path="${cssEscape(path)}"]`;
 		for (const c of this.containers()) {
 			const el = c.querySelector<HTMLElement>(sel);
-			if (el) this.decorate(el, s);
+			if (!el) continue;
+			this.decorate(el, s);
+			// A metadata change can change the row's float rank (type edited) —
+			// re-settle its own folder. No-op when the order already holds.
+			const cc = el.closest<HTMLElement>(".nav-folder-children");
+			if (cc) this.reorderChildren(cc);
 		}
 	}
 
@@ -184,6 +219,12 @@ export class ExplorerDecorator {
 		for (const c of this.containers()) {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
 			titles.forEach((el) => this.decorate(el, s));
+			// Settle ordering everywhere (root included — the mod-root wrapper has a
+			// .nav-folder-children like any other folder). Idempotent: an ordered
+			// container moves nothing.
+			c.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((cc) =>
+				this.reorderChildren(cc)
+			);
 		}
 		void this.updateCounts();
 	}
@@ -305,20 +346,22 @@ export class ExplorerDecorator {
 			const sinkHit = matched && this.sinkSet.has(matched) ? matched : null;
 			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", sinkHit);
 
-			// NN-<Type> folder colouring: a numeric-prefixed folder whose de-prefixed
-			// name is a note type (Projects→project, References→reference, …) is tinted
-			// by that type — brighter than the files inside (stylesheet). Singularise
-			// the plural folder name to match the singular type.
+			// Type-named folder colouring: a folder whose name — with any numeric
+			// prefix stripped — is a note type (02-Projects or plain Projects →
+			// project) is tinted by that type, brighter than the files inside
+			// (stylesheet). Singularise the plural folder name to match the singular
+			// type. Works identically for the prefixed and plain naming schemes.
 			const fm = name.match(/^\d{2,}[ _-]+(.+)$/);
-			const bare = fm ? fm[1].toLowerCase() : "";
+			const bare = (fm ? fm[1] : name).toLowerCase();
 			const singular = bare.endsWith("s") ? bare.slice(0, -1) : bare;
 			const ftype = this.typeColors.has(bare) ? bare : this.typeColors.has(singular) ? singular : null;
 			let fcolor = ftype
 				? this.plugin.typeStyles().find((t) => t.type === ftype)?.color ?? null
 				: null;
-			// Otherwise (the folder name isn't a type) an OPEN folder borrows the colour
-			// of its top-most ##-prefixed child (its cover/index) by that child's type —
-			// so a plain folder still reads its kind from what leads it.
+			// Otherwise (the folder name isn't a type) an OPEN folder borrows the
+			// colour of its top-most NON-INDEX typed child by visible order, falling
+			// back to the cover/index note's own type only when nothing else is typed —
+			// so a plain folder reads its kind from the content that leads it.
 			if (!ftype) {
 				const cc = this.topChildTypeColor(path);
 				if (cc) fcolor = cc;
@@ -345,9 +388,20 @@ export class ExplorerDecorator {
 			this.setAttr(el, "data-nkui-type", typeHit);
 
 			// (e2) float-to-top — a file whose type is in the configured set sorts to
-			// the top of its folder (CSS order). Uses the raw type, colour or not.
+			// the top of its folder (DOM reorder; see reorderChildren). The attribute
+			// stays for the stylesheet. Uses the raw type, colour or not.
 			const rawType = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
 			this.setAttr(el, "data-nkui-float", rawType && this.floatSet.has(rawType) ? "true" : null);
+
+			// (e3) cover note — BOTH conventions: a 00-/01- structural prefix (the
+			// numeric scheme) and the folder-note (basename equals its folder's name,
+			// the plain scheme), plus any explicit index-typed file. Drives float
+			// rank 0 and gives the stylesheet a hook so a plain-scheme cover can carry
+			// the same emphasis prefix styling gives a 00- row. Queues are interaction
+			// surfaces, never covers.
+			const parentName = path.includes("/") ? path.split("/").slice(-2, -1)[0] : "";
+			const isCover = !isQueue && (this.isCoverName(name, parentName) || rawType === "index");
+			this.setAttr(el, "data-nkui-cover", isCover ? "true" : null);
 
 			const draft =
 				s.enableReviewFlags && s.showRowBadge && fm ? this.isUnreviewed(fm, s) : false;
@@ -415,29 +469,187 @@ export class ExplorerDecorator {
 		let n = looseDrafts;
 		for (const [container, count] of draftsByContainer) {
 			const members = roots.get(container) ?? [];
-			const gate = pickGateName(members.map((m) => m.name));
+			const gate = pickGateName(members.map((m) => m.name), container);
 			const awaitingFiling = !!gate && (members.find((m) => m.name === gate)?.approved ?? false);
 			if (!awaitingFiling) n += count;
 		}
 		return n;
 	}
 
-	/** Colour of a folder's top-most ##-prefixed direct child file, by that child's
-	 * frontmatter type — the cover/index that leads the folder. Null when the folder
-	 * has no prefixed child or that child's type carries no colour. */
+	/**
+	 * Colour an open plain folder borrows: the type colour of its TOP-MOST
+	 * NON-INDEX typed direct child file, by visible order — the same rank the DOM
+	 * reorder applies (covers, floated types, queues, then native order; plain
+	 * name order when ordering is off). The folder reads its kind from the
+	 * content that leads it; only when no other typed child carries a colour does
+	 * it fall back to the cover/index note's own type. Both cover conventions are
+	 * recognised (##-prefix and folder-note basename). Null when nothing typed
+	 * carries a colour.
+	 */
 	private topChildTypeColor(folderPath: string): string | null {
 		const folder = this.plugin.app.vault.getAbstractFileByPath(folderPath);
 		if (!(folder instanceof TFolder)) return null;
-		const prefixed = folder.children
-			.filter((c): c is TFile => c instanceof TFile && c.extension === "md" && /^\d{2,}[-_ ]/.test(c.name))
+		const files = folder.children
+			.filter((c): c is TFile => c instanceof TFile && c.extension === "md")
 			.sort((a, b) => a.name.localeCompare(b.name));
-		for (const f of prefixed) {
-			const t = this.plugin.app.metadataCache.getFileCache(f)?.frontmatter?.[this.plugin.settings.typeField];
-			if (t == null) continue;
-			const color = this.plugin.typeStyles().find((x) => x.type === String(t))?.color;
-			if (color) return color;
+		const ordered = this.floatEnabled
+			? [...files].sort(
+					(a, b) =>
+						this.fileRank(a.path, a.basename, folder.name) -
+						this.fileRank(b.path, b.basename, folder.name)
+				)
+			: files;
+		let coverFallback: string | null = null;
+		for (const f of ordered) {
+			const t = this.typeOfPath(f.path);
+			if (!t) continue;
+			const color = this.plugin.typeStyles().find((x) => x.type === t)?.color;
+			if (!color) continue;
+			if (t === "index" || this.isCoverName(f.basename, folder.name)) {
+				coverFallback ??= color;
+				continue;
+			}
+			return color;
 		}
-		return null;
+		return coverFallback;
+	}
+
+	// ── ordering ─────────────────────────────────────────────────────────────
+
+	/**
+	 * Float rows to the top by PHYSICALLY reordering the explorer DOM —
+	 * insertBefore within the .nav-folder-children container, never CSS. (The
+	 * 0.4.52 lesson: display:flex + order on this container fought Obsidian's own
+	 * row layout, broke the collapse/expand height animation, and clipped rows.
+	 * Moving nodes leaves the container's layout — and so the animation — alone.)
+	 *
+	 * Inside a folder: cover/index note, floated types, the queues, then
+	 * everything else in native order. At the vault root (the mod-root wrapper's
+	 * children): the kit's semantic folder order (rootRank). Only .nav-folder /
+	 * .nav-file children ever move — Obsidian's spacer and animation helper nodes
+	 * are never touched, and the container itself is never wrapped or restyled.
+	 *
+	 * Idempotent by fixed point: the desired sequence is computed first and a
+	 * node is moved only when out of place, so re-running on an ordered container
+	 * performs zero mutations and the MutationObserver converges.
+	 */
+	private reorderChildren(children: HTMLElement): void {
+		if (!this.floatEnabled) return;
+		const isItem = (n: Node | null): n is HTMLElement =>
+			n instanceof HTMLElement &&
+			(n.classList.contains("nav-folder") || n.classList.contains("nav-file"));
+		const items = Array.from(children.children).filter(isItem);
+		if (items.length < 2) return;
+		const isRoot = children.parentElement?.classList.contains("mod-root") ?? false;
+		const ranks = new Map(items.map((el) => [el, this.itemRank(el, isRoot)]));
+		// Array.sort is stable: equal ranks keep Obsidian's native order.
+		const desired = [...items].sort((a, b) => (ranks.get(a) ?? 9) - (ranks.get(b) ?? 9));
+		// Minimal-mutation walk: advance a cursor down the live item sequence and
+		// pull forward only the nodes that are out of place.
+		let cursor: HTMLElement | null = items[0];
+		for (const want of desired) {
+			if (want === cursor) {
+				let n: Node | null = cursor.nextSibling;
+				while (n && !isItem(n)) n = n.nextSibling;
+				cursor = n;
+			} else {
+				children.insertBefore(want, cursor);
+			}
+		}
+	}
+
+	/** Rank of one explorer row element for reorderChildren. */
+	private itemRank(el: HTMLElement, isRoot: boolean): number {
+		const title = el.querySelector<HTMLElement>(
+			":scope > .nav-folder-title, :scope > .nav-file-title"
+		);
+		const path = title?.getAttribute("data-path");
+		if (!path) return isRoot ? 6 : 3;
+		if (isRoot) return this.rootRank(path, el.classList.contains("nav-folder"));
+		if (el.classList.contains("nav-folder")) return 3; // subfolders keep native order
+		const leaf = path.split("/").pop() ?? path;
+		const base = leaf.replace(/\.md$/i, "");
+		const parentName = path.includes("/") ? path.split("/").slice(-2, -1)[0] : "";
+		return this.fileRank(path, base, parentName);
+	}
+
+	/** Float rank of a file within its folder: 0 cover/index · 1 floated type ·
+	 * 2 queue file · 3 everything else. Shared with topChildTypeColor so the
+	 * borrowed folder colour follows the visible order exactly. */
+	private fileRank(path: string, base: string, parentName: string): number {
+		const s = this.plugin.settings;
+		if (path === s.userQueuePath || path === s.machineQueuePath) return 2;
+		const t = this.typeOfPath(path);
+		if (t === "index" || this.isCoverName(base, parentName)) return 0;
+		if (t && this.floatSet.has(t)) return 1;
+		return 3;
+	}
+
+	/** Semantic rank for the vault root's direct children: Inbox 0 · Outbox 1 ·
+	 * Projects 2 · Areas 3 · References 4 · Snippets 5 · anything unrecognised 6
+	 * (kept in native order) · Archive 8, always last. Names resolve through the
+	 * kit's CONFIG literals first (so 00-Inbox and plain Inbox both rank), then
+	 * by the prefix-stripped, singularised folder name. */
+	private rootRank(path: string, isFolder: boolean): number {
+		if (!isFolder) return 6; // root-level files keep native order
+		const f = this.plugin.kitFacts;
+		if (f) {
+			if (path === f.inboxLiteral) return 0;
+			if (path === f.outboxLiteral) return 1;
+		}
+		const key = path.replace(/^\d{2,}[-_ ]+/, "").toLowerCase();
+		const k = key.endsWith("s") ? key.slice(0, -1) : key;
+		switch (k) {
+			case "inbox":
+				return 0;
+			case "outbox":
+				return 1;
+			case "project":
+				return 2;
+			case "area":
+				return 3;
+			case "reference":
+				return 4;
+			case "snippet":
+				return 5;
+			case "archive":
+				return 8;
+			default:
+				return 6;
+		}
+	}
+
+	/** A folder's cover note, by either convention: a 00-/01- structural prefix
+	 * (the kit's numeric scheme), or a basename equal to its parent folder's name
+	 * with the folder's own prefix ignored — so "Areas.md" covers both "Areas"
+	 * and "02-Areas" (the folder-note convention of the plain scheme). */
+	private isCoverName(base: string, parentName: string): boolean {
+		if (/^0[01][-_ ]/.test(base)) return true;
+		if (!parentName) return false;
+		if (base === parentName) return true;
+		return base === parentName.replace(/^\d{2,}[-_ ]+/, "");
+	}
+
+	/** The frontmatter type of a file path, as a string, or null. */
+	private typeOfPath(path: string): string | null {
+		const t = this.plugin.app.metadataCache.getCache(path)?.frontmatter?.[
+			this.plugin.settings.typeField
+		];
+		return t == null ? null : String(t);
+	}
+
+	/** Ask the file explorer to re-sort itself (best-effort, internal API) —
+	 * used when ordering is switched off, so the DOM returns to Obsidian's native
+	 * order instead of keeping the last float layout until the next vault event. */
+	private resortExplorer(): void {
+		for (const leaf of this.plugin.app.workspace.getLeavesOfType("file-explorer")) {
+			const v = leaf.view as unknown as { sort?: () => void };
+			try {
+				v.sort?.();
+			} catch {
+				// internal API absent — native order returns on the next vault event
+			}
+		}
 	}
 
 	private isUnreviewed(fm: Record<string, unknown>, s = this.plugin.settings): boolean {
@@ -461,6 +673,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-queue");
 				el.removeAttribute("data-nkui-queue-active");
 				el.removeAttribute("data-nkui-float");
+				el.removeAttribute("data-nkui-cover");
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"
 				);
@@ -490,14 +703,16 @@ export class ExplorerDecorator {
  * Resolve a working set's gate by the names of its root-level members — the
  * name-only twin of nowView's pickGate (the decorator only has names + approval
  * to work with). A lone root file IS the gate; among several, a single
- * 00-prefixed cover wins, else a single date-named file. Ambiguity resolves to
- * none — no guessing.
+ * 00-prefixed cover wins, else a single folder-note (basename equal to the
+ * container, the plain scheme's cover convention), else a single date-named
+ * file. Ambiguity resolves to none — no guessing.
  */
-function pickGateName(names: string[]): string | null {
+function pickGateName(names: string[], containerName: string): string | null {
 	const one = (xs: string[]): string | null => (xs.length === 1 ? xs[0] : null);
 	return (
 		one(names) ??
 		one(names.filter((n) => /^00[-_ ]/.test(n))) ??
+		one(names.filter((n) => n.replace(/\.md$/i, "") === containerName)) ??
 		one(names.filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n)))
 	);
 }

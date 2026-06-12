@@ -10,6 +10,9 @@ export interface KitFacts {
 	/** literal folder names, e.g. "00-Inbox" */
 	inboxLiteral: string;
 	outboxLiteral: string;
+	/** the archive root from § Folders, e.g. "99-Archive" — "" when CONFIG
+	 * carries no `<archive>` row (consumers fall back to their own heuristic) */
+	archiveLiteral: string;
 	/** resolved queue file paths, e.g. "00-Inbox/00-User-Queue.md" */
 	userQueuePath: string;
 	machineQueuePath: string;
@@ -67,6 +70,7 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 	return {
 		inboxLiteral: inbox,
 		outboxLiteral: outbox,
+		archiveLiteral: tokens.get("archive") ?? "",
 		userQueuePath: resolve(uq),
 		machineQueuePath: resolve(mq),
 		prefixes,

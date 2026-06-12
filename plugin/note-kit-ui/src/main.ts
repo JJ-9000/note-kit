@@ -1,12 +1,39 @@
-import { MarkdownView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { DEFAULT_SETTINGS, NoteKitUiSettings, NoteKitUiSettingTab, TypeStyle } from "./settings";
 import { buildDynamicCss } from "./css";
 import { ExplorerDecorator } from "./decorator";
 import { NoteClassApplier } from "./noteClass";
-import { NowView, NOW_VIEW_TYPE } from "./nowView";
+import { NowView, NOW_VIEW_TYPE, NOW_SIDE_VIEW_TYPE } from "./nowView";
+import { QueueView, QUEUE_VIEW_TYPE, rawEscapes } from "./queueView";
+import { CLOSE_OFFER_MS } from "./holds";
 import { KitFacts, readKitFacts } from "./kitConfig";
 import { deriveThemePalette } from "./palette";
 import { syncGraphColors } from "./graph";
+
+/** The default palette shipped BEFORE 0.4.49 (recovered from git, 0.4.46) —
+ * compared once against the saved palette: an exact match means the user never
+ * customised it, so the one-time migration may advance it to the current
+ * defaults (see migratePalette). */
+const PRE_049_TYPE_STYLES: TypeStyle[] = [
+	{ type: "project", color: "#e42148" },
+	{ type: "area", color: "#ff9933" },
+	{ type: "reference", color: "#00b347" },
+	{ type: "research", color: "#3b82f6" },
+	{ type: "plan", color: "#a855f7" },
+	{ type: "session", color: "#4d61ec" },
+	{ type: "journal", color: "#f03da2" },
+	{ type: "idea", color: "#f0dc00" },
+	{ type: "snippet", color: "#00b9d1" },
+	{ type: "source", color: "#5c6bc0" },
+	{ type: "index", color: "#ffffff" },
+	{ type: "note", color: "#9aa1c1" },
+	{ type: "voice", color: "#e8893a" },
+	{ type: "design", color: "#ffbb55" },
+	{ type: "format", color: "#ffd685" },
+	{ type: "addendum", color: "#ffc894" },
+	{ type: "log", color: "#454545" },
+	{ type: "revision", color: "#ab6969" },
+];
 
 export default class NoteKitUiPlugin extends Plugin {
 	settings!: NoteKitUiSettings;
@@ -27,6 +54,7 @@ export default class NoteKitUiPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		await this.migratePalette();
 		await this.applyKitFacts();
 		this.refreshPalette();
 
@@ -39,11 +67,34 @@ export default class NoteKitUiPlugin extends Plugin {
 		this.noteClass = new NoteClassApplier(this);
 
 		this.registerView(NOW_VIEW_TYPE, (leaf) => new NowView(leaf, this));
+		this.registerView(NOW_SIDE_VIEW_TYPE, (leaf) => new NowView(leaf, this, true));
+		this.registerView(QUEUE_VIEW_TYPE, (leaf) => new QueueView(leaf, this));
 		this.addRibbonIcon("sun", "Open For You view", () => this.activateNowView());
+		// `icon` so the command carries the For You sun when added to the mobile
+		// toolbar — the quick way into the view on a phone.
 		this.addCommand({
 			id: "open-now-view",
 			name: "Open For You view",
+			icon: "sun",
 			callback: () => this.activateNowView(),
+		});
+		// The way BACK into the clean queue view after "edit raw": clears the
+		// session's raw-escape for the active queue file and swaps the leaf.
+		this.addCommand({
+			id: "open-queue-clean-view",
+			name: "Reopen queue in clean view",
+			icon: "list-checks",
+			checkCallback: (checking) => {
+				const p = this.app.workspace.getActiveFile()?.path;
+				const isQueue =
+					!!p && (p === this.settings.userQueuePath || p === this.settings.machineQueuePath);
+				if (checking) return isQueue;
+				if (!isQueue || !p) return false;
+				rawEscapes.delete(p);
+				const leaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+				if (leaf) void leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: p }, active: true });
+				return true;
+			},
 		});
 
 		this.addSettingTab(new NoteKitUiSettingTab(this.app, this));
@@ -69,8 +120,15 @@ export default class NoteKitUiPlugin extends Plugin {
 			this.app.workspace.on("file-open", (file) => {
 				this.dedupeTabsFor(file?.path);
 				if (file) this.seedReviewed(file);
+				// Queue files open in the clean queue view (unless the user escaped
+				// to the raw editor this session) — after the dedupe settles.
+				this.maybeRouteQueue(file);
 			})
 		);
+
+		// Queue routing's reliable trigger: layout-change fires after a new
+		// leaf's view state is committed (file-open fires too early for it).
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.routeQueueLeaves()));
 
 		// The palette is read from the app's CSS, so it follows the theme: re-derive
 		// whenever the CSS changes (theme switch, snippet edit) and repaint if the
@@ -101,6 +159,9 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (this.settings.nowOpenOnStartup && this.app.workspace.getLeavesOfType(NOW_VIEW_TYPE).length === 0) {
 				this.activateNowView();
 			}
+			// Condensed For You in the RIGHT sidebar (mobile: swipe left opens it).
+			// Installed quietly — never focused or revealed on startup.
+			this.applySidebarNow();
 			// Collapse any duplicate For You tabs a restored workspace brought back.
 			this.dedupeNowView();
 			// The left dock defaults to the file explorer — never strand a session
@@ -143,6 +204,39 @@ export default class NoteKitUiPlugin extends Plugin {
 		const keep = dupes[0];
 		active.detach();
 		this.app.workspace.setActiveLeaf(keep, { focus: true });
+	}
+
+	/** Open a queue FILE as the clean queue view: when the clean-view setting is
+	 * on and the opened path is one of the two configured queues, swap the leaf's
+	 * markdown view for the queue view in place. A path the user escaped to the
+	 * raw editor this session (rawEscapes — the queue view's "edit raw" adds it
+	 * BEFORE switching) is left alone, which also breaks the re-route loop. */
+	private maybeRouteQueue(file: TFile | null): void {
+		if (!file) return;
+		const p = file.path;
+		if (p !== this.settings.userQueuePath && p !== this.settings.machineQueuePath) return;
+		// file-open fires before the markdown view has loaded its file or even
+		// committed its leaf state, so don't inspect leaves here — defer to the
+		// scan, which also runs on layout-change (that event fires once the
+		// leaf's state is real).
+		window.setTimeout(() => this.routeQueueLeaves(), 0);
+	}
+
+	/** Convert every main-area markdown leaf sitting on a queue file into the
+	 * clean queue view (unless the user escaped that path to the raw editor —
+	 * the queue view's "edit raw" adds it to rawEscapes BEFORE switching, which
+	 * also breaks the re-route loop). Matches on the leaf's view STATE, not
+	 * view.file — the state carries the path before the file loads. */
+	private routeQueueLeaves(): void {
+		if (!this.settings.queueCleanView) return;
+		const queues = [this.settings.userQueuePath, this.settings.machineQueuePath];
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if (leaf.getRoot() !== this.app.workspace.rootSplit) continue;
+			const state = leaf.getViewState().state as { file?: string } | undefined;
+			const p = state?.file;
+			if (!p || !queues.includes(p) || rawEscapes.has(p)) continue;
+			void leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: p }, active: true });
+		}
 	}
 
 	private maybeReplaceEmpty(leaf: WorkspaceLeaf | null): void {
@@ -213,12 +307,11 @@ export default class NoteKitUiPlugin extends Plugin {
 			btn.remove();
 			value.style.display = ""; // the checked reviewed box returns
 		};
-		// The fill depletes over ~1.15s (the hold animation, run in reverse); when it
-		// empties the offer expires. Hovering pauses it — the button holds full and the
-		// countdown restarts on leave — so it's reachable as long as you're over it.
-		const COUNT = 1517;
+		// The fill depletes over CLOSE_OFFER_MS (the hold animation, run in reverse);
+		// when it empties the offer expires. Hovering pauses it — the button holds full
+		// and the countdown restarts on leave — so it's reachable while you're over it.
 		const arm = (): void => {
-			timer = window.setTimeout(restore, COUNT);
+			timer = window.setTimeout(restore, CLOSE_OFFER_MS);
 		};
 		btn.addEventListener("click", (ev) => {
 			ev.preventDefault();
@@ -326,9 +419,11 @@ export default class NoteKitUiPlugin extends Plugin {
 	}
 
 	private refreshNowViews(): void {
-		for (const leaf of this.app.workspace.getLeavesOfType(NOW_VIEW_TYPE)) {
-			const view = leaf.view;
-			if (view instanceof NowView) view.refresh();
+		for (const type of [NOW_VIEW_TYPE, NOW_SIDE_VIEW_TYPE]) {
+			for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+				const view = leaf.view;
+				if (view instanceof NowView) view.refresh();
+			}
 		}
 	}
 
@@ -338,6 +433,26 @@ export default class NoteKitUiPlugin extends Plugin {
 		for (const p of this.settings.prefixStyles) {
 			if (typeof p.size !== "number") p.size = 1;
 		}
+	}
+
+	/** One-time palette advance: a saved palette that exactly matches the
+	 * pre-0.4.49 shipped defaults was never customised, so it moves to the
+	 * current defaults (with a Notice). A customised palette is left alone.
+	 * Either way the flag is set so this never runs again. */
+	private async migratePalette(): Promise<void> {
+		if (this.settings.paletteMigrated) return;
+		const cur = this.settings.typeStyles;
+		const untouched =
+			cur.length === PRE_049_TYPE_STYLES.length &&
+			PRE_049_TYPE_STYLES.every(
+				(o, i) => cur[i]?.type === o.type && (cur[i]?.color ?? "").toLowerCase() === o.color
+			);
+		if (untouched) {
+			this.settings.typeStyles = DEFAULT_SETTINGS.typeStyles.map((r) => ({ ...r }));
+			new Notice("Note Kit UI: default colours updated — Reset in settings restores them anytime");
+		}
+		this.settings.paletteMigrated = true;
+		await this.saveData(this.settings);
 	}
 
 	/**
@@ -371,6 +486,20 @@ export default class NoteKitUiPlugin extends Plugin {
 		}
 	}
 
+	/** Reconcile the right-sidebar For You leaf with the `sidebarNow` setting:
+	 * on and missing → install quietly (never focused or revealed); off → detach
+	 * any installed side leaves. Idempotent — safe on every settings save. */
+	private applySidebarNow(): void {
+		const leaves = this.app.workspace.getLeavesOfType(NOW_SIDE_VIEW_TYPE);
+		if (this.settings.sidebarNow) {
+			if (leaves.length > 0) return;
+			const side = this.app.workspace.getRightLeaf(false);
+			if (side) void side.setViewState({ type: NOW_SIDE_VIEW_TYPE, active: false });
+		} else {
+			for (const leaf of leaves) leaf.detach();
+		}
+	}
+
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		this.refreshPalette();
@@ -379,6 +508,7 @@ export default class NoteKitUiPlugin extends Plugin {
 		this.decorator?.refresh();
 		this.noteClass?.refresh();
 		this.refreshNowViews();
+		this.applySidebarNow();
 		if (this.settings.syncGraphColors) await this.applyGraphColors();
 	}
 }

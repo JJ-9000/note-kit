@@ -1,9 +1,14 @@
-import { ItemView, WorkspaceLeaf, TFile, setIcon, debounce, Platform } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, TFolder, setIcon, debounce, Platform } from "obsidian";
 import { typeClass } from "./settings";
 import { toneVars } from "./palette";
+import { attachHold, attachKeyActivate } from "./holds";
+import * as queueWrites from "./queueWrites";
+import { CHECKBOX_RE, HEADING_RE, SKIP_MARK_RE, EXEC_MARK_RE } from "./queueWrites";
 import type NoteKitUiPlugin from "./main";
 
 export const NOW_VIEW_TYPE = "note-kit-now";
+/** The condensed sidebar twin — same view class, condensed render. */
+export const NOW_SIDE_VIEW_TYPE = "note-kit-now-side";
 
 interface Entry {
 	file: TFile;
@@ -44,19 +49,16 @@ interface RowOpts {
 	approve?: boolean;
 }
 
-/** Press-and-hold duration (ms) for every commit affordance — gate approve, approve
- * all, draft approve. ~3x faster than the original 700ms: a quick, deliberate press. */
-const HOLD_MS = 303;
-
-/** One checkbox item parsed from the machine queue (a flat checklist). */
-interface QueueItem {
+/** One checkbox item parsed from the machine queue (a flat checklist).
+ * Exported for the standalone queue view. */
+export interface QueueItem {
 	line: number;
 	text: string;
 	done: boolean;
 }
 
 /** One option line beneath a decision heading in the user queue. */
-interface DecisionOption {
+export interface DecisionOption {
 	text: string; // raw text, used to locate the line on write
 	state: string; // raw checkbox char: " " open, "x"/"X" approved, "-" rejected
 }
@@ -72,23 +74,28 @@ interface DecisionOption {
  * means the item drifted off the queue format (heading with prose, no checkbox
  * lines) — it renders as a "needs reading" row instead of options.
  */
-interface Decision {
+export interface Decision {
 	title: string | null;
 	context: string;
 	options: DecisionOption[];
 }
 
-const ARCHIVE = "99-Archive";
+/** Fallback archive root when neither CONFIG nor a root-folder name resolves one. */
+const ARCHIVE_FALLBACK = "99-Archive";
 const BUCKET_CAP = 50;
 
-/** Markdown checkbox line: groups are (lead)(state)(mid)(text)(trail). */
-const CHECKBOX_RE = /^(\s*[-*]\s+\[)(.)(\]\s+)(.*\S)(\s*)$/;
-/** A `##`/`###` heading line. */
-const HEADING_RE = /^(#{2,})\s+(.*\S)\s*$/;
-/** The literal a user cross-off writes beside its [x] — a skip, not a completion. */
-const SKIP_MARK_RE = /\s*\*\(item skipped\)\*$/;
-/** The literal the action-agent writes beside its [x] — a completion receipt. */
-const EXEC_MARK_RE = /\s*\*\(executed\)\*$/;
+/** A loose file (or folder) dropped in the outbox folder — queued work in file
+ * form, surfaced as a Queue row. `open` is what a click opens: the file itself,
+ * or a folder's first file. */
+interface OutboxDrop {
+	name: string;
+	folder: boolean;
+	open: TFile | null;
+	type: string | null;
+}
+
+// The checkbox/heading/marker literals live in queueWrites (the shared write
+// conventions module) — imported above for parsing and row rendering.
 
 /**
  * The kit's front page. Surfaces what needs you (drafts grouped by type),
@@ -103,10 +110,18 @@ export class NowView extends ItemView {
 	private scheduleRender: () => void;
 	private decisions: Decision[] = [];
 	private machineItems: QueueItem[] = [];
+	/** The Queue section's add-task textarea (re-created every render) — kept so
+	 * addMachineItem can restore focus after its immediate re-render. */
+	private machineAddInput: HTMLTextAreaElement | null = null;
 
-	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
+	/** Condensed (sidebar) mode: Decide stays live; the heavier sections collapse
+	 * to count lines that open the full page. */
+	private condensed: boolean;
+
+	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin, condensed = false) {
 		super(leaf);
 		this.plugin = plugin;
+		this.condensed = condensed;
 		this.scheduleRender = debounce(() => {
 			// Never wipe a field the user is typing in (add a task, edit one, pick an
 			// option): a background vault change must not blow away in-progress text.
@@ -125,7 +140,7 @@ export class NowView extends ItemView {
 	}
 
 	getViewType(): string {
-		return NOW_VIEW_TYPE;
+		return this.condensed ? NOW_SIDE_VIEW_TYPE : NOW_VIEW_TYPE;
 	}
 	getDisplayText(): string {
 		return "For You";
@@ -166,9 +181,14 @@ export class NowView extends ItemView {
 	// ── rendering ──────────────────────────────────────────────────────────────
 
 	private render(): void {
+		if (this.condensed) {
+			this.renderCondensed();
+			return;
+		}
 		const s = this.plugin.settings;
 		const c = this.contentEl;
 		c.empty();
+		this.machineAddInput = null; // re-set when the Queue bucket renders
 		c.addClass("nkui-now");
 
 		const { needs, active, waiting } = this.collect();
@@ -191,20 +211,23 @@ export class NowView extends ItemView {
 
 		const groups = this.groupEntries(needs);
 		const machineFile = this.app.vault.getAbstractFileByPath(s.machineQueuePath);
+		const drops = this.collectOutboxDrops();
 
 		// Queues first — the configured user-interaction surfaces. Decide shows
 		// only OPEN decisions; resolved ones drop to the Waiting section below.
 		if (openDecisions.length) this.renderDecideBucket(c, openDecisions);
 		// Queue — you → AI checklist. Click an item's text to cross it off.
-		if (machineFile instanceof TFile) {
+		// Outbox drops (loose files beside the queue file) render as rows too.
+		if (machineFile instanceof TFile || drops.length) {
 			this.renderQueueBucket(c, "Queue/machine", "Queue", "var(--interactive-accent)", {
 				items: this.machineItems,
+				drops,
 				path: s.machineQueuePath,
 				defaultOpen: true,
 			});
 		}
 
-		const queuesShown = openDecisions.length > 0 || machineFile instanceof TFile;
+		const queuesShown = openDecisions.length > 0 || machineFile instanceof TFile || drops.length > 0;
 
 		// Inbox drafts that still need you, grouped by type — below the queues.
 		if (queuesShown && groups.size) c.createDiv("nkui-now-divider");
@@ -258,6 +281,9 @@ export class NowView extends ItemView {
 			);
 		}
 
+		// Version footer — a quiet build stamp below the last section.
+		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
+
 		// Column widths come from live boxes; a render that raced the injected
 		// stylesheet or webfont measured the fallback font and locked stale
 		// widths in. Re-measure once fonts settle (Format-UI-Spacing:
@@ -267,6 +293,66 @@ export class NowView extends ItemView {
 		// extra reflow for nothing.
 		if (document.fonts && document.fonts.status !== "loaded") {
 			void document.fonts.ready.then(() => this.onResize());
+		}
+	}
+
+	/** Condensed sidebar render — Decide keeps its full interactions (picking
+	 * from the sidebar works); Queue, the Needs-you groups, and Active collapse
+	 * to count lines that open the full For You page. */
+	private renderCondensed(): void {
+		const c = this.contentEl;
+		c.empty();
+		this.machineAddInput = null;
+		c.addClass("nkui-now");
+		c.addClass("nkui-now-condensed");
+
+		const { needs, active } = this.collect();
+		const openDecisions = this.decisions.filter(isOpenDecision);
+
+		const head = c.createDiv("nkui-now-head");
+		const tb = head.createDiv("nkui-now-titleblock");
+		tb.createDiv({ cls: "nkui-now-title", text: "For You" });
+		tb.createDiv({
+			cls: "nkui-now-subtitle",
+			text: summary(needs.length, active.length, openDecisions.length),
+		});
+
+		if (openDecisions.length) this.renderDecideBucket(c, openDecisions);
+
+		const openFull = () => void this.plugin.activateNowView();
+		const line = (label: string, count: number, color: string | null): void => {
+			const row = c.createDiv("nkui-now-condline");
+			// An empty control recedes — the stylesheet fades is-empty lines.
+			row.toggleClass("is-empty", count <= 0);
+			row.setAttr("role", "button");
+			row.setAttr("tabindex", "0");
+			row.setAttr("aria-label", `${label} — open the full For You page`);
+			const cnt = row.createSpan({ cls: "nkui-now-count", text: String(count) });
+			if (color && count > 0) cnt.style.background = color;
+			else cnt.addClass("nkui-now-count-neutral");
+			row.createSpan({ cls: "nkui-now-condline-label", text: label });
+			row.addEventListener("click", openFull);
+			attachKeyActivate(row, openFull);
+		};
+
+		// Queue count — open machine items plus outbox drops, like the bucket bubble.
+		const openQueue =
+			this.machineItems.filter((i) => !i.done).length + this.collectOutboxDrops().length;
+		line("Queue", openQueue, "var(--interactive-accent)");
+
+		// Needs-you summary — one count line per type group.
+		const groups = this.groupEntries(needs);
+		for (const key of this.groupOrder([...groups.keys()])) {
+			const items = groups.get(key);
+			if (!items) continue;
+			const needsUser = items.filter((e) => !e.awaitingFiling).length;
+			line(pluralLabel(key, needsUser), needsUser, this.colorFor(key));
+		}
+
+		// Active, collapsed to its count.
+		if (active.length) {
+			const activeColor = active[0].type ? this.colorFor(active[0].type) : null;
+			line("Active", active.length, activeColor);
 		}
 	}
 
@@ -298,7 +384,9 @@ export class NowView extends ItemView {
 		}
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
-		const list = wrap.createDiv("nkui-now-list");
+		// nkui-now-colgrid: the list is the shared column grid its rows (nkui-cols)
+		// subgrid onto — cross-row alignment by tracks, not measured widths.
+		const list = wrap.createDiv("nkui-now-list nkui-now-colgrid");
 		// An approvable section lets each non-gate draft row carry its own inline
 		// "approve" hold (rendered in the gate column), so single drafts approve like
 		// the gated sets do.
@@ -334,21 +422,27 @@ export class NowView extends ItemView {
 		if (entries.length > BUCKET_CAP) {
 			list.createDiv({ cls: "nkui-now-more", text: `+${entries.length - BUCKET_CAP} more…` });
 		}
+		// The stylesheet scales the unroll duration by the row count.
+		wrap.style.setProperty("--nkui-rows", String(list.childElementCount));
 		this.equalizeMetaColumns(list);
 	}
 
 	/**
-	 * Size each column to its widest member, measured — not guessed in CSS.
-	 * When a column's values are uniform (every Active row says "project") the
-	 * box equals the text exactly and every gap in the block is exactly one
-	 * spacing step; when they differ, the slack is the true minimum. The
-	 * spacing standard's "no magic numbers": the content defines the column.
+	 * Size each gate-trio column to its widest member, measured — not guessed in
+	 * CSS. When a column's values are uniform the box equals the text exactly and
+	 * every gap in the block is exactly one spacing step; when they differ, the
+	 * slack is the true minimum. The spacing standard's "no magic numbers": the
+	 * content defines the column.
 	 *
 	 * Scope is the SECTION (one bucket's list), deliberately: columns align
 	 * within their section and sections stay independent, each sized to its
 	 * own content. A view-wide pass was tried and reverted — reserving another
 	 * section's wide column (the wait note) tore this section's pills apart
 	 * (Format-UI-Columns-Are-Section-Scoped).
+	 *
+	 * Only the gate trio (wait note, +N, pill) inside the action cell still
+	 * measures; the meta columns (type, age, pill slot) moved to the shared
+	 * column grid (nkui-cols), which aligns by tracks instead of widths.
 	 */
 	private equalizeMetaColumns(scope: HTMLElement): void {
 		// A slot column nobody in this list fills disappears entirely — left in
@@ -364,14 +458,7 @@ export class NowView extends ItemView {
 		// pushed off the right edge). Clear any width a prior desktop-width render
 		// left behind and bail before the measuring pass.
 		if (Platform.isMobile) {
-			for (const cls of [
-				"nkui-now-gateslot",
-				"nkui-now-waitslot",
-				"nkui-now-countslot",
-				"nkui-now-pillslot",
-				"nkui-now-metatype",
-				"nkui-now-metaage",
-			]) {
+			for (const cls of ["nkui-now-gateslot", "nkui-now-waitslot", "nkui-now-countslot"]) {
 				for (const el of Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`))) el.style.width = "";
 			}
 			return;
@@ -379,17 +466,10 @@ export class NowView extends ItemView {
 		// Equalize each column to its widest member — in THREE batched phases (clear
 		// all → measure all → assign all), never read-after-write per row. Interleaving
 		// a width write with a getBoundingClientRect read forces a synchronous reflow on
-		// every iteration; over six columns × N rows that layout-thrash is the visible
+		// every iteration; over several columns × N rows that layout-thrash is the visible
 		// "stutter, dots then text" on the Active section. Batched, the browser does one
 		// layout flush for the whole measuring pass instead of dozens.
-		const groups = [
-			"nkui-now-gateslot",
-			"nkui-now-waitslot",
-			"nkui-now-countslot",
-			"nkui-now-pillslot",
-			"nkui-now-metatype",
-			"nkui-now-metaage",
-		]
+		const groups = ["nkui-now-gateslot", "nkui-now-waitslot", "nkui-now-countslot"]
 			.map((cls) => Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`)))
 			.filter((els) => els.length >= 2);
 		// Phase 1 — clear every width (writes only).
@@ -427,6 +507,8 @@ export class NowView extends ItemView {
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
 		for (const d of decisions) this.renderDecision(list, d);
+		// The stylesheet scales the unroll duration by the row count.
+		wrap.style.setProperty("--nkui-rows", String(list.childElementCount));
 	}
 
 	/** A resolved decision: approved in the file, not yet executed. Renders in the
@@ -436,7 +518,7 @@ export class NowView extends ItemView {
 		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
 		if (!picked) return;
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
-		this.renderReducedRow(list, {
+		renderReducedRow(list, {
 			title: label,
 			note: "runs next agent pass",
 			struck: true,
@@ -476,9 +558,7 @@ export class NowView extends ItemView {
 			setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
 			row.createSpan({ cls: "nkui-now-needsread-text", text: "Read-only — open to read" });
 			row.addEventListener("click", openQueue);
-			row.addEventListener("keydown", (ev) => {
-				if (ev.key === "Enter") openQueue();
-			});
+			attachKeyActivate(row, openQueue);
 			// A non-choice notification has nothing to pick — the default action is to
 			// acknowledge it: a checked line is written under its heading so it
 			// resolves like a picked decision (dims, then the action-agent clears it
@@ -563,9 +643,10 @@ export class NowView extends ItemView {
 		id: string,
 		label: string,
 		color: string | null,
-		opts: { items: QueueItem[]; path: string; defaultOpen: boolean }
+		opts: { items: QueueItem[]; drops: OutboxDrop[]; path: string; defaultOpen: boolean }
 	): void {
-		const openCount = opts.items.filter((i) => !i.done).length;
+		// A drop is a queued ask in file form, so it counts toward the bubble.
+		const openCount = opts.items.filter((i) => !i.done).length + opts.drops.length;
 		const b = parent.createDiv("nkui-now-group nkui-now-group-queue");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, opts.defaultOpen));
 		this.bucketHead(b, id, label, color, openCount, opts.defaultOpen);
@@ -573,81 +654,76 @@ export class NowView extends ItemView {
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
 		for (const item of opts.items) {
-			// A crossed-off item (skipped by the user or executed by the agent) is a
-			// receipt, not a live ask — it renders in the shared reduced shape (small,
-			// faded, fate note beneath the text) so it never crowds the open items.
-			if (item.done) {
-				const skipped = SKIP_MARK_RE.test(item.text);
-				const executed = EXEC_MARK_RE.test(item.text);
-				this.renderReducedRow(list, {
-					title: item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, ""),
-					note: skipped
-						? "skipped — clears next agent run"
-						: executed
-							? "executed — clears next run"
-							: "done — clears next agent run",
-					struck: true,
-					bullet: true,
-					onOpen: () => void this.skipMachineItem(item),
-					ariaLabel: executed
-						? "Executed by the action agent; clears on its next run. Click to restore — it will run again."
-						: "Crossed off — the agent clears it next run without executing. Click to restore.",
-				});
-				continue;
-			}
-			// Open item: click the task to cross it off (a SKIP — the line gains the
-			// literal "*(item skipped)*" marker with its [x] so the agent's sweep tells
-			// it from a real completion). A quiet "edit?" beneath re-opens the text for
-			// editing.
-			const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
-			row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
-			const main = row.createDiv("nkui-now-qmain");
-			main.createSpan({ cls: "nkui-now-qtext", text: item.text });
-			const editLink = main.createSpan({ cls: "nkui-now-qedit", text: "edit?" });
-			row.setAttr("aria-label", "Click the task to skip it; click “edit?” to change its text.");
-			row.setAttr("title", row.getAttr("aria-label") ?? "");
-			row.addEventListener("click", () => void this.skipMachineItem(item));
-			editLink.addEventListener("click", (ev) => {
-				ev.stopPropagation();
-				this.editMachineItem(main, item);
+			renderMachineItemRow(list, item, {
+				onSkip: (it) => void this.skipMachineItem(it),
+				onEdit: (main, it) => this.editMachineItem(main, it),
 			});
 		}
-		if (!opts.items.length) {
+		// Loose drops beside the queue file — one row each, after the checklist.
+		for (const d of opts.drops) this.renderDropRow(list, d);
+		if (!opts.items.length && !opts.drops.length) {
 			list.createDiv({ cls: "nkui-now-empty", text: "Nothing queued." });
 		}
-		const add = list.createDiv("nkui-now-qadd");
-		// A textarea, not a one-line input: a long task wraps so it can be read back
-		// (especially on mobile, where a single line scrolls off-screen). It grows
-		// with its content. A "+" button submits — the reliable path on mobile, where
-		// the soft-keyboard return inserts a newline instead of firing a usable Enter.
-		const input = add.createEl("textarea", {
-			cls: "nkui-now-qaddinput",
-			attr: { rows: "1", placeholder: "Add a task…" },
-		});
-		const submit = (): void => {
-			const v = input.value.trim();
-			if (!v) return;
-			void this.addMachineItem(v);
-			input.value = "";
-			this.autoGrow(input);
-		};
-		const submitBtn = add.createEl("button", { cls: "nkui-now-qaddsubmit" });
-		setIcon(submitBtn, "plus");
-		submitBtn.setAttr("aria-label", "Add task");
-		submitBtn.addEventListener("click", (ev) => {
-			ev.preventDefault();
-			submit();
-			input.focus();
-		});
-		input.addEventListener("input", () => this.autoGrow(input));
-		input.addEventListener("keydown", (ev) => {
-			// Desktop Enter submits; Shift+Enter (and the mobile return key) make a
-			// newline. Mobile users tap the + button.
-			if (ev.key === "Enter" && !ev.shiftKey) {
-				ev.preventDefault();
-				submit();
+		this.machineAddInput = renderAddTaskBox(list, (text) => void this.addMachineItem(text));
+		// The stylesheet scales the unroll duration by the row count.
+		wrap.style.setProperty("--nkui-rows", String(list.childElementCount));
+	}
+
+	/** One outbox drop — a loose file (or folder) in the queue folder. The row
+	 * shows the name and opens the file on click; a folder row opens its first
+	 * file (chosen over reveal-in-explorer: no private explorer API needed). */
+	private renderDropRow(list: HTMLElement, d: OutboxDrop): void {
+		const row = list.createDiv("nkui-now-qrow nkui-now-qdrop");
+		this.applyTint(row, d.type);
+		setIcon(row.createSpan("nkui-now-qdropicon"), d.folder ? "folder" : "file");
+		row.createSpan({ cls: "nkui-now-qdropname", text: d.name });
+		const aria = d.folder
+			? "A folder dropped in the outbox — click to open its first file"
+			: "A file dropped in the outbox — click to open it";
+		row.setAttr("aria-label", aria);
+		row.setAttr("title", aria);
+		const open = d.open;
+		if (!open) return;
+		row.setAttr("role", "button");
+		row.setAttr("tabindex", "0");
+		row.addEventListener("click", (ev) =>
+			this.app.workspace.openLinkText(open.path, "", ev.ctrlKey || ev.metaKey)
+		);
+		attachKeyActivate(row, () => this.app.workspace.openLinkText(open.path, "", false));
+		this.attachPreview(row, open, d.type);
+	}
+
+	/** THE outbox — the machine queue's own folder (the queue-anchored fact),
+	 * not a guess at nowQueueFolders[0]; the configured queue folders stay for
+	 * any additional queue locations. A root-level queue file (no parent
+	 * folder) falls back to the first configured queue folder. */
+	private outboxPath(): string {
+		const p = this.plugin.settings.machineQueuePath;
+		const i = p.lastIndexOf("/");
+		if (i > 0) return p.slice(0, i);
+		return this.plugin.settings.nowQueueFolders[0] ?? "";
+	}
+
+	/** Loose files and folders dropped in the outbox, excluding the
+	 * machine-queue file itself. A folder is one row standing for
+	 * everything inside it. */
+	private collectOutboxDrops(): OutboxDrop[] {
+		const s = this.plugin.settings;
+		const root = this.app.vault.getAbstractFileByPath(this.outboxPath());
+		if (!(root instanceof TFolder)) return [];
+		const drops: OutboxDrop[] = [];
+		for (const child of root.children) {
+			if (child instanceof TFile) {
+				if (child.path === s.machineQueuePath) continue;
+				const fm = this.app.metadataCache.getFileCache(child)?.frontmatter;
+				const type = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
+				drops.push({ name: this.displayName(child), folder: false, open: child, type });
+			} else if (child instanceof TFolder) {
+				drops.push({ name: child.name, folder: true, open: firstFileIn(child), type: null });
 			}
-		});
+		}
+		drops.sort((a, b) => a.name.localeCompare(b.name));
+		return drops;
 	}
 
 	/** Shared bucket header (count bubble + label, foldable). */
@@ -708,43 +784,12 @@ export class NowView extends ItemView {
 		const noun = drafts.length === 1 ? "draft" : "drafts";
 		btn.setAttr("aria-label", `Hold to approve all ${drafts.length} ${noun} in this section`);
 		btn.setAttr("title", btn.getAttr("aria-label") ?? "");
-		const HOLD = HOLD_MS;
-		let timer: number | undefined;
-		let holding = false;
-		const end = (): void => {
-			holding = false;
-			btn.removeClass("is-holding");
-			bucket?.removeClass("is-arming");
-			if (timer) window.clearTimeout(timer);
-			timer = undefined;
-		};
-		const start = (ev: Event): void => {
-			ev.preventDefault();
-			ev.stopPropagation(); // don't fold the section
-			if (holding) return;
-			holding = true;
-			btn.addClass("is-holding");
-			bucket?.addClass("is-arming");
-			timer = window.setTimeout(() => {
-				end();
-				void this.approveAll(drafts);
-			}, HOLD);
-		};
-		btn.addEventListener("pointerdown", start);
-		btn.addEventListener("pointerup", end);
-		btn.addEventListener("pointerleave", end);
-		btn.addEventListener("pointercancel", end);
-		// A click still bubbles to the header's fold toggle even though pointerdown
-		// stopped propagation — swallow it so a tap never folds the section.
-		btn.addEventListener("click", (ev) => ev.stopPropagation());
-		// A keyboard can't "hold" — Enter/Space commits directly and never folds the
-		// header.
-		btn.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" || ev.key === " ") {
-				ev.preventDefault();
-				ev.stopPropagation();
-				void this.approveAll(drafts);
-			}
+		// While held the section gains `is-arming`, lighting the candidate rows in
+		// their type colour; the swallowed tap keeps the header from folding.
+		attachHold(btn, {
+			onCommit: () => this.approveAll(drafts),
+			armClass: "is-arming",
+			armTarget: bucket,
 		});
 	}
 
@@ -768,60 +813,22 @@ export class NowView extends ItemView {
 		b.toggleClass("is-collapsed", this.isCollapsed(id, false));
 		this.bucketHead(b, id, "Waiting", null, waiting.length + resolved.length, false);
 		const wrap = b.createDiv("nkui-now-foldwrap");
-		const list = wrap.createDiv("nkui-now-list");
+		// The waiting list shares the column-grid contract so every row's status
+		// and undo land in the same tracks (no measured widths).
+		const list = wrap.createDiv("nkui-now-list nkui-now-colgrid");
 		for (const e of waiting) this.renderWaitingGate(list, e);
 		for (const d of resolved) this.renderResolvedDecision(list, d);
-	}
-
-	/** The one shared "reduced" row — a compact, faded two-line block (title, then
-	 * a small fate note beneath) used for every settled item: crossed-off queue
-	 * lines, resolved decisions, awaiting-filing gates. The note sits BELOW the
-	 * title so a long title is never smushed to make room for it. */
-	private renderReducedRow(
-		list: HTMLElement,
-		o: {
-			title: string;
-			note: string;
-			struck: boolean;
-			onOpen?: (newLeaf: boolean) => void;
-			checkbox?: { checked: boolean; onChange: () => void | Promise<void> };
-			previewFile?: TFile;
-			ariaLabel?: string;
-			bullet?: boolean;
-		}
-	): void {
-		const row = list.createDiv("nkui-now-reducedrow");
-		if (o.bullet) row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
-		if (o.ariaLabel) {
-			row.setAttr("aria-label", o.ariaLabel);
-			row.setAttr("title", o.ariaLabel);
-		}
-		if (o.checkbox) {
-			const box = o.checkbox;
-			const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
-			cb.checked = box.checked;
-			cb.addEventListener("change", () => void box.onChange());
-		}
-		const main = row.createDiv("nkui-now-reducedmain");
-		const title = main.createSpan({ cls: "nkui-now-reducedtitle", text: o.title });
-		if (o.struck) title.addClass("is-struck");
-		main.createSpan({ cls: "nkui-now-fatenote", text: o.note });
-		if (o.onOpen) {
-			const open = o.onOpen;
-			// With a checkbox the title opens its source; without one the whole row is
-			// the affordance (e.g. click a crossed-off queue line to restore it).
-			const target = o.checkbox ? title : row;
-			target.addClass("nkui-now-reducedrow-click");
-			target.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
-		}
-		if (o.previewFile) this.attachPreview(row, o.previewFile);
+		// The stylesheet scales the unroll duration by the row count.
+		wrap.style.setProperty("--nkui-rows", String(list.childElementCount));
 	}
 
 	/** An approved waiting set: the gate (or lone approved file), folded with its
 	 * "+N", an "approved — awaiting filing" note, and an "un-approve" affordance that
 	 * sends the gate and its members back to drafts (Needs-you). */
 	private renderWaitingGate(list: HTMLElement, e: Entry): void {
-		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate");
+		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate nkui-cols");
+		// A waiting child keeps its kind's tint, like every top-level row.
+		this.applyTint(row, e.type);
 		const aria = "Approved — the filing-agent files this set next pass. Un-approve to send it back.";
 		row.setAttr("aria-label", aria);
 		row.setAttr("title", aria);
@@ -829,30 +836,32 @@ export class NowView extends ItemView {
 		// before it would wrap, so the status/un-approve never get pushed to a second
 		// line (no vertical bloat).
 		const title = row.createSpan({
-			cls: "nkui-now-reducedtitle nkui-now-reducedrow-click",
+			cls: "nkui-now-reducedtitle nkui-now-reducedrow-click nkui-col-main",
 			text: this.displayName(e.file),
 		});
 		title.addEventListener("click", (ev) =>
 			this.app.workspace.openLinkText(e.file.path, "", ev.ctrlKey || ev.metaKey)
 		);
 		// No leading "gate +N": it's redundant with the "un-approve gate +N" at the
-		// end of the line. The status and un-approve sit in fixed columns so every
-		// waiting row — gate or lone file — aligns its "approved…" and "un-approve…".
-		const note = row.createDiv("nkui-now-fatenote nkui-now-waitline");
-		note.createSpan({ cls: "nkui-now-waittext", text: "awaiting filing" });
+		// end of the line. Status and undo are grid cells (nkui-cols) — the list grid
+		// aligns them across waiting rows, gate or lone file, on any pane width.
+		row.createSpan({ cls: "nkui-now-fatenote nkui-now-waittext nkui-col-meta", text: "awaiting filing" });
 		// "undo +N" — a press-and-hold (the gate-approve language) that sends the gate
-		// and its N members back to drafts; the +N marks the gated set, since the
-		// leading "gate +N" was dropped from this line.
-		const undo = note.createSpan({
-			cls: "nkui-now-unapprove nkui-now-gateapprove",
+		// and its N members back to drafts; the +N marks the gated set. A single tap
+		// unfolds the gated member files beneath the row instead.
+		const undo = row.createSpan({
+			cls: "nkui-now-unapprove nkui-now-gateapprove nkui-col-action",
 			text: e.setCount ? `undo +${e.setCount}` : "undo",
 		});
-		const undoHint = "Hold to undo — sends the set back to drafts";
+		const undoHint = "Hold to undo — sends the set back to drafts. Tap to peek at the set.";
 		undo.setAttr("aria-label", undoHint);
 		undo.setAttr("title", undoHint);
 		undo.setAttr("role", "button");
 		undo.setAttr("tabindex", "0");
-		this.attachHold(undo, () => this.unapproveSet(e));
+		attachHold(undo, {
+			onCommit: () => this.unapproveSet(e),
+			onTap: () => this.toggleGateMembers(row, e),
+		});
 		this.attachPreview(row, e.file, e.type);
 	}
 
@@ -930,41 +939,49 @@ export class NowView extends ItemView {
 		}, 80);
 	}
 
-	/** Press-and-hold (~700ms) to commit; a fill sweeps while held (is-holding). A
-	 * plain tap does nothing — it never folds a section or opens the row's file
-	 * (clicks are swallowed). Keyboard Enter/Space commits directly. */
-	private attachHold(el: HTMLElement, onCommit: () => void | Promise<void>): void {
-		const HOLD = HOLD_MS;
-		let timer: number | undefined;
-		let holding = false;
-		const end = (): void => {
-			holding = false;
-			el.removeClass("is-holding");
-			if (timer) window.clearTimeout(timer);
-			timer = undefined;
-		};
-		el.addEventListener("pointerdown", (ev) => {
-			ev.preventDefault();
-			ev.stopPropagation();
-			if (holding) return;
-			holding = true;
-			el.addClass("is-holding");
-			timer = window.setTimeout(() => {
-				end();
-				void onCommit();
-			}, HOLD);
-		});
-		el.addEventListener("pointerup", end);
-		el.addEventListener("pointerleave", end);
-		el.addEventListener("pointercancel", end);
-		el.addEventListener("click", (ev) => ev.stopPropagation());
-		el.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" || ev.key === " ") {
-				ev.preventDefault();
-				ev.stopPropagation();
-				void onCommit();
-			}
-		});
+	/** Single tap on a gate count ("+N gated" on a Needs gate row, "undo +N" on a
+	 * Waiting row): unfold the gated member files inline beneath the row; tap
+	 * again to fold. The hold (approve / undo) is unchanged — the tap only
+	 * reveals what the hold would commit. The unfold is transient: any re-render
+	 * folds it again. */
+	private toggleGateMembers(row: HTMLElement, e: Entry): void {
+		const next = row.nextElementSibling;
+		if (next instanceof HTMLElement && next.hasClass("nkui-now-gatemembers")) {
+			next.remove();
+			return;
+		}
+		const files = e.setFiles ?? [];
+		if (!files.length) return;
+		const box = createDiv("nkui-now-gatemembers");
+		// The stylesheet scales the unroll duration by the row count.
+		box.style.setProperty("--nkui-rows", String(files.length));
+		for (const f of files) {
+			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+			const type = fm?.[this.plugin.settings.typeField] != null
+				? String(fm[this.plugin.settings.typeField])
+				: null;
+			const m = box.createDiv("nkui-now-gatemember");
+			this.applyTint(m, type);
+			m.setAttr("role", "button");
+			m.setAttr("tabindex", "0");
+			m.createSpan({ cls: "nkui-now-gatemember-name", text: this.displayName(f) });
+			m.addEventListener("click", (ev) =>
+				this.app.workspace.openLinkText(f.path, "", ev.ctrlKey || ev.metaKey)
+			);
+			attachKeyActivate(m, () => this.app.workspace.openLinkText(f.path, "", false));
+			this.attachPreview(m, f, type);
+		}
+		row.insertAdjacentElement("afterend", box);
+	}
+
+	/** Stamp an element with its type tint — --nkui-row-color plus the derived
+	 * tone vars — so it takes the same title colour and hover wash as a
+	 * top-level row. A typeless element is left to the theme defaults. */
+	private applyTint(el: HTMLElement, type: string | null | undefined): void {
+		const rc = type ? this.colorFor(type) : null;
+		if (!rc) return;
+		el.style.setProperty("--nkui-row-color", rc);
+		for (const [k, v] of Object.entries(toneVars(rc))) el.style.setProperty(k, v);
 	}
 
 	/** Approve a gate (stamp reviewed: true) — group approval cascades to its peers
@@ -978,31 +995,28 @@ export class NowView extends ItemView {
 	}
 
 	private renderRow(list: HTMLElement, e: Entry, opts: RowOpts, contained = false): void {
-		const row = list.createDiv("nkui-now-row");
+		const row = list.createDiv("nkui-now-row nkui-cols");
 		if (contained) row.addClass("nkui-now-row-contained");
 		if (e.isGate) row.addClass("nkui-now-row-gate");
 		if (e.awaitingFiling) row.addClass("nkui-now-row-waiting");
 		// Every row carries its type colour as --nkui-row-color: the stylesheet tints
 		// the row title with it (like the explorer file names), and the "approve all?"
 		// hold lights the draft candidates up in their own colour.
-		const rc = e.type ? this.colorFor(e.type) : null;
-		if (rc) {
-			row.style.setProperty("--nkui-row-color", rc);
-			for (const [k, v] of Object.entries(toneVars(rc))) row.style.setProperty(k, v);
-		}
+		this.applyTint(row, e.type);
 		if (e.draft) row.addClass("nkui-now-row-draft");
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
 		const open = (newLeaf: boolean) => this.app.workspace.openLinkText(e.file.path, "", newLeaf);
 		row.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
-		row.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter") open(false);
-		});
+		attachKeyActivate(row, () => open(false));
 		this.attachPreview(row, e.file, e.type);
 
+		// Main cell — dot + title. The action and meta cells land in the section
+		// grid's shared tracks (the nkui-cols contract), aligned across rows.
+		const main = row.createSpan("nkui-col-main");
 		let titleDim = 1;
 		if (opts.showRowDot) {
-			const dot = row.createSpan("nkui-now-dot");
+			const dot = main.createSpan("nkui-now-dot");
 			const color = e.type ? this.colorFor(e.type) : null;
 			if (color) dot.style.background = color;
 			else dot.addClass("nkui-now-dot-empty");
@@ -1020,7 +1034,7 @@ export class NowView extends ItemView {
 			}
 		}
 
-		const titleEl = row.createSpan({ cls: "nkui-now-rowtitle", text: this.displayName(e.file) });
+		const titleEl = main.createSpan({ cls: "nkui-now-rowtitle", text: this.displayName(e.file) });
 		if (titleDim < 1) titleEl.style.opacity = titleDim.toFixed(2);
 
 		// The gate trio renders as slot columns sized per section, packed against
@@ -1030,7 +1044,7 @@ export class NowView extends ItemView {
 		// section ever reserves a column another section's content created.
 		const canApproveDraft = !!opts.approve && e.draft && !e.isGate;
 		if (e.isGate || e.awaitingFiling || e.setCount || canApproveDraft) {
-			const set = row.createSpan("nkui-now-rowset");
+			const set = row.createSpan("nkui-now-rowset nkui-col-action");
 
 			// An approved gate whose set hasn't moved yet: the decision is made —
 			// the row only reports that the files still wait on the filing-agent.
@@ -1057,20 +1071,24 @@ export class NowView extends ItemView {
 			const gslot = set.createSpan("nkui-now-gateslot");
 			if (e.isGate) {
 				// The gate label is a press-and-hold: hold to approve the gate (which
-				// approves the set). A plain tap does nothing — it never opens the file
-				// or folds anything. It carries its own "+N", so the count slot stays
-				// empty for a gate.
+				// approves the set). A single tap unfolds the gated members beneath
+				// the row — it never opens the file or folds the section. It carries
+				// its own "+N", so the count slot stays empty for a gate.
 				const label = e.setCount ? `+${e.setCount} gated` : "gated";
 				const gate = gslot.createSpan({
 					cls: "nkui-now-gatepill nkui-now-gateapprove",
 					text: label,
 				});
-				const hint = "Hold to approve the gate — approving it approves the rest of the set";
+				const hint =
+					"Hold to approve the gate — approving it approves the rest of the set. Tap to peek at the set.";
 				gate.setAttr("aria-label", hint);
 				gate.setAttr("title", hint);
 				gate.setAttr("role", "button");
 				gate.setAttr("tabindex", "0");
-				this.attachHold(gate, () => this.approveGate(e));
+				attachHold(gate, {
+					onCommit: () => this.approveGate(e),
+					onTap: () => this.toggleGateMembers(row, e),
+				});
 			} else if (canApproveDraft) {
 				// A lone (non-gate) draft gets its own "approve" hold in the same column
 				// as the gates' "+N gated", so every draft row approves the same way.
@@ -1083,19 +1101,19 @@ export class NowView extends ItemView {
 				appr.setAttr("title", hint);
 				appr.setAttr("role", "button");
 				appr.setAttr("tabindex", "0");
-				this.attachHold(appr, () => this.approveGate(e));
+				attachHold(appr, { onCommit: () => this.approveGate(e) });
 			}
 		}
 
 		const showType = opts.showType && !!e.type;
 		if (showType || opts.showAge || (opts.showDraft && e.draft)) {
-			// One meta block of columns — type, age, pill slot — sized to their
-			// widest member by equalizeMetaColumns after the section renders, so
-			// the block is the same width on every row and every internal gap is
-			// the same spacing step. The constant-width pill anchors the outer
-			// edge (Format-UI-Columns-Are-Section-Scoped); its slot always renders
-			// (empty when not a draft) and collapses only section-wide-empty.
-			const meta = row.createSpan("nkui-now-rowmeta");
+			// One meta cell of columns — type, age, pill slot — subgridded onto the
+			// section grid's meta tracks, so the block is the same width on every
+			// row and every internal gap is the same spacing step. The constant-
+			// width pill anchors the outer edge (Format-UI-Columns-Are-Section-
+			// Scoped); its slot always renders (empty when not a draft) and
+			// collapses only section-wide-empty.
+			const meta = row.createSpan("nkui-now-rowmeta nkui-col-meta");
 			if (showType) meta.createSpan({ cls: "nkui-now-metatype", text: e.type as string });
 			if (opts.showAge) {
 				meta.createSpan({ cls: "nkui-now-metaage", text: relAge(e.activity ?? e.file.stat.mtime) });
@@ -1124,13 +1142,7 @@ export class NowView extends ItemView {
 	private async readQueue(path: string): Promise<QueueItem[]> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (!(f instanceof TFile)) return [];
-		const content = await this.app.vault.cachedRead(f);
-		const items: QueueItem[] = [];
-		content.split("\n").forEach((ln, i) => {
-			const m = ln.match(CHECKBOX_RE);
-			if (m) items.push({ line: i, text: m[4], done: m[2] !== " " });
-		});
-		return items;
+		return parseQueueItems(await this.app.vault.cachedRead(f));
 	}
 
 	/**
@@ -1141,15 +1153,7 @@ export class NowView extends ItemView {
 	private async setItemChecked(path: string, text: string, checked: boolean): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (!(f instanceof TFile)) return;
-		const lines = (await this.app.vault.read(f)).split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const m = lines[i].match(CHECKBOX_RE);
-			if (m && m[4] === text) {
-				lines[i] = `${m[1]}${checked ? "x" : " "}${m[3]}${m[4]}${m[5]}`;
-				await this.app.vault.modify(f, lines.join("\n"));
-				return;
-			}
-		}
+		await queueWrites.setChecked(this.app.vault, f, text, checked);
 	}
 
 	/** Approve one option of a decision — writes [x] to its line, resolving the decision. */
@@ -1169,48 +1173,17 @@ export class NowView extends ItemView {
 	/** Approve a fill-in option: replace its placeholder text and check it in one write. */
 	private async pickOptionFilled(path: string, rawText: string, filledText: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
-		if (!(f instanceof TFile)) return;
-		const lines = (await this.app.vault.read(f)).split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const m = lines[i].match(CHECKBOX_RE);
-			if (m && m[4] === rawText) {
-				lines[i] = `${m[1]}x${m[3]}${filledText}${m[5]}`;
-				await this.app.vault.modify(f, lines.join("\n"));
-				break;
-			}
-		}
+		if (f instanceof TFile) await queueWrites.pickOptionFilled(this.app.vault, f, rawText, filledText);
 		await this.reloadAndRender();
 	}
 
-	/** Acknowledge a non-choice notification — append a checked line at the end of
-	 * its heading block so it parses as a resolved decision (a [x] option), which
-	 * renders as the dimmed, struck "runs next agent pass" row and is cleared by
-	 * the action-agent's next pass. The marker mirrors the machine queue's
-	 * "*(item skipped)*" convention so a human reading the file sees it was a
-	 * receipt, not a chosen action. */
+	/** Acknowledge a non-choice notification — the shared write appends the
+	 * sanctioned option text checked under its heading, so it parses as a
+	 * resolved decision (the dimmed, struck "runs next agent pass" row) and the
+	 * action-agent clears it next pass. */
 	private async acknowledge(path: string, d: Decision): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
-		if (!(f instanceof TFile) || !d.title) return;
-		const lines = (await this.app.vault.read(f)).split("\n");
-		let i = 0;
-		let found = false;
-		for (; i < lines.length; i++) {
-			const hm = lines[i].match(HEADING_RE);
-			if (hm && hm[2] === d.title) {
-				found = true;
-				i++;
-				break;
-			}
-		}
-		if (!found) return;
-		// Insert after the heading's prose block, before the next heading or EOF.
-		let at = i;
-		for (; i < lines.length; i++) {
-			if (lines[i].match(HEADING_RE)) break;
-			if (lines[i].trim()) at = i + 1;
-		}
-		lines.splice(at, 0, "- [x] *(acknowledged)*");
-		await this.app.vault.modify(f, lines.join("\n"));
+		if (f instanceof TFile) await queueWrites.acknowledge(this.app.vault, f, d);
 		await this.reloadAndRender();
 	}
 
@@ -1218,41 +1191,33 @@ export class NowView extends ItemView {
 	private async addOption(path: string, d: Decision, text: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (!(f instanceof TFile)) return;
-		const lines = (await this.app.vault.read(f)).split("\n");
-		const at = lastOptionLine(lines, d);
-		if (at < 0) return;
-		lines.splice(at + 1, 0, `- [ ] ${text}`);
-		await this.app.vault.modify(f, lines.join("\n"));
+		await queueWrites.appendOption(this.app.vault, f, d, text);
 		await this.reloadAndRender();
 	}
 
-	/** Cross off / restore a machine-queue item. Crossing off writes the literal
-	 * "*(item skipped)*" marker beside the [x]; restoring removes both. */
+	/** Cross off / restore a machine-queue item — the shared skip semantics
+	 * (the "*(item skipped)*" marker beside the [x]). */
 	private async skipMachineItem(item: QueueItem): Promise<void> {
-		const path = this.plugin.settings.machineQueuePath;
-		const f = this.app.vault.getAbstractFileByPath(path);
+		const f = this.app.vault.getAbstractFileByPath(this.plugin.settings.machineQueuePath);
 		if (!(f instanceof TFile)) return;
-		const lines = (await this.app.vault.read(f)).split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const m = lines[i].match(CHECKBOX_RE);
-			if (m && m[4] === item.text) {
-				if (item.done) {
-					lines[i] = `${m[1]} ${m[3]}${item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, "")}${m[5]}`;
-				} else {
-					lines[i] = `${m[1]}x${m[3]}${item.text} *(item skipped)*${m[5]}`;
-				}
-				await this.app.vault.modify(f, lines.join("\n"));
-				break;
-			}
-		}
+		await queueWrites.toggleSkip(this.app.vault, f, item);
 		await this.reloadAndRender();
 	}
 
 	private async addMachineItem(text: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(this.plugin.settings.machineQueuePath);
 		if (!(f instanceof TFile)) return;
-		const content = (await this.app.vault.read(f)).replace(/\s*$/, "");
-		await this.app.vault.modify(f, `${content}\n- [ ] ${text}\n`);
+		await queueWrites.appendTask(this.app.vault, f, text);
+		// Surface the new task at once — straight to reloadAndRender, which the
+		// focused-field guard can't defer (the guard lives only in scheduleRender).
+		// The rebuild destroys the focused add box, so re-focus its re-created
+		// twin and re-fit its height: users type tasks in a run.
+		await this.reloadAndRender();
+		const box = this.machineAddInput;
+		if (box) {
+			box.focus();
+			autoGrow(box);
+		}
 	}
 
 	/** Replace an open task's text in place, re-located by its current text (robust
@@ -1260,15 +1225,7 @@ export class NowView extends ItemView {
 	private async updateMachineItem(oldText: string, newText: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(this.plugin.settings.machineQueuePath);
 		if (!(f instanceof TFile)) return;
-		const lines = (await this.app.vault.read(f)).split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const m = lines[i].match(CHECKBOX_RE);
-			if (m && m[4] === oldText) {
-				lines[i] = `${m[1]}${m[2]}${m[3]}${newText}${m[5]}`;
-				await this.app.vault.modify(f, lines.join("\n"));
-				break;
-			}
-		}
+		await queueWrites.updateTask(this.app.vault, f, oldText, newText);
 		await this.reloadAndRender();
 	}
 
@@ -1281,10 +1238,10 @@ export class NowView extends ItemView {
 			attr: { rows: "1" },
 		});
 		ta.value = item.text;
-		ta.addEventListener("input", () => this.autoGrow(ta));
+		ta.addEventListener("input", () => autoGrow(ta));
 		// Measure after layout so scrollHeight is real, then focus at the end.
 		window.setTimeout(() => {
-			this.autoGrow(ta);
+			autoGrow(ta);
 			ta.focus();
 			ta.setSelectionRange(ta.value.length, ta.value.length);
 		}, 0);
@@ -1307,12 +1264,6 @@ export class NowView extends ItemView {
 			}
 		});
 		ta.addEventListener("blur", save);
-	}
-
-	/** Size a textarea to its content so a wrapped task shows in full. */
-	private autoGrow(ta: HTMLTextAreaElement): void {
-		ta.style.height = "auto";
-		ta.style.height = `${ta.scrollHeight}px`;
 	}
 
 	// ── grouping ───────────────────────────────────────────────────────────────
@@ -1366,10 +1317,26 @@ export class NowView extends ItemView {
 
 	// ── data ─────────────────────────────────────────────────────────────────
 
+	/** The archive root to exclude: CONFIG's `<archive>` literal when the kit
+	 * facts carry one, else the root folder whose name (numeric prefix
+	 * stripped) reads "archive" — so a plain-name install ("Archive") excludes
+	 * correctly too — else the kit default. */
+	private archiveRoot(): string {
+		const lit = this.plugin.kitFacts?.archiveLiteral;
+		if (lit) return lit;
+		for (const child of this.app.vault.getRoot().children) {
+			if (child instanceof TFolder && /^archive$/i.test(child.name.replace(/^\d+-/, ""))) {
+				return child.name;
+			}
+		}
+		return ARCHIVE_FALLBACK;
+	}
+
 	private collect(): { needs: Entry[]; active: Entry[]; waiting: Entry[] } {
 		const s = this.plugin.settings;
 		const activeTypes = new Set(s.nowActiveTypes);
 		const queueFiles = new Set([s.userQueuePath, s.machineQueuePath]);
+		const archive = this.archiveRoot();
 
 		const needs: Entry[] = [];
 		const active: Entry[] = [];
@@ -1388,7 +1355,7 @@ export class NowView extends ItemView {
 		const containers = new Map<string, { entry: Entry; depth: number; approved: boolean }[]>();
 
 		for (const f of this.app.vault.getMarkdownFiles()) {
-			if (under(f.path, ARCHIVE)) continue;
+			if (under(f.path, archive)) continue;
 			if (queueFiles.has(f.path)) continue; // queues are surfaced as items, not file rows
 
 			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
@@ -1417,14 +1384,18 @@ export class NowView extends ItemView {
 				else containers.set(container, [{ entry, depth: segs.length, approved }]);
 				continue;
 			}
-			if (inQueue) needs.push(entry);
-			else if (type && activeTypes.has(type)) active.push(entry);
+			if (inQueue) {
+				// Outbox drops surface as Queue rows (collectOutboxDrops), not Needs
+				// rows; any other configured queue folder keeps its Needs-you rows.
+				const outbox = this.outboxPath();
+				if (!outbox || !under(f.path, outbox)) needs.push(entry);
+			} else if (type && activeTypes.has(type)) active.push(entry);
 		}
 
 		for (const [cpath, members] of containers.entries()) {
 			const cname = cpath.split("/").pop() ?? cpath;
 			const roots = members.filter((m) => m.depth === 2);
-			const gate = pickGate(roots.map((m) => m.entry));
+			const gate = pickGate(roots.map((m) => m.entry), cname);
 			const gateMember = gate ? members.find((m) => m.entry === gate) : undefined;
 			const count = members.length;
 
@@ -1554,17 +1525,184 @@ function under(path: string, root: string): boolean {
  * Resolve a working set's gate among its root members. A lone root file over
  * supporting subfolders IS the gate — "a folder with one human facing file"
  * (CONFIG § Group approval). Among several roots, naming decides: a single
- * 00-prefixed cover/manifest, else a single date-named file (a handoff set's
- * gate is its session log, not a 00- cover). Two candidates of the same rank
- * resolve to none — no guessing.
+ * 00-prefixed cover/manifest, else a single folder-note (basename equal to the
+ * container, the plain scheme's cover convention), else a single date-named
+ * file (a handoff set's gate is its session log, not a 00- cover). Two
+ * candidates of the same rank resolve to none — no guessing. The ranks mirror
+ * decorator.ts's pickGateName, its name-only twin.
  */
-function pickGate(roots: Entry[]): Entry | null {
+function pickGate(roots: Entry[], containerName: string): Entry | null {
 	const one = (xs: Entry[]) => (xs.length === 1 ? xs[0] : null);
 	return (
 		one(roots) ??
 		one(roots.filter((e) => /^00[-_ ]/.test(e.file.name))) ??
+		one(roots.filter((e) => e.file.basename === containerName)) ??
 		one(roots.filter((e) => /^\d{4}-\d{2}-\d{2}/.test(e.file.name)))
 	);
+}
+
+/** First file inside a folder, depth-first by name — what a folder drop row opens. */
+function firstFileIn(folder: TFolder): TFile | null {
+	const kids = [...folder.children].sort((a, b) => a.name.localeCompare(b.name));
+	for (const k of kids) if (k instanceof TFile) return k;
+	for (const k of kids) {
+		if (k instanceof TFolder) {
+			const f = firstFileIn(k);
+			if (f) return f;
+		}
+	}
+	return null;
+}
+
+/** Size a textarea to its content so a wrapped task shows in full.
+ * Exported for the standalone queue view. */
+export function autoGrow(ta: HTMLTextAreaElement): void {
+	ta.style.height = "auto";
+	ta.style.height = `${ta.scrollHeight}px`;
+}
+
+/** Parse the machine queue's flat checklist into items.
+ * Exported for the standalone queue view. */
+export function parseQueueItems(content: string): QueueItem[] {
+	const items: QueueItem[] = [];
+	content.split("\n").forEach((ln, i) => {
+		const m = ln.match(CHECKBOX_RE);
+		if (m) items.push({ line: i, text: m[4], done: m[2] !== " " });
+	});
+	return items;
+}
+
+/** The one shared "reduced" row — a compact, faded two-line block (title, then
+ * a small fate note beneath) used for every settled item: crossed-off queue
+ * lines, resolved decisions, awaiting-filing gates. The note sits BELOW the
+ * title so a long title is never smushed to make room for it.
+ * Exported for the standalone queue view. */
+export function renderReducedRow(
+	list: HTMLElement,
+	o: {
+		title: string;
+		note: string;
+		struck: boolean;
+		onOpen?: (newLeaf: boolean) => void;
+		checkbox?: { checked: boolean; onChange: () => void | Promise<void> };
+		ariaLabel?: string;
+		bullet?: boolean;
+	}
+): void {
+	const row = list.createDiv("nkui-now-reducedrow");
+	if (o.bullet) row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
+	if (o.ariaLabel) {
+		row.setAttr("aria-label", o.ariaLabel);
+		row.setAttr("title", o.ariaLabel);
+	}
+	if (o.checkbox) {
+		const box = o.checkbox;
+		const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+		cb.checked = box.checked;
+		cb.addEventListener("change", () => void box.onChange());
+	}
+	const main = row.createDiv("nkui-now-reducedmain");
+	const title = main.createSpan({ cls: "nkui-now-reducedtitle", text: o.title });
+	if (o.struck) title.addClass("is-struck");
+	main.createSpan({ cls: "nkui-now-fatenote", text: o.note });
+	if (o.onOpen) {
+		const open = o.onOpen;
+		// With a checkbox the title opens its source; without one the whole row is
+		// the affordance (e.g. click a crossed-off queue line to restore it).
+		const target = o.checkbox ? title : row;
+		target.addClass("nkui-now-reducedrow-click");
+		target.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
+	}
+}
+
+/** Handlers a machine-queue row needs from its host view. */
+export interface MachineRowHandlers {
+	onSkip: (item: QueueItem) => void;
+	onEdit: (main: HTMLElement, item: QueueItem) => void;
+}
+
+/** One machine-queue row — the crossed-off reduced shape, or the open shape
+ * (bullet · text · a pencil edit button in the row's bottom-right corner).
+ * Exported for the standalone queue view. */
+export function renderMachineItemRow(list: HTMLElement, item: QueueItem, h: MachineRowHandlers): void {
+	// A crossed-off item (skipped by the user or executed by the agent) is a
+	// receipt, not a live ask — it renders in the shared reduced shape (small,
+	// faded, fate note beneath the text) so it never crowds the open items.
+	if (item.done) {
+		const skipped = SKIP_MARK_RE.test(item.text);
+		const executed = EXEC_MARK_RE.test(item.text);
+		renderReducedRow(list, {
+			title: item.text.replace(SKIP_MARK_RE, "").replace(EXEC_MARK_RE, ""),
+			note: skipped
+				? "skipped — clears next agent run"
+				: executed
+					? "executed — clears next run"
+					: "done — clears next agent run",
+			struck: true,
+			bullet: true,
+			onOpen: () => h.onSkip(item),
+			ariaLabel: executed
+				? "Executed by the action agent; clears on its next run. Click to restore — it will run again."
+				: "Crossed off — the agent clears it next run without executing. Click to restore.",
+		});
+		return;
+	}
+	// Open item: click the task to cross it off (a SKIP — the line gains the
+	// literal "*(item skipped)*" marker with its [x] so the agent's sweep tells
+	// it from a real completion). The pencil re-opens the text for editing.
+	const row = list.createDiv("nkui-now-qrow nkui-now-qrow-strike");
+	row.createSpan({ cls: "nkui-now-qbullet", text: "•" });
+	const main = row.createDiv("nkui-now-qmain");
+	main.createSpan({ cls: "nkui-now-qtext", text: item.text });
+	row.setAttr("aria-label", "Click the task to skip it; the pencil edits its text.");
+	row.setAttr("title", row.getAttr("aria-label") ?? "");
+	row.addEventListener("click", () => h.onSkip(item));
+	// Edit affordance — the row's bottom-right corner, a bare icon button like
+	// the "+" submit beneath it.
+	const edit = row.createEl("button", { cls: "nkui-now-qeditbtn" });
+	setIcon(edit, "pencil");
+	edit.setAttr("aria-label", "Edit task");
+	edit.addEventListener("click", (ev) => {
+		ev.stopPropagation();
+		h.onEdit(main, item);
+	});
+}
+
+/** The add-task box — a growing textarea plus a "+" submit. A textarea, not a
+ * one-line input: a long task wraps so it can be read back (especially on
+ * mobile, where a single line scrolls off-screen). The "+" is the reliable
+ * submit on mobile, where the soft-keyboard return inserts a newline; desktop
+ * Enter submits, Shift+Enter breaks a line. Returns the textarea so the host
+ * can re-focus it after a render. Exported for the standalone queue view. */
+export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => void): HTMLTextAreaElement {
+	const add = parent.createDiv("nkui-now-qadd");
+	const input = add.createEl("textarea", {
+		cls: "nkui-now-qaddinput",
+		attr: { rows: "1", placeholder: "Add a task…" },
+	});
+	const submit = (): void => {
+		const v = input.value.trim();
+		if (!v) return;
+		input.value = "";
+		autoGrow(input);
+		onAdd(v);
+	};
+	const submitBtn = add.createEl("button", { cls: "nkui-now-qaddsubmit" });
+	setIcon(submitBtn, "plus");
+	submitBtn.setAttr("aria-label", "Add task");
+	submitBtn.addEventListener("click", (ev) => {
+		ev.preventDefault();
+		submit();
+		input.focus();
+	});
+	input.addEventListener("input", () => autoGrow(input));
+	input.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter" && !ev.shiftKey) {
+			ev.preventDefault();
+			submit();
+		}
+	});
+	return input;
 }
 
 /**
@@ -1577,8 +1715,10 @@ function pickGate(roots: Entry[]): Entry | null {
  * § No checkbox, no item) — kept as an option-less decision so the Decide bucket
  * can surface it as "needs reading" instead of silently dropping it. A bare
  * heading with no body at all is a producer/date group header, not an item.
+ *
+ * Exported for the standalone queue view.
  */
-function parseDecisions(content: string): Decision[] {
+export function parseDecisions(content: string): Decision[] {
 	const out: Decision[] = [];
 	let cur: { title: string | null; context: string[]; options: DecisionOption[] } | null = null;
 	const flush = () => {
@@ -1612,50 +1752,20 @@ function parseDecisions(content: string): Decision[] {
 /** A decision still needs you when it has a selectable option and none approved yet.
  * An option-less (drifted) decision always needs you — there is nothing to check off. */
 /** Approved in the file ([x]) and awaiting the action-agent's clearing pass. */
-function isResolvedDecision(d: Decision): boolean {
+export function isResolvedDecision(d: Decision): boolean {
 	return d.options.some((o) => o.state === "x" || o.state === "X");
 }
 
-function isOpenDecision(d: Decision): boolean {
+export function isOpenDecision(d: Decision): boolean {
 	if (!d.options.length) return true;
 	const approved = d.options.some((o) => o.state === "x" || o.state === "X");
 	const selectable = d.options.some((o) => o.state === " ");
 	return selectable && !approved;
 }
 
-/**
- * Line index of decision `d`'s last option, re-located by its heading then the
- * contiguous run of checkboxes beneath — so an appended option lands in the right
- * block even if line numbers shifted since the read.
- */
-function lastOptionLine(lines: string[], d: Decision): number {
-	let i = 0;
-	if (d.title) {
-		for (; i < lines.length; i++) {
-			const hm = lines[i].match(HEADING_RE);
-			if (hm && hm[2] === d.title) {
-				i++;
-				break;
-			}
-		}
-		if (i >= lines.length) return -1;
-	}
-	let last = -1;
-	let started = false;
-	for (; i < lines.length; i++) {
-		if (lines[i].match(HEADING_RE)) break;
-		if (lines[i].match(CHECKBOX_RE)) {
-			last = i;
-			started = true;
-		} else if (started && lines[i].trim()) {
-			break; // the option run ended
-		}
-	}
-	return last;
-}
-
-/** Strip light inline markdown (bold/italic/code markers) for plain display. */
-function plainText(s: string): string {
+/** Strip light inline markdown (bold/italic/code markers) for plain display.
+ * Exported for the standalone queue view. */
+export function plainText(s: string): string {
 	return s
 		.replace(/\*\*(.+?)\*\*/g, "$1")
 		.replace(/`([^`]+)`/g, "$1")

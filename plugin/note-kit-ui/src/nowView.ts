@@ -38,7 +38,14 @@ interface RowOpts {
 	 * glows at full opacity, the oldest sits at the dim floor, everything else
 	 * interpolates. Dimming means "stalest of what's here", not an absolute clock. */
 	dimDotRange?: { newest: number; oldest: number };
+	/** This section can approve drafts: a non-gate draft row gets its own inline
+	 * "approve" press-hold in the gate column, aligned with the gates' "+N gated". */
+	approve?: boolean;
 }
+
+/** Press-and-hold duration (ms) for every commit affordance — gate approve, approve
+ * all, draft approve. Kept short so a deliberate hold reads as quick, not a chore. */
+const HOLD_MS = 350;
 
 /** One checkbox item parsed from the machine queue (a flat checklist). */
 interface QueueItem {
@@ -268,7 +275,7 @@ export class NowView extends ItemView {
 		label: string,
 		color: string | null,
 		entries: Entry[],
-		rowOpts: RowOpts,
+		rowOptsIn: RowOpts,
 		defaultOpen = false,
 		approvable = false
 	): void {
@@ -291,6 +298,10 @@ export class NowView extends ItemView {
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
+		// An approvable section lets each non-gate draft row carry its own inline
+		// "approve" hold (rendered in the gate column), so single drafts approve like
+		// the gated sets do.
+		const rowOpts = { ...rowOptsIn, approve: approvable };
 		// Keep container members adjacent under one quiet caption: emit in input
 		// order, starting a caption whenever the container changes. Gate-first
 		// inside each container, so the document to read leads its peers.
@@ -697,7 +708,7 @@ export class NowView extends ItemView {
 		const noun = drafts.length === 1 ? "draft" : "drafts";
 		btn.setAttr("aria-label", `Hold to approve all ${drafts.length} ${noun} in this section`);
 		btn.setAttr("title", btn.getAttr("aria-label") ?? "");
-		const HOLD = 700;
+		const HOLD = HOLD_MS;
 		let timer: number | undefined;
 		let holding = false;
 		const end = (): void => {
@@ -928,7 +939,7 @@ export class NowView extends ItemView {
 	 * plain tap does nothing — it never folds a section or opens the row's file
 	 * (clicks are swallowed). Keyboard Enter/Space commits directly. */
 	private attachHold(el: HTMLElement, onCommit: () => void | Promise<void>): void {
-		const HOLD = 700;
+		const HOLD = HOLD_MS;
 		let timer: number | undefined;
 		let holding = false;
 		const end = (): void => {
@@ -1019,7 +1030,8 @@ export class NowView extends ItemView {
 		// the same thing in every section, so it anchors the same x everywhere,
 		// while the variable-width extras (wait note, +N) stack inward — no
 		// section ever reserves a column another section's content created.
-		if (e.isGate || e.awaitingFiling || e.setCount) {
+		const canApproveDraft = !!opts.approve && e.draft && !e.isGate;
+		if (e.isGate || e.awaitingFiling || e.setCount || canApproveDraft) {
 			const set = row.createSpan("nkui-now-rowset");
 
 			// An approved gate whose set hasn't moved yet: the decision is made —
@@ -1061,6 +1073,19 @@ export class NowView extends ItemView {
 				gate.setAttr("role", "button");
 				gate.setAttr("tabindex", "0");
 				this.attachHold(gate, () => this.approveGate(e));
+			} else if (canApproveDraft) {
+				// A lone (non-gate) draft gets its own "approve" hold in the same column
+				// as the gates' "+N gated", so every draft row approves the same way.
+				const appr = gslot.createSpan({
+					cls: "nkui-now-gatepill nkui-now-gateapprove",
+					text: "approve",
+				});
+				const hint = "Hold to approve this draft (reviewed: true)";
+				appr.setAttr("aria-label", hint);
+				appr.setAttr("title", hint);
+				appr.setAttr("role", "button");
+				appr.setAttr("tabindex", "0");
+				this.attachHold(appr, () => this.approveGate(e));
 			}
 		}
 
@@ -1134,7 +1159,7 @@ export class NowView extends ItemView {
 	 * the pick reads as a transition rather than a snap. */
 	private async fadeThen(card: HTMLElement, write: () => Promise<void>): Promise<void> {
 		card.addClass("is-resolving");
-		await new Promise((r) => setTimeout(r, 180));
+		await new Promise((r) => setTimeout(r, 90));
 		await write();
 	}
 

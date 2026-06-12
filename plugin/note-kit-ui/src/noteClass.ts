@@ -51,7 +51,14 @@ export class NoteClassApplier {
 			if (t != null) {
 				const cls = typeClass(String(t));
 				el.classList.add(cls);
-				if (tab) tab.classList.add(cls);
+				if (tab) {
+					tab.classList.add(cls);
+					// Set --nkui-type-color inline on the tab too: the dynamic stylesheet
+					// keys it off the class, but the inline value guarantees the tab tint
+					// resolves regardless, since the tab lives outside the leaf content.
+					const color = this.plugin.typeStyles().find((x) => x.type === String(t))?.color;
+					if (color) tab.style.setProperty("--nkui-type-color", color);
+				}
 			}
 		});
 	}
@@ -59,6 +66,7 @@ export class NoteClassApplier {
 	private clear(el: HTMLElement): void {
 		const stale = Array.from(el.classList).filter((c) => c.startsWith("nkui-type-"));
 		for (const c of stale) el.classList.remove(c);
+		el.style.removeProperty("--nkui-type-color");
 	}
 
 	private forEachLeaf(fn: (view: MarkdownView, tab: HTMLElement | undefined) => void): void {

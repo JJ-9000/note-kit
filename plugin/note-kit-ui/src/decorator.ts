@@ -198,8 +198,8 @@ export class ExplorerDecorator {
 		const s = this.plugin.settings;
 		const userN = s.userQueuePath ? await this.queueOpenCount(s.userQueuePath, true) : 0;
 		const machineN = s.machineQueuePath ? await this.queueOpenCount(s.machineQueuePath, false) : 0;
-		this.setQueueBadge(s.userQueuePath, userN, "waiting for user decision");
-		this.setQueueBadge(s.machineQueuePath, machineN, "waiting for agent");
+		this.setQueueBadge(s.userQueuePath, userN, "waiting on user");
+		this.setQueueBadge(s.machineQueuePath, machineN, "waiting on agent");
 
 		const show = s.enableReviewFlags && s.showInboxCount;
 		for (const c of this.containers()) {
@@ -209,7 +209,10 @@ export class ExplorerDecorator {
 				);
 				if (!titleEl) continue;
 				let badge = titleEl.querySelector<HTMLElement>(".nkui-inbox-count");
-				const n = show ? this.countNeedsAttention(folderPath, s) + userN + machineN : 0;
+				// Total USER actions: unreviewed drafts + open user-queue decisions. The
+				// machine queue (machineN) is the AGENT's to-do, not the user's, so it is
+				// deliberately excluded from this roll-up pill.
+				const n = show ? this.countNeedsAttention(folderPath, s) + userN : 0;
 				if (n <= 0) {
 					badge?.remove();
 					continue;

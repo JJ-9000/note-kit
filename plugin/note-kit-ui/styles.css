@@ -119,10 +119,17 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content b
    otherwise), which resolves --nkui-type-color here. The active tab reads a
    touch stronger; inactive tabs already recede via the opacity rule in css.ts. */
 body.nkui-type-tint .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-title {
-	color: color-mix(in srgb, var(--nkui-type-color) 45%, var(--text-normal));
+	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-normal));
 }
 body.nkui-type-tint .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-title {
-	color: color-mix(in srgb, var(--nkui-type-color) 65%, var(--text-normal));
+	color: color-mix(in srgb, var(--nkui-type-color) 80%, var(--text-normal));
+}
+/* Seamless: the active tab shares a faint wash of the open file's type colour (the
+   same idea as the note's 4% background tint), so tab and note read as one surface.
+   Overrides minimalChrome's transparent-!important with matching specificity. */
+body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"],
+body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner {
+	background: color-mix(in srgb, var(--nkui-type-color) 8%, transparent) !important;
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
@@ -151,16 +158,25 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	align-self: center;
 }
 
-/* ── (d) live "N unreviewed" count on the inbox folder row ──────────────────── */
-/* A plain NUMBER, not a pill — the count attends, but a filled bubble read as a
-   notification badge competing with the folder name. Coloured in the draft accent
-   so it still signals "needs you", left as bare tabular digits. */
+/* ── (d) live pill on the inbox folder row — total USER actions needed ──────────
+   A filled pill (the one badge that earns it): the sum of what the user must act
+   on — unreviewed drafts + open user-queue decisions. The queue FILES get plain
+   numbers (no pill) instead; the pill is reserved for this roll-up. */
 .nkui-inbox-count {
 	margin-left: auto;
 	flex: 0 0 auto;
 	align-self: center;
-	padding-left: 0.5em;
-	color: var(--nkui-draft-color);
+	/* inline-flex centring (not line-height/text-align) so the number sits dead
+	   centre in the pill. */
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.35em;
+	height: 1.4em;
+	padding: 0 6px;
+	border-radius: 9px;
+	background: var(--nkui-draft-color);
+	color: var(--text-on-accent, #fff);
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-semibold, 600);
 	font-variant-numeric: tabular-nums;
@@ -302,7 +318,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 }
 .nkui-now-group-head .nkui-now-approveall.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 700ms linear;
+	transition: transform 350ms linear;
 }
 /* While a hold is in progress, the section's draft candidates light up in their
    own type colour, so it's clear what the approval would file. */
@@ -645,29 +661,34 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	flex: 1 1 auto;
 	width: auto;
 }
-/* The "+" submit button — the reliable way to add a task on mobile. */
-.nkui-now-qaddsubmit {
+/* The "+" submit button — the reliable way to add a task on mobile. A bare icon:
+   no border, box, or background at any state (only the glyph brightens on hover),
+   sized down so it doesn't read as a chunky button beside the slim input. */
+.nkui-now-qaddsubmit,
+.nkui-now-qaddsubmit:hover,
+.nkui-now-qaddsubmit:focus {
 	flex: 0 0 auto;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 30px;
-	height: 30px;
+	width: 22px;
+	height: 22px;
 	padding: 0;
-	border: none;
-	border-radius: var(--radius-s, 6px);
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-muted);
+	border: none !important;
+	border-radius: 0;
+	background: transparent !important;
+	box-shadow: none !important;
 	cursor: pointer;
+}
+.nkui-now-qaddsubmit {
+	color: var(--text-faint);
 }
 .nkui-now-qaddsubmit:hover {
 	color: var(--text-normal);
-	background: var(--nkui-hover);
 }
 .nkui-now-qaddsubmit .svg-icon {
-	width: 18px;
-	height: 18px;
+	width: 16px;
+	height: 16px;
 }
 /* A textarea (not an input) so a long task wraps and can be read back. It auto-
    grows in JS (autoGrow); overflow:hidden keeps the scrollbar away, resize:none
@@ -682,8 +703,8 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	background: transparent;
 	border: none;
 	border-bottom: 1px solid var(--background-modifier-border);
-	border-radius: 0 !important; /* theme/mobile sets a pill radius that clips the text */
-	padding: 0.2em 0;
+	border-radius: var(--radius-s, 6px) var(--radius-s, 6px) 0 0; /* small top radius for the focus highlight; never the theme's text-clipping pill */
+	padding: 0.3em 0.5em; /* breathing room so text/placeholder and the focus highlight aren't flush */
 	color: var(--text-normal);
 	font-family: inherit;
 	font-size: var(--font-ui-small, 13px);
@@ -691,8 +712,10 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	resize: none;
 	overflow: hidden;
 	overflow-wrap: anywhere;
+	transition: background 120ms ease, border-color 120ms ease;
 }
 .nkui-now-qaddinput:focus {
+	background: var(--nkui-hover);
 	border-bottom-color: var(--interactive-accent);
 	box-shadow: none;
 	outline: none;
@@ -1357,7 +1380,7 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 }
 .nkui-now-gateapprove.is-holding::before {
 	transform: scaleX(1);
-	transition: transform 700ms linear;
+	transition: transform 350ms linear;
 }
 
 /* Waiting gate on ONE line: subject (flex, truncates) + status inline. */
@@ -1375,15 +1398,10 @@ body.nkui-type-tint .nkui-now-row-gate .nkui-now-rowtitle {
 }
 
 /* ── Animations (body.nkui-anim, toggleable) ─────────────────────────────────
-   A section's list grows/shrinks on fold; the hold fills sweep. With animations
-   OFF, both jump instantly. */
-body.nkui-anim .nkui-now-foldwrap > .nkui-now-list {
-	transition: transform 170ms ease;
-	transform-origin: top;
-}
-body.nkui-anim .nkui-now-group.is-collapsed .nkui-now-foldwrap > .nkui-now-list {
-	transform: scaleY(0.97);
-}
+   A section folds/unfolds by HEIGHT only (the foldwrap's grid-template-rows
+   1fr⇄0fr transition) — a clean reveal, never a scale/zoom: no transform on the
+   list, so the rows don't squash or grow on open. The hold fills still sweep.
+   With animations OFF, the fold jumps instantly. */
 body:not(.nkui-anim) .nkui-now-foldwrap {
 	transition: none !important;
 }
@@ -1424,11 +1442,11 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 }
 .nkui-close-offer.is-counting {
 	opacity: 0.4;
-	transition: opacity 3500ms linear;
+	transition: opacity 1750ms linear;
 }
 .nkui-close-offer.is-counting::before {
 	transform: scaleX(0);
-	transition: transform 3500ms linear;
+	transition: transform 1750ms linear;
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;

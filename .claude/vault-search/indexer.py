@@ -351,11 +351,11 @@ def classify_para(rel_path: str, frontmatter_meta: dict) -> tuple[str, str | Non
             para_type = "inbox"
         elif parts[0] == "01-Projects":
             para_type = "session" if (len(parts) >= 4 and parts[2] == "Sessions") else "project"
-        elif parts[0] == "02-Areas":
+        elif parts[0] == "01-Areas":
             para_type = "session" if (len(parts) >= 4 and parts[2] == "Sessions") else "area"
-        elif parts[0] == "03-References":
+        elif parts[0] == "01-References":
             para_type = "reference"
-        elif parts[0] == "04-Snippets":
+        elif parts[0] == "01-Snippets":
             para_type = "snippet"
         elif parts[0] == "99-Archive":
             para_type = "archive"
@@ -364,7 +364,7 @@ def classify_para(rel_path: str, frontmatter_meta: dict) -> tuple[str, str | Non
 
     para_owner: str | None = None
     if len(parts) >= 2 and parts[0] in {
-        "01-Projects", "02-Areas", "03-References", "04-Snippets"
+        "01-Projects", "01-Areas", "01-References", "01-Snippets"
     }:
         para_owner = parts[1]
 

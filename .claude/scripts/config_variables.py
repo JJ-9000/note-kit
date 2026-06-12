@@ -728,7 +728,7 @@ def _folder_by_semantic(needle: str) -> str:
     Examples:
         '00-Inbox'    -> needle 'inbox'    matches
         '99-Archive'  -> needle 'archive'  matches
-        '04-Snippets' -> needle 'snippets' matches
+        '01-Snippets' -> needle 'snippets' matches
     """
     needle_lower = needle.lower().strip()
 

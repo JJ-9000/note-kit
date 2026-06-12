@@ -20,9 +20,9 @@ The **seven top-level roots** the kit creates and routes to. Everything else is 
 | `<inbox>`     | `00-Inbox`    |               | `<user-queue>`, `<type>-`, `<agent>-`, `<skill>-` subfolders | AI drafts land for the user to review — the human review gate; holds `<user-queue>`. Loose drafts are linted; queue + containers skipped |
 | `<outbox>`    | `00-Outbox`   |               | `*`                                                          | the user drops material here for the action-agent to ingest or run — the machine gate; holds `<machine-queue>`                       |
 | `<projects>`  | `01-Projects` | project       |                                                              | active projects                                                                                                                    |
-| `<areas>`     | `02-Areas`    | area          |                                                              | maintained roles and systems; holds the vault-global per-type catch-alls and `<catchall>` (the asset sink)                          |
-| `<reference>` | `03-References`| reference     |                                                              | evergreen knowledge                                                                                                                |
-| `<snippets>`  | `04-Snippets` | snippet       |                                                              | code snippets                                                                                                                      |
+| `<areas>`     | `01-Areas`    | area          |                                                              | maintained roles and systems; holds the vault-global per-type catch-alls and `<catchall>` (the asset sink)                          |
+| `<reference>` | `01-References`| reference     |                                                              | evergreen knowledge                                                                                                                |
+| `<snippets>`  | `01-Snippets` | snippet       |                                                              | code snippets                                                                                                                      |
 | `<archive>`   | `99-Archive`  |               | `*`                                                          | archived documents and logs; not in active use                                                                                    |
 
 A kit folder manually renamed off its `literal` is reverted by `audit.py` and the attempt logged (`folder-reverted`); the analyst proposes adopting a repeated rename here rather than fighting it on disk.
@@ -77,9 +77,9 @@ Patterns accepted under a parent folder, so a project's design or format notes l
 | session   | `01-Sessions`          | session work logs scoped to the parent      |
 | research  | `01-Research`          | research notes scoped to the parent         |
 | note      | `01-Notes`             | plain notes scoped to the parent            |
-| voice     | `00-Voice`             | prose-voice notes scoped to the parent      |
-| design    | `00-Design`            | design notes scoped to the parent           |
-| format    | `00-Format`            | format notes scoped to the parent           |
+| voice     | `01-Voice`             | prose-voice notes scoped to the parent      |
+| design    | `01-Design`            | design notes scoped to the parent           |
+| format    | `01-Format`            | format notes scoped to the parent           |
 | source    | `01-Sources`           | source material scoped to the parent        |
 | idea      | `01-Ideas`             | quick ideas                                 |
 | journal   | `00-Journal`           | journal entries (always the Areas home; never parent-scoped — § Types one-rung) |

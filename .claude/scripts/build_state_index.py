@@ -162,9 +162,9 @@ def main() -> None:
             return fallback
 
     PROJECTS_FOLDER = _semantic_or("projects", "01-Projects")
-    AREAS_FOLDER = _semantic_or("areas", "02-Areas")
-    REFERENCE_FOLDER = _semantic_or("reference", "03-Reference")
-    SNIPPETS_FOLDER = _semantic_or("snippets", "04-Snippets")
+    AREAS_FOLDER = _semantic_or("areas", "01-Areas")
+    REFERENCE_FOLDER = _semantic_or("reference", "01-References")
+    SNIPPETS_FOLDER = _semantic_or("snippets", "01-Snippets")
 
     # ---------------------------------------------------------------------------
     # Output paths — canonical 99-Logs root (NOT under an agent folder)

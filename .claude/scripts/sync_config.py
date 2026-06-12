@@ -276,7 +276,7 @@ def _typical_folder_for(key: str, trow) -> str:
     """The type's session-start home cell.
 
     Prefer CONFIG § Types' own `default-home` cell (v005+) verbatim — it is the
-    canonical, display-ready home (`<projects>`, `parent's 00-Voice`, `00-Ideas`,
+    canonical, display-ready home (`<projects>`, `parent's 01-Voice`, `01-Ideas`,
     …). Fall back to deriving from FOLDER_ROUTING / SUBFOLDERS only when a row
     carries no default-home (older CONFIG without the column).
     """

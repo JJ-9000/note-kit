@@ -93,9 +93,13 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rende
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-line {
 	color: color-mix(in srgb, var(--nkui-type-color) 13%, var(--text-normal));
 }
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered strong,
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong,
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered em,
+/* Bold draws the tint with !important — many themes hard-set a `strong`/`b` colour
+   (a bold-colour variable) that otherwise wins and leaves bold un-tinted. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(strong, b),
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong {
+	color: var(--nkui-tk) !important;
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(em, i),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered code,
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-inline-code {
@@ -113,23 +117,21 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-content b
 	color: var(--nkui-tk);
 }
 
-/* An open typed file's TAB takes the type colour too, so the tab matches the
-   note's accent. The decorator stamps the leaf's tab-header with the same
-   nkui-type-<type> class (the tab is a sibling of the leaf, out of CSS reach
-   otherwise), which resolves --nkui-type-color here. The active tab reads a
-   touch stronger; inactive tabs already recede via the opacity rule in css.ts. */
-body.nkui-type-tint .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-title {
-	color: var(--nkui-tm);
+/* The TAB is seamless and shares the open file's faint BACKGROUND tint — it reads
+   as an extension of the note's tinted surface, not a separately-coloured chip. The
+   title keeps the normal text colour (a bright type-coloured title clashed with
+   theme tab styling and read as a doubled/overlaid glyph); the type association
+   comes from the background wash alone. The decorator stamps the leaf's tab-header
+   with the nkui-type-<type> class + colour. Active tab a touch stronger than the
+   rest; the wash overrides minimalChrome's transparent-!important at equal
+   specificity. */
+body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"],
+body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner {
+	background: color-mix(in srgb, var(--nkui-type-color) 4%, transparent) !important;
 }
-body.nkui-type-tint .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-title {
-	color: var(--nkui-ts);
-}
-/* Seamless: the active tab shares a faint wash of the open file's type colour (the
-   same idea as the note's 4% background tint), so tab and note read as one surface.
-   Overrides minimalChrome's transparent-!important with matching specificity. */
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"],
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner {
-	background: color-mix(in srgb, var(--nkui-type-color) 8%, transparent) !important;
+	background: color-mix(in srgb, var(--nkui-type-color) 9%, transparent) !important;
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
@@ -325,6 +327,15 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 .nkui-now-group.is-arming .nkui-now-row-draft {
 	background: color-mix(in srgb, var(--nkui-row-color, var(--interactive-accent)) 16%, transparent);
 	transition: background 100ms ease;
+}
+/* The dropdown header lights up with the candidates — its title takes the section
+   colour and the header a matching wash, so the whole section reads as "arming". */
+.nkui-now-group.is-arming > .nkui-now-group-head {
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 14%, transparent);
+	transition: background 100ms ease;
+}
+.nkui-now-group.is-arming > .nkui-now-group-head .nkui-now-group-title {
+	color: var(--nkui-section-color, var(--text-normal));
 }
 /* Only while the section is open — a collapsed section is just count + title. */
 .nkui-now-group.is-collapsed .nkui-now-approveall {
@@ -1221,8 +1232,13 @@ body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
 
 /* ── File explorer: queue files float to the top of their folder; coloured (not
    barred) so they read as interaction surfaces. ─────────────────────────────── */
-.nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]),
-.nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-float]) {
+/* Only the OPEN folder's children flex (for the float ordering). A collapsing
+   folder must keep its default display so Obsidian's height collapse animates —
+   forcing display:flex on it (top-level PARA folders hold queues/floats, so they
+   matched) is what stopped top-level folders from animating while plain sub-folders
+   still did. */
+.nav-folder:not(.is-collapsed) > .nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-queue]),
+.nav-folder:not(.is-collapsed) > .nav-folder-children:has(> .tree-item > .nav-file-title[data-nkui-float]) {
 	display: flex;
 	flex-direction: column;
 }
@@ -1249,6 +1265,19 @@ body:not(.is-mobile) .nkui-now-waitline > .nkui-now-unapprove {
    the active branch — colour, not a bar. ────────────────────────────────────── */
 .nav-folder:not(.is-collapsed):not(.mod-root) > .nav-folder-title .nav-folder-title-content {
 	color: var(--text-accent);
+}
+
+/* ── Type-tinted highlights: a selected (exposed) typed file, and an open typed
+   folder, take a faint wash of their TYPE colour for the row highlight instead of
+   the theme's neutral selection grey — so the active item carries its kind. ───── */
+body.nkui-type-tint .nav-file-title[data-nkui-type].is-active {
+	background: color-mix(in srgb, var(--nkui-type-color) 22%, transparent) !important;
+}
+body.nkui-type-tint .nav-file-title[data-nkui-type]:hover {
+	background: color-mix(in srgb, var(--nkui-type-color) 12%, transparent) !important;
+}
+body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] {
+	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
 }
 
 /* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */

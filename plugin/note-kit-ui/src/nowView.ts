@@ -188,7 +188,7 @@ export class NowView extends ItemView {
 		if (openDecisions.length) this.renderDecideBucket(c, openDecisions);
 		// Queue — you → AI checklist. Click an item's text to cross it off.
 		if (machineFile instanceof TFile) {
-			this.renderQueueBucket(c, "Queue/machine", "Queue", null, {
+			this.renderQueueBucket(c, "Queue/machine", "Queue", "var(--interactive-accent)", {
 				items: this.machineItems,
 				path: s.machineQueuePath,
 				defaultOpen: true,
@@ -594,18 +594,34 @@ export class NowView extends ItemView {
 		const add = list.createDiv("nkui-now-qadd");
 		// A textarea, not a one-line input: a long task wraps so it can be read back
 		// (especially on mobile, where a single line scrolls off-screen). It grows
-		// with its content; Enter submits, Shift+Enter is a soft newline.
+		// with its content. A "+" button submits — the reliable path on mobile, where
+		// the soft-keyboard return inserts a newline instead of firing a usable Enter.
 		const input = add.createEl("textarea", {
 			cls: "nkui-now-qaddinput",
 			attr: { rows: "1", placeholder: "Add a task…" },
 		});
+		const submit = (): void => {
+			const v = input.value.trim();
+			if (!v) return;
+			void this.addMachineItem(v);
+			input.value = "";
+			this.autoGrow(input);
+		};
+		const submitBtn = add.createEl("button", { cls: "nkui-now-qaddsubmit" });
+		setIcon(submitBtn, "plus");
+		submitBtn.setAttr("aria-label", "Add task");
+		submitBtn.addEventListener("click", (ev) => {
+			ev.preventDefault();
+			submit();
+			input.focus();
+		});
 		input.addEventListener("input", () => this.autoGrow(input));
 		input.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" && !ev.shiftKey && input.value.trim()) {
+			// Desktop Enter submits; Shift+Enter (and the mobile return key) make a
+			// newline. Mobile users tap the + button.
+			if (ev.key === "Enter" && !ev.shiftKey) {
 				ev.preventDefault();
-				void this.addMachineItem(input.value.trim());
-				input.value = "";
-				this.autoGrow(input);
+				submit();
 			}
 		});
 	}
@@ -695,6 +711,9 @@ export class NowView extends ItemView {
 		btn.addEventListener("pointerup", end);
 		btn.addEventListener("pointerleave", end);
 		btn.addEventListener("pointercancel", end);
+		// A click still bubbles to the header's fold toggle even though pointerdown
+		// stopped propagation — swallow it so a tap never folds the section.
+		btn.addEventListener("click", (ev) => ev.stopPropagation());
 		// A keyboard can't "hold" — Enter/Space commits directly and never folds the
 		// header.
 		btn.addEventListener("keydown", (ev) => {

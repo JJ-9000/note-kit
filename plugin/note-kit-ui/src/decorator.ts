@@ -58,7 +58,7 @@ export class ExplorerDecorator {
 			app.vault.on("modify", (file) => {
 				const s = this.plugin.settings;
 				if (file.path === s.userQueuePath || file.path === s.machineQueuePath) {
-					void this.updateQueueState();
+					void this.updateCounts();
 				}
 			})
 		);
@@ -185,48 +185,81 @@ export class ExplorerDecorator {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
 			titles.forEach((el) => this.decorate(el, s));
 		}
-		this.updateInboxCounts();
-		void this.updateQueueState();
+		void this.updateCounts();
 	}
 
-	/** Highlight a queue file only while it holds something actionable — an open
-	 * machine task, or an open user-queue decision — so an all-resolved queue reads
-	 * as idle (muted) instead of lit up. Mirrors the For You Decide/Queue "open"
-	 * semantics: a resolved decision keeps unchecked sibling options, so a naive
-	 * "has a [ ]" test would wrongly call it active. */
-	private async updateQueueState(): Promise<void> {
+	/** Queue files aren't coloured (a coloured row reads as an open folder); each
+	 * shows a plain NUMBER — its open-item count — with a brief tooltip, and those
+	 * counts also feed the top-level inbox pill. Open is judged the way the For You
+	 * Decide/Queue buckets judge it (a resolved decision keeps unchecked sibling
+	 * options, so a naive "has a [ ]" test over-counts). Also refreshes the inbox
+	 * folder pill = unreviewed drafts + both queues. */
+	private async updateCounts(): Promise<void> {
 		const s = this.plugin.settings;
-		const queues: Array<[string, boolean]> = [
-			[s.userQueuePath, true],
-			[s.machineQueuePath, false],
-		];
-		for (const [path, isUser] of queues) {
-			if (!path) continue;
-			const active = await this.queueHasOpenItem(path, isUser);
-			for (const c of this.containers()) {
-				const el = c.querySelector<HTMLElement>(`.nav-file-title[data-path="${cssEscape(path)}"]`);
-				if (el) this.setAttr(el, "data-nkui-queue-active", active ? "true" : null);
+		const userN = s.userQueuePath ? await this.queueOpenCount(s.userQueuePath, true) : 0;
+		const machineN = s.machineQueuePath ? await this.queueOpenCount(s.machineQueuePath, false) : 0;
+		this.setQueueBadge(s.userQueuePath, userN, "waiting for user decision");
+		this.setQueueBadge(s.machineQueuePath, machineN, "waiting for agent");
+
+		const show = s.enableReviewFlags && s.showInboxCount;
+		for (const c of this.containers()) {
+			for (const folderPath of s.inboxFolders) {
+				const titleEl = c.querySelector<HTMLElement>(
+					`.nav-folder-title[data-path="${cssEscape(folderPath)}"]`
+				);
+				if (!titleEl) continue;
+				let badge = titleEl.querySelector<HTMLElement>(".nkui-inbox-count");
+				const n = show ? this.countNeedsAttention(folderPath, s) + userN + machineN : 0;
+				if (n <= 0) {
+					badge?.remove();
+					continue;
+				}
+				if (!badge) badge = titleEl.createSpan({ cls: "nkui-inbox-count" });
+				const text = String(n);
+				if (badge.textContent !== text) badge.setText(text);
 			}
 		}
 	}
 
-	private async queueHasOpenItem(path: string, isUser: boolean): Promise<boolean> {
+	/** Set (or clear) a queue file's plain number badge + brief tooltip. */
+	private setQueueBadge(path: string, n: number, brief: string): void {
+		if (!path) return;
+		for (const c of this.containers()) {
+			const el = c.querySelector<HTMLElement>(`.nav-file-title[data-path="${cssEscape(path)}"]`);
+			if (!el) continue;
+			el.removeAttribute("data-nkui-queue-active"); // never colour-emphasise a queue
+			let badge = el.querySelector<HTMLElement>(".nkui-queue-count");
+			if (n <= 0) {
+				badge?.remove();
+				continue;
+			}
+			if (!badge) badge = el.createSpan({ cls: "nkui-queue-count" });
+			const text = String(n);
+			if (badge.textContent !== text) badge.setText(text);
+			const t = `${n} ${brief}`;
+			el.setAttr("aria-label", t);
+			el.setAttr("title", t);
+		}
+	}
+
+	/** Count open items: every open machine task, or every open user-queue decision. */
+	private async queueOpenCount(path: string, isUser: boolean): Promise<number> {
 		const f = this.plugin.app.vault.getAbstractFileByPath(path);
-		if (!(f instanceof TFile)) return false;
+		if (!(f instanceof TFile)) return 0;
 		const content = await this.plugin.app.vault.cachedRead(f);
-		if (!isUser) return /^\s*[-*]\s+\[ \]/m.test(content); // machine: any open task
-		// User queue: a decision (a heading block) is open when it has an unchecked
-		// option and none approved, or it drifted to a heading with prose but no
-		// checkboxes. A block marked only [x]/[-] is resolved — not open.
+		if (!isUser) return (content.match(/^\s*[-*]\s+\[ \]/gm) ?? []).length;
+		let count = 0;
 		let hasOpen = false,
 			hasApproved = false,
 			hasCheckbox = false,
 			hasProse = false,
 			inBlock = false;
-		const open = (): boolean => (!inBlock ? false : hasCheckbox ? hasOpen && !hasApproved : hasProse);
+		const flush = (): void => {
+			if (inBlock && (hasCheckbox ? hasOpen && !hasApproved : hasProse)) count++;
+		};
 		for (const ln of content.split("\n")) {
 			if (/^#{2,}\s+\S/.test(ln)) {
-				if (open()) return true;
+				flush();
 				inBlock = true;
 				hasOpen = hasApproved = hasCheckbox = hasProse = false;
 				continue;
@@ -245,7 +278,8 @@ export class ExplorerDecorator {
 			const t = ln.trim();
 			if (inBlock && t && !t.startsWith("---") && !t.startsWith("_")) hasProse = true;
 		}
-		return open();
+		flush();
+		return count;
 	}
 
 	private decorate(el: HTMLElement, s = this.plugin.settings): void {
@@ -325,32 +359,6 @@ export class ExplorerDecorator {
 			} else if (content.dataset.nkuiOrig !== undefined) {
 				content.textContent = content.dataset.nkuiOrig;
 				delete content.dataset.nkuiOrig;
-			}
-		}
-	}
-
-	private updateInboxCounts(): void {
-		const s = this.plugin.settings;
-		const show = s.enableReviewFlags && s.showInboxCount;
-		for (const c of this.containers()) {
-			for (const folderPath of s.inboxFolders) {
-				const titleEl = c.querySelector<HTMLElement>(
-					`.nav-folder-title[data-path="${cssEscape(folderPath)}"]`
-				);
-				if (!titleEl) continue;
-				let badge = titleEl.querySelector<HTMLElement>(".nkui-inbox-count");
-				if (!show) {
-					badge?.remove();
-					continue;
-				}
-				const n = this.countNeedsAttention(folderPath, s);
-				if (n <= 0) {
-					badge?.remove();
-					continue;
-				}
-				if (!badge) badge = titleEl.createSpan({ cls: "nkui-inbox-count" });
-				const text = String(n);
-				if (badge.textContent !== text) badge.setText(text);
 			}
 		}
 	}
@@ -440,7 +448,7 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-folder-type");
 				el.style.removeProperty("--nkui-folder-color");
 			});
-			c.querySelectorAll<HTMLElement>(".nkui-inbox-count").forEach((b) => b.remove());
+			c.querySelectorAll<HTMLElement>(".nkui-inbox-count, .nkui-queue-count").forEach((b) => b.remove());
 		}
 	}
 

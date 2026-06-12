@@ -21,6 +21,9 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * firing during startup. */
 	private layoutReady = false;
 	private creatingNote = false;
+	/** True while we're opening the For You view — keeps new-tab-creates-note from
+	 * hijacking the brief empty leaf `getLeaf("tab")` creates for it. */
+	private openingNow = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -167,7 +170,7 @@ export default class NoteKitUiPlugin extends Plugin {
 	/** Turn a new empty tab into a fresh untitled note at the vault root. Guarded so
 	 * it never fires during startup (layoutReady) or re-enters mid-create. */
 	private async fillEmptyWithNote(leaf: WorkspaceLeaf): Promise<void> {
-		if (!this.layoutReady || this.creatingNote) return;
+		if (!this.layoutReady || this.creatingNote || this.openingNow) return;
 		this.creatingNote = true;
 		try {
 			const fm = this.app.fileManager as unknown as {
@@ -223,8 +226,13 @@ export default class NoteKitUiPlugin extends Plugin {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(NOW_VIEW_TYPE)[0];
 		if (!leaf) {
-			leaf = workspace.getLeaf("tab");
-			await leaf.setViewState({ type: NOW_VIEW_TYPE, active: true });
+			this.openingNow = true;
+			try {
+				leaf = workspace.getLeaf("tab");
+				await leaf.setViewState({ type: NOW_VIEW_TYPE, active: true });
+			} finally {
+				this.openingNow = false;
+			}
 		}
 		workspace.revealLeaf(leaf);
 	}

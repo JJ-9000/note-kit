@@ -100,7 +100,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// or greyer variants so the primary content types read brightest.
 	typeStyles: [
 		{ type: "project", color: "#e42148" },
-		{ type: "area", color: "#ff5e00" },
+		{ type: "area", color: "#ff9933" },
 		{ type: "reference", color: "#00b347" },
 		{ type: "research", color: "#3b82f6" },
 		{ type: "plan", color: "#a855f7" },
@@ -111,9 +111,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 		{ type: "source", color: "#5c6bc0" },
 		{ type: "index", color: "#ffffff" },
 		{ type: "note", color: "#9aa1c1" },
-		{ type: "voice", color: "#ca76db" },
-		{ type: "design", color: "#bf80ff" },
-		{ type: "format", color: "#e6b8ff" },
+		{ type: "voice", color: "#e8893a" },
+		{ type: "design", color: "#ffbb55" },
+		{ type: "format", color: "#ffd685" },
 		{ type: "addendum", color: "#ffc894" },
 		{ type: "log", color: "#454545" },
 		{ type: "revision", color: "#ab6969" },

@@ -891,12 +891,15 @@ export class NowView extends ItemView {
 			onTap: () => this.toggleGateMembers(row, e),
 		});
 		// Mobile: undo is shy — invisible and inert until the row is tapped once
-		// (a thumb grazing the action column kept arming accidental undos). The
-		// revealing pointerdown runs in capture before the event could reach the
-		// control, so the first tap only ever reveals.
+		// (a thumb grazing the action column kept arming accidental undos).
+		// Reveal on CLICK, not pointerdown: a scroll gesture begins with a
+		// pointerdown on whatever row is under the finger, so a pointerdown
+		// reveal un-shied the control on every scroll. A click only lands on a
+		// genuine settled tap — and the undo is inert during that tap, so the
+		// revealing tap can never also press it.
 		if (Platform.isMobile) {
 			row.addClass("nkui-undo-shy");
-			row.addEventListener("pointerdown", () => row.addClass("is-undo-revealed"), {
+			row.addEventListener("click", () => row.addClass("is-undo-revealed"), {
 				capture: true,
 			});
 		}

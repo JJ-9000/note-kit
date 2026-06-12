@@ -146,13 +146,12 @@ export class QueueView extends ItemView {
 	}
 
 	/** True when this leaf lives in a sidebar dock, where the narrow-width
-	 * styling and the mobile unlock gate apply. Tested against the splits
-	 * directly — "not rootSplit" would also catch a desktop popout window,
-	 * which is full-size and wants the normal page treatment. */
+	 * styling and the mobile unlock gate apply. Delegates to the plugin's
+	 * root-tolerant test (split equality on desktop — a popout window wants
+	 * the normal page treatment; anything outside the main area on mobile,
+	 * where drawers can report a different root). */
 	private isSideLeaf(): boolean {
-		const root = this.leaf.getRoot();
-		const ws = this.app.workspace;
-		return root === ws.leftSplit || root === ws.rightSplit;
+		return this.plugin.inSidebar(this.leaf);
 	}
 
 	/** Re-arm the sidebar unlock gate — called by main.ts when the right drawer

@@ -1188,6 +1188,12 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	display: none !important;
 }
 /* Group line 1: type · date · draft · reviewed; tags drop to their own line. */
+/* Weight keeps its label even with the keys hidden — a bare number in the
+   inline line reads as noise ("weight: 3" reads on its own). */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="weight"] .metadata-property-value::before {
+	content: "weight: ";
+	color: var(--text-faint);
+}
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="type"] { order: 1 !important; }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="date"] { order: 2 !important; }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="status"] { order: 3 !important; }
@@ -2198,7 +2204,13 @@ body.nkui-type-tint .nav-file-title[data-nkui-type][data-nkui-weight] .nav-file-
 /* The w<n> badge — a tiny quiet mono stamp (the version marker's language):
    sharp, evenly padded, faint. */
 .nkui-weight-badge {
-	flex: 0 0 auto;
+	/* Shrinkable with an ellipsis — at a narrow row it trails off, never a
+	   hard cut; on mobile the short "wN" twin renders instead (below). */
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	align-self: center;
 	margin-left: var(--nkui-gap-s);
 	padding: 0.1em 0.4em;
@@ -2210,6 +2222,17 @@ body.nkui-type-tint .nav-file-title[data-nkui-type][data-nkui-weight] .nav-file-
 	font-weight: var(--font-normal, 400);
 	font-variant-numeric: tabular-nums;
 	line-height: 1.4;
+}
+/* Long/short twins: desktop reads the full "weight: N"; mobile rows are tight,
+   so the reduced "wN" renders — the heat shading carries the rest. */
+.nkui-weight-badge-short {
+	display: none;
+}
+body.is-mobile .nkui-weight-badge-long {
+	display: none;
+}
+body.is-mobile .nkui-weight-badge-short {
+	display: inline;
 }
 
 /* Settings polish — the advanced <details> groups and compact rows. */
@@ -2379,14 +2402,16 @@ body.nkui-solid-icons .lucide-sun {
    Mobile wave — centered surfaces · compact frontmatter · visible arming
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* ── File-explorer list centered for one-thumb reach ──────────────────────────
-   The tree column caps and centres in the pane, and a symmetric inline inset
-   pulls the rows toward the middle of the glass instead of the far left edge —
-   reachable without re-gripping the phone. */
+/* ── File-explorer rows run full-bleed on the phone ───────────────────────────
+   Under the flush rule (a pane narrower than ~9:16 is phone-shaped), highlight
+   bands reach the window edges — the earlier centering inset (max-width +
+   symmetric padding) kept the washes off the edge and read as "seamless rows
+   not working". Text keeps its reach from the rows' own padding; wider panes
+   keep Obsidian's defaults. */
 body.is-mobile .workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
-	max-width: 480px;
-	margin-inline: auto;
-	padding-inline: clamp(8px, 6vw, 40px);
+	max-width: none;
+	margin-inline: 0;
+	padding-inline: 0;
 }
 
 /* ── For You on a phone: a deliberately centered column, vertically too ───────

@@ -628,10 +628,20 @@ export class ExplorerDecorator {
 			this.setAttr(el, "data-nkui-weight", w > 0 ? String(w) : null);
 			let badge = el.querySelector<HTMLElement>(".nkui-weight-badge");
 			if (w > 0) {
-				if (!badge) badge = el.createSpan({ cls: "nkui-weight-badge" });
-				// A labelled value, not a bare number — "weight: N" reads on its own.
+				// Long/short twins (the waitnote pattern): "weight: N" where the
+				// row has room, "wN" on mobile — the stylesheet picks; both
+				// truncate with an ellipsis rather than hard-cutting.
+				if (!badge || !badge.querySelector(".nkui-weight-badge-long")) {
+					badge?.remove();
+					badge = el.createSpan({ cls: "nkui-weight-badge" });
+					badge.createSpan({ cls: "nkui-weight-badge-long" });
+					badge.createSpan({ cls: "nkui-weight-badge-short" });
+				}
+				const long = badge.querySelector<HTMLElement>(".nkui-weight-badge-long");
+				const short = badge.querySelector<HTMLElement>(".nkui-weight-badge-short");
 				const text = `weight: ${w}`;
-				if (badge.textContent !== text) badge.setText(text);
+				if (long && long.textContent !== text) long.setText(text);
+				if (short && short.textContent !== `w${w}`) short.setText(`w${w}`);
 				const tip = "standard weight — how many times the kit has re-derived this rule; heavier sorts first";
 				badge.setAttr("aria-label", tip);
 				badge.setAttr("title", tip);

@@ -592,20 +592,23 @@ export default class NoteKitUiPlugin extends Plugin {
 	private applySidebarNow(): void {
 		const ws = this.app.workspace;
 		const s = this.settings;
-		// Only leaves LIVING IN the right sidebar are managed here — a view the
-		// user moved to the main area belongs to the user, For You included.
-		const sideNow = ws
-			.getLeavesOfType(NOW_SIDE_VIEW_TYPE)
-			.filter((l) => l.getRoot() === ws.rightSplit);
-		const sideQueues = ws
-			.getLeavesOfType(QUEUE_VIEW_TYPE)
-			.filter((l) => l.getRoot() === ws.rightSplit);
+		// The side For You exists ONLY as a sidebar view, so it is managed
+		// unfiltered — a strict `getRoot() === rightSplit` test misses sidebar
+		// leaves on mobile (the drawer reports a different root), reads the
+		// sidebar as empty, and installs a duplicate on every settings save.
+		const sideNow = ws.getLeavesOfType(NOW_SIDE_VIEW_TYPE);
+		// Queues DO legitimately live in the main area (the routed queue view) —
+		// only sidebar-resident ones are managed. inSidebar() is root-tolerant.
+		const sideQueues = ws.getLeavesOfType(QUEUE_VIEW_TYPE).filter((l) => this.inSidebar(l));
 		if (!s.sidebarNow) {
 			for (const leaf of [...sideNow, ...sideQueues]) leaf.detach();
 			return;
 		}
 		if (s.sidebarContent === "for-you") {
 			for (const leaf of sideQueues) leaf.detach();
+			// Keep exactly one — and sweep any duplicates an earlier
+			// root-mismatch bug piled up.
+			for (const leaf of sideNow.slice(1)) leaf.detach();
 			if (sideNow.length > 0) return;
 			const side = ws.getRightLeaf(false);
 			if (side) void side.setViewState({ type: NOW_SIDE_VIEW_TYPE, active: false });
@@ -632,6 +635,17 @@ export default class NoteKitUiPlugin extends Plugin {
 		return this.settings.sidebarContent === "user-queue"
 			? this.settings.userQueuePath
 			: this.settings.machineQueuePath;
+	}
+
+	/** A leaf living in a side dock. Desktop popout windows are excluded by the
+	 * split test; on mobile the drawers can report a root that is neither
+	 * rootSplit nor the split objects, so anything outside the main area counts
+	 * (mobile has no popouts). */
+	inSidebar(leaf: WorkspaceLeaf): boolean {
+		const ws = this.app.workspace;
+		const root = leaf.getRoot();
+		if (Platform.isMobile) return root !== ws.rootSplit;
+		return root === ws.leftSplit || root === ws.rightSplit;
 	}
 
 	/** Mobile sidebar discipline. A swipe-right opens the LEFT drawer: it must
@@ -674,7 +688,7 @@ export default class NoteKitUiPlugin extends Plugin {
 		}
 		const path = this.sidebarQueuePath();
 		for (const leaf of ws.getLeavesOfType(QUEUE_VIEW_TYPE)) {
-			if (leaf.getRoot() !== ws.rightSplit) continue;
+			if (!this.inSidebar(leaf)) continue;
 			const file = (leaf.getViewState().state as { file?: string } | undefined)?.file;
 			if (file !== path) continue;
 			if (leaf.view instanceof QueueView) leaf.view.lockForReveal();

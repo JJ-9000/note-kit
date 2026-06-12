@@ -226,11 +226,15 @@ export class NowView extends ItemView {
 		if (active.length) {
 			c.createDiv("nkui-now-divider");
 			const stamps = active.map((e) => e.activity ?? e.file.stat.mtime);
+			// The Active header takes the colour of the most-recently-active item (the
+			// freshest project/area, which sorts to the top): red for a project, orange
+			// for an area, etc. — its count pill and open-emphasis follow.
+			const activeColor = active[0].type ? this.colorFor(active[0].type) : null;
 			this.renderBucket(
 				c,
 				"Active",
 				"Active",
-				null,
+				activeColor,
 				active,
 				{
 					showAge: true,
@@ -650,42 +654,53 @@ export class NowView extends ItemView {
 	}
 
 	/**
-	 * Per-section "approve all": a quiet right-aligned text button in the section
-	 * header that stamps reviewed: true on every draft in the section. Two-step — the
-	 * first tap arms it ("approve N?") and a second within 3.5s commits, so one
-	 * mis-tap can't clear a whole section; the armed state lapses on its own.
-	 * Always visible (never hover-gated) so it works under touch. setAttr clicks
-	 * stop propagation so the surrounding fold header doesn't toggle.
+	 * Per-section "approve all?": a pressable in the section header (the shared
+	 * pressable language — small italic text, like "edit?" / "un-approve"), coloured
+	 * like the section it belongs to. Press and HOLD ~700ms to commit; while held a
+	 * fill animates and the candidate rows light up in their type colour (the section
+	 * gains `is-arming`), so an accidental tap does nothing. Click stops propagation
+	 * so the fold header doesn't toggle.
 	 */
 	private addApproveAll(head: HTMLElement, drafts: Entry[]): void {
-		const btn = head.createEl("button", { cls: "nkui-now-approveall", text: "approve all" });
+		const bucket = head.closest<HTMLElement>(".nkui-now-group");
+		const btn = head.createEl("button", { cls: "nkui-now-approveall", text: "approve all?" });
 		const noun = drafts.length === 1 ? "draft" : "drafts";
-		btn.setAttr("aria-label", `Mark all ${drafts.length} ${noun} in this section reviewed`);
+		btn.setAttr("aria-label", `Hold to approve all ${drafts.length} ${noun} in this section`);
 		btn.setAttr("title", btn.getAttr("aria-label") ?? "");
-		let armed = false;
+		const HOLD = 700;
 		let timer: number | undefined;
-		const disarm = (): void => {
-			armed = false;
-			btn.removeClass("is-armed");
-			btn.setText("approve all");
+		let holding = false;
+		const end = (): void => {
+			holding = false;
+			btn.removeClass("is-holding");
+			bucket?.removeClass("is-arming");
 			if (timer) window.clearTimeout(timer);
+			timer = undefined;
 		};
-		btn.addEventListener("click", async (ev) => {
+		const start = (ev: Event): void => {
+			ev.preventDefault();
 			ev.stopPropagation(); // don't fold the section
-			if (!armed) {
-				armed = true;
-				btn.addClass("is-armed");
-				btn.setText(`approve ${drafts.length}?`);
-				timer = window.setTimeout(disarm, 3500);
-				return;
-			}
-			disarm();
-			await this.approveAll(drafts);
-		});
-		// A keyboard activation on the button fires click natively; keep the keydown
-		// from bubbling to the header's Enter/Space fold toggle.
+			if (holding) return;
+			holding = true;
+			btn.addClass("is-holding");
+			bucket?.addClass("is-arming");
+			timer = window.setTimeout(() => {
+				end();
+				void this.approveAll(drafts);
+			}, HOLD);
+		};
+		btn.addEventListener("pointerdown", start);
+		btn.addEventListener("pointerup", end);
+		btn.addEventListener("pointerleave", end);
+		btn.addEventListener("pointercancel", end);
+		// A keyboard can't "hold" — Enter/Space commits directly and never folds the
+		// header.
 		btn.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation();
+			if (ev.key === "Enter" || ev.key === " ") {
+				ev.preventDefault();
+				ev.stopPropagation();
+				void this.approveAll(drafts);
+			}
 		});
 	}
 
@@ -776,7 +791,12 @@ export class NowView extends ItemView {
 		if (e.isGate) note.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
 		if (e.setCount) note.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
 		note.createSpan({ cls: "nkui-now-waittext", text: "approved — awaiting filing" });
-		const undo = note.createSpan({ cls: "nkui-now-unapprove", text: "un-approve" });
+		const undo = note.createSpan({
+			cls: "nkui-now-unapprove",
+			// Make the cascade apparent: un-approving the gate also un-approves its N
+			// children, so the count rides the label.
+			text: e.setCount ? `un-approve +${e.setCount}` : "un-approve",
+		});
 		undo.setAttr("role", "button");
 		undo.setAttr("tabindex", "0");
 		undo.addEventListener("click", (ev) => {
@@ -852,6 +872,13 @@ export class NowView extends ItemView {
 		if (contained) row.addClass("nkui-now-row-contained");
 		if (e.isGate) row.addClass("nkui-now-row-gate");
 		if (e.awaitingFiling) row.addClass("nkui-now-row-waiting");
+		// Draft rows carry their type colour as --nkui-row-color so the "approve all?"
+		// hold can light the candidates up in their own colour while it's held.
+		if (e.draft) {
+			row.addClass("nkui-now-row-draft");
+			const rc = e.type ? this.colorFor(e.type) : null;
+			if (rc) row.style.setProperty("--nkui-row-color", rc);
+		}
 		row.setAttr("role", "button");
 		row.setAttr("tabindex", "0");
 		const open = (newLeaf: boolean) => this.app.workspace.openLinkText(e.file.path, "", newLeaf);

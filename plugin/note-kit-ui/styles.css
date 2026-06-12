@@ -190,32 +190,56 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-editor {
 /* Selectors carry the .nkui-now-group-head parent to outrank Obsidian's default
    `button` styling (a `.theme-dark button` chip background would otherwise bleed
    through `background: transparent`). */
-/* "Approve all" — a quiet text affordance immediately to the right of the section
-   title (it flows right after it with the normal gap, not floated to the far
-   edge), shown only while the section is open. Readable at rest (text-muted, full
-   opacity), not a button block. */
+/* "approve all?" — a pressable immediately right of the section title, in the
+   shared pressable language (small italic, like "edit?" / "un-approve"), coloured
+   like the section header it belongs to. PRESS AND HOLD to commit: a fill in the
+   section colour sweeps left→right over the hold, and the candidate rows light up
+   (the section's `is-arming`); release early and nothing happens. */
 .nkui-now-group-head .nkui-now-approveall {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
 	flex: 0 0 auto;
-	padding: 0 0.3em;
+	padding: 0 0.35em;
 	border: none;
 	border-radius: var(--radius-s, 6px);
 	background: transparent;
 	box-shadow: none;
-	color: var(--text-muted);
+	color: var(--nkui-section-color, var(--interactive-accent));
 	font-size: var(--font-ui-smaller, 11px);
+	font-style: italic;
 	font-weight: var(--font-normal, 400);
 	line-height: 1.4;
 	cursor: pointer;
-	transition: color 120ms ease;
+	touch-action: none; /* a hold must not scroll the page */
+	user-select: none;
 }
 .nkui-now-group-head .nkui-now-approveall:hover {
-	color: var(--text-normal);
-	background: transparent;
+	text-decoration: underline;
 }
-.nkui-now-group-head .nkui-now-approveall.is-armed {
-	color: var(--interactive-accent);
-	background: transparent;
+.nkui-now-group-head .nkui-now-approveall::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background: currentColor;
+	opacity: 0.22;
+	transform: scaleX(0);
+	transform-origin: left center;
+}
+.nkui-now-group-head .nkui-now-approveall.is-holding {
 	font-weight: var(--font-semibold, 600);
+}
+.nkui-now-group-head .nkui-now-approveall.is-holding::before {
+	transform: scaleX(1);
+	transition: transform 700ms linear;
+}
+/* While a hold is in progress, the section's draft candidates light up in their
+   own type colour, so it's clear what the approval would file. */
+.nkui-now-group.is-arming .nkui-now-row-draft {
+	background: color-mix(in srgb, var(--nkui-row-color, var(--interactive-accent)) 16%, transparent);
+	transition: background 100ms ease;
 }
 /* Only while the section is open — a collapsed section is just count + title. */
 .nkui-now-group.is-collapsed .nkui-now-approveall {
@@ -399,15 +423,17 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-editor {
 }
 /* Gate badge: marks the one document to read — approving it approves the set. */
 .nkui-now-gatepill {
+	display: inline-flex;
+	align-items: center; /* centre "gate" in the pill — baseline left it riding low */
 	flex: 0 0 auto;
-	padding: 0 6px;
+	padding: 0.05em 6px;
 	border-radius: 8px;
 	border: 1px solid var(--interactive-accent);
 	color: var(--interactive-accent);
 	background: transparent;
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-semibold, 600);
-	line-height: 1.4;
+	line-height: 1.3;
 }
 /* Approved gate still waiting on the filing-agent: visibly not an open ask —
    the whole row recedes (it no longer counts toward the section bubble), brightening
@@ -1002,22 +1028,36 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-/* A waiting gate's note line carries the gate pill, its +N, the status, and an
-   un-approve affordance — it wraps on a narrow screen instead of truncating. */
+/* A waiting gate's note line — gate pill · +N · status · un-approve — stays on ONE
+   line (smaller than the title above it); if it overflows, the status text is the
+   part that truncates with an ellipsis, so the pill and un-approve never get
+   pushed off and the row never bloats vertically. */
 .nkui-now-waitline {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	align-items: center;
 	gap: var(--nkui-gap-2xs) var(--nkui-gap-s);
-	white-space: normal;
-	overflow: visible;
+	white-space: nowrap;
+	overflow: hidden;
+	font-size: var(--font-ui-smaller, 11px);
+}
+.nkui-now-waitline > .nkui-now-gatepill,
+.nkui-now-waitline > .nkui-now-setcount,
+.nkui-now-waitline > .nkui-now-unapprove {
+	flex: 0 0 auto;
 }
 .nkui-now-waittext {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	color: var(--text-muted);
 }
+/* un-approve — same pressable language as "edit?" / "approve all?" (small italic,
+   underline on hover), in the action accent. */
 .nkui-now-unapprove {
 	color: var(--text-accent, var(--interactive-accent));
-	font-style: normal;
+	font-style: italic;
 	cursor: pointer;
 }
 .nkui-now-unapprove:hover {

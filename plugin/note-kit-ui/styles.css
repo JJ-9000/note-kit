@@ -897,6 +897,10 @@ body.is-mobile .nkui-now-qedit {
 	padding: 0.35em 0;
 	font-size: var(--font-ui-small, 13px);
 }
+/* "un-approve" is a touch target on mobile — give it a tap area. */
+body.is-mobile .nkui-now-unapprove {
+	padding: 0.25em 0;
+}
 /* The add-task / edit textarea wraps on mobile (no horizontal scroll-off); a long
    task is reviewable across lines rather than trailing off one. */
 body.is-mobile .nkui-now-qaddinput {
@@ -997,6 +1001,27 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+/* A waiting gate's note line carries the gate pill, its +N, the status, and an
+   un-approve affordance — it wraps on a narrow screen instead of truncating. */
+.nkui-now-waitline {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--nkui-gap-2xs) var(--nkui-gap-s);
+	white-space: normal;
+	overflow: visible;
+}
+.nkui-now-waittext {
+	color: var(--text-muted);
+}
+.nkui-now-unapprove {
+	color: var(--text-accent, var(--interactive-accent));
+	font-style: normal;
+	cursor: pointer;
+}
+.nkui-now-unapprove:hover {
+	text-decoration: underline;
 }
 
 /* ── Waiting section — neutral and low-key; it holds nothing that needs you. ── */

@@ -10,6 +10,9 @@ interface Entry {
 	queued: boolean;
 	/** For a working-set gate: how many folded working members it stands in for. */
 	setCount?: number;
+	/** The member files this gate gates (the folded children) — used to un-approve
+	 * the whole set from the Waiting section. */
+	setFiles?: TFile[];
 	/** Folder-wide last activity (max mtime under the cover's folder) — a project is
 	 * as fresh as its most recent file, not its cover note. */
 	activity?: number;
@@ -707,16 +710,7 @@ export class NowView extends ItemView {
 		this.bucketHead(b, id, "Waiting", null, waiting.length + resolved.length, false);
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
-		for (const e of waiting) {
-			this.renderReducedRow(list, {
-				title: this.displayName(e.file),
-				note: "approved — awaiting filing",
-				struck: false,
-				onOpen: (newLeaf) => this.app.workspace.openLinkText(e.file.path, "", newLeaf),
-				previewFile: e.file,
-				ariaLabel: "Approved — the filing-agent files this set on its next pass.",
-			});
-		}
+		for (const e of waiting) this.renderWaitingGate(list, e);
 		for (const d of resolved) this.renderResolvedDecision(list, d);
 	}
 
@@ -760,6 +754,59 @@ export class NowView extends ItemView {
 			target.addEventListener("click", (ev) => open(ev.ctrlKey || ev.metaKey));
 		}
 		if (o.previewFile) this.attachPreview(row, o.previewFile);
+	}
+
+	/** An approved waiting set: the gate (or lone approved file), folded with its
+	 * "+N", an "approved — awaiting filing" note, and an "un-approve" affordance that
+	 * sends the gate and its members back to drafts (Needs-you). */
+	private renderWaitingGate(list: HTMLElement, e: Entry): void {
+		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate");
+		const aria = "Approved — the filing-agent files this set next pass. Un-approve to send it back.";
+		row.setAttr("aria-label", aria);
+		row.setAttr("title", aria);
+		const main = row.createDiv("nkui-now-reducedmain");
+		const title = main.createSpan({
+			cls: "nkui-now-reducedtitle nkui-now-reducedrow-click",
+			text: this.displayName(e.file),
+		});
+		title.addEventListener("click", (ev) =>
+			this.app.workspace.openLinkText(e.file.path, "", ev.ctrlKey || ev.metaKey)
+		);
+		const note = main.createDiv("nkui-now-fatenote nkui-now-waitline");
+		if (e.isGate) note.createSpan({ cls: "nkui-now-gatepill", text: "gate" });
+		if (e.setCount) note.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
+		note.createSpan({ cls: "nkui-now-waittext", text: "approved — awaiting filing" });
+		const undo = note.createSpan({ cls: "nkui-now-unapprove", text: "un-approve" });
+		undo.setAttr("role", "button");
+		undo.setAttr("tabindex", "0");
+		undo.addEventListener("click", (ev) => {
+			ev.stopPropagation();
+			void this.unapproveSet(e);
+		});
+		undo.addEventListener("keydown", (ev) => {
+			if (ev.key === "Enter" || ev.key === " ") {
+				ev.preventDefault();
+				void this.unapproveSet(e);
+			}
+		});
+		this.attachPreview(row, e.file);
+	}
+
+	/** Send an approved waiting set back to Needs-you: clear `reviewed` on the gate
+	 * and every member it gated, dropping the `auto-reviewed` tag the cascade added.
+	 * Members still drafts are left as-is. */
+	private async unapproveSet(e: Entry): Promise<void> {
+		const field = this.plugin.settings.reviewedField;
+		for (const f of [e.file, ...(e.setFiles ?? [])]) {
+			await this.app.fileManager.processFrontMatter(f, (fm) => {
+				if (fm[field] === true || fm[field] === "true") fm[field] = false;
+				if (Array.isArray(fm.tags)) {
+					const kept = fm.tags.filter((t: unknown) => t !== "auto-reviewed");
+					if (kept.length !== fm.tags.length) fm.tags = kept;
+				}
+			});
+		}
+		await this.reloadAndRender();
 	}
 
 	/** Native page-preview on demand: right-click (desktop) or long-press (mobile)
@@ -1161,17 +1208,15 @@ export class NowView extends ItemView {
 		// agent) are collected apart from `needs` and surfaced in their own quiet
 		// Waiting section above Active — never scattered as 0-count type groups.
 		const waiting: Entry[] = [];
-		// Inbox working-sets: a container holding a nested working subfolder (a draft
-		// two or more folders below the inbox) collapses to a single head row — the
-		// shallowest draft, i.e. the gate the user reads — carrying a "+N" for the
-		// working notes folded behind it (CONFIG § Inbox output convention / § Group
-		// approval). A flat folder of independent peers (drafts only one level down,
-		// e.g. session logs) stays expanded; loose drafts at the inbox root show as
-		// themselves.
-		const containers = new Map<string, { entry: Entry; depth: number }[]>();
-		// Root members already stamped reviewed: true, per container — an approved
-		// gate among them means the set waits on the filing-agent, not the user.
-		const approvedRoots = new Map<string, Entry[]>();
+		// Inbox working-sets: a container (a subfolder of the inbox) with a resolvable
+		// gate folds to ONE row — the gate, the document the user reads — carrying a
+		// "+N" for the members folded behind it (CONFIG § Group approval). When the
+		// gate is approved the whole set drops to the Waiting section, still folded,
+		// until the filing-agent files it; un-approving there reverses gate + members.
+		// Each member remembers whether it's a draft or already approved, so a set
+		// stays visible (in Waiting) even after "approve all" stamps every member. A
+		// container with no single resolvable gate lists its members instead.
+		const containers = new Map<string, { entry: Entry; depth: number; approved: boolean }[]>();
 
 		for (const f of this.app.vault.getMarkdownFiles()) {
 			if (under(f.path, ARCHIVE)) continue;
@@ -1180,86 +1225,81 @@ export class NowView extends ItemView {
 			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
 			const type = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
 			const draft = fm ? this.isUnreviewed(fm) : false;
+			const approved = fm ? this.isApproved(fm) : false;
 			const inbox = s.inboxFolders.find((p) => under(f.path, p));
 			const inQueue = s.nowQueueFolders.some((p) => under(f.path, p));
 			const entry: Entry = { file: f, type, draft, queued: inQueue };
 
-			if (inbox && !draft && fm && this.isApproved(fm)) {
-				const segs = f.path.slice(inbox.length + 1).split("/");
-				if (segs.length === 2) {
-					const container = `${inbox}/${segs[0]}`;
-					const arr = approvedRoots.get(container);
-					if (arr) arr.push(entry);
-					else approvedRoots.set(container, [entry]);
-				}
-			}
-
-			if (draft && inbox) {
+			if (inbox) {
+				// Only reviewable notes form a set; an asset or fieldless file is neither
+				// draft nor approved and is ignored.
+				if (!draft && !approved) continue;
 				const segs = f.path.slice(inbox.length + 1).split("/");
 				if (segs.length === 1) {
-					needs.push(entry); // loose draft at the inbox root
-				} else {
-					const container = `${inbox}/${segs[0]}`;
-					const arr = containers.get(container);
-					if (arr) arr.push({ entry, depth: segs.length });
-					else containers.set(container, [{ entry, depth: segs.length }]);
+					// Loose at the inbox root: a draft needs you; a lone approved file
+					// awaits the filing-agent.
+					if (draft) needs.push(entry);
+					else waiting.push({ ...entry, awaitingFiling: true });
+					continue;
 				}
-			} else if (inQueue) {
-				needs.push(entry);
-			} else if (type && activeTypes.has(type)) {
-				active.push(entry);
+				const container = `${inbox}/${segs[0]}`;
+				const arr = containers.get(container);
+				if (arr) arr.push({ entry, depth: segs.length, approved });
+				else containers.set(container, [{ entry, depth: segs.length, approved }]);
+				continue;
 			}
+			if (inQueue) needs.push(entry);
+			else if (type && activeTypes.has(type)) active.push(entry);
 		}
 
-		for (const [cpath, ds] of containers.entries()) {
+		for (const [cpath, members] of containers.entries()) {
 			const cname = cpath.split("/").pop() ?? cpath;
-			// The set's gate, resolved by name across ALL root members — drafts and
-			// approved alike, so an already-approved gate still anchors its set.
-			const roots = ds.filter((d) => d.depth === 2).map((d) => d.entry);
-			roots.push(...(approvedRoots.get(cpath) ?? []));
-			const gate = pickGate(roots);
+			const roots = members.filter((m) => m.depth === 2);
+			const gate = pickGate(roots.map((m) => m.entry));
+			const gateMember = gate ? members.find((m) => m.entry === gate) : undefined;
+			const count = members.length;
 
-			if (gate && !gate.draft) {
-				// Approved gate, members still drafts: nothing here needs the user —
-				// the set waits on the filing-agent's next pass. One quiet row says
-				// so; the leftover members never wear the gate badge. Copied so a
-				// gate that also surfaces elsewhere (e.g. Active) keeps its own row.
-				// Approved — nothing here needs the user, so it carries no "+N"; the
-				// count it would have shown drops to zero (the badge is omitted).
-				waiting.push({
+			// A resolvable gate with tag-alongs folds to one row carrying "+N".
+			// Approved → Waiting (with its member files for un-approve); a draft →
+			// Needs-you. The gate keeps the badge; the members fold behind it.
+			if (gate && count > 1) {
+				const head: Entry = {
 					...gate,
-					container: cname,
 					isGate: true,
-					awaitingFiling: true,
-				});
+					setCount: count - 1,
+					setFiles: members.filter((m) => m.entry !== gate).map((m) => m.entry.file),
+				};
+				if (gateMember?.approved) waiting.push({ ...head, awaitingFiling: true });
+				else needs.push(head);
 				continue;
 			}
-			if (!ds.some((d) => d.depth >= 3)) {
-				// flat peer folder — show each, grouped under its container caption,
-				// with the gate file badged so the read-this-one / approves-the-rest
-				// relationship is visible.
-				for (const d of ds) {
-					d.entry.container = cname;
-					needs.push(d.entry);
-				}
-				// Only badge a gate that actually gates something — a working set with
-			// peers/nested members. A lone file in a container has no tag-alongs, so
-			// it needs no gate tag; it renders as a plain row.
-			if (gate && ds.length > 1) gate.isGate = true;
+
+			// A lone file in a container — no tag-alongs, so no gate tag.
+			if (count === 1) {
+				const only = members[0].entry;
+				only.container = cname;
+				if (members[0].approved) waiting.push({ ...only, awaitingFiling: true });
+				else needs.push(only);
 				continue;
 			}
-			// nested working tree — collapse to one head row, fold the rest. The
-			// head is the gate when one resolves (the document to read); otherwise
-			// the shallowest draft, unbadged — a non-gate never claims approval power.
-			ds.sort((a, b) => a.depth - b.depth || a.entry.file.path.localeCompare(b.entry.file.path));
-			const head = gate ?? ds[0].entry;
-			head.container = cname;
-			// Only badge a gate that actually gates something — a working set with
-			// peers/nested members. A lone file in a container has no tag-alongs, so
-			// it needs no gate tag; it renders as a plain row.
-			if (gate && ds.length > 1) gate.isGate = true;
-			if (ds.length > 1) head.setCount = ds.length - 1;
-			needs.push(head);
+
+			// Several members but no single gate. A nested set folds to its shallowest
+			// member, unbadged (a non-gate never claims approval power); a flat peer
+			// folder lists each. Either way a draft needs you, an approved one waits.
+			if (members.some((m) => m.depth >= 3)) {
+				members.sort((a, b) => a.depth - b.depth || a.entry.file.path.localeCompare(b.entry.file.path));
+				const head = members[0].entry;
+				head.setCount = count - 1;
+				head.setFiles = members.slice(1).map((m) => m.entry.file);
+				if (members[0].approved) waiting.push({ ...head, awaitingFiling: true });
+				else needs.push(head);
+				continue;
+			}
+			for (const m of members) {
+				m.entry.container = cname;
+				if (m.approved) waiting.push({ ...m.entry, awaitingFiling: true });
+				else needs.push(m.entry);
+			}
 		}
 
 		// One row per project/area. A second active-typed file inside another

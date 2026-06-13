@@ -73,27 +73,76 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 		if (!prefixes.includes(m[1])) prefixes.push(m[1]);
 	}
 
-	// § Types rows: | project | Title-Case-Hyphens | …
-	const types: string[] = [];
-	const typesSec = text.split(/^## Types\b/m)[1]?.split(/\n## /m)[0] ?? "";
-	for (const m of typesSec.matchAll(/^\|\s*([a-z][\w-]*)\s*\|/gm)) {
-		if (m[1] !== "type" && !types.includes(m[1])) types.push(m[1]);
-	}
-
-	// Section-scoped literal rows, in table order. CONFIG table row order is the
-	// canonical display order (explorer roots from § Folders, subfolders from
-	// § Subfolders) — the plugin orders by it rather than keeping its own list.
-	const sectionLiterals = (heading: string): string[] => {
-		const sec = text.split(new RegExp(`^## ${heading}\\b`, "m"))[1]?.split(/\n## /m)[0] ?? "";
+	// The kit's tables are found by their own COLUMN SIGNATURE, never by a baked
+	// heading literal — the clown-vault rule: a vault that renames `## Types` to
+	// `## Note Types` (or § Folders to § Roots) still derives, because the table's
+	// shape is what identifies it, not the words above it. findTable walks the
+	// pipe-tables in document order and returns the header + body rows of the FIRST
+	// table whose header satisfies the predicate; cells are read by COLUMN NAME, so
+	// neither a reordered column nor an added one shifts the value read. Row order
+	// (the display order) is preserved exactly as the table is written.
+	const tableLines = text.split("\n");
+	const tableCells = (line: string): string[] => {
+		let inner = line.trim();
+		if (inner.startsWith("|")) inner = inner.slice(1);
+		if (inner.endsWith("|")) inner = inner.slice(0, -1);
+		return inner.split("|").map((c) => c.trim());
+	};
+	const isSepRow = (line: string): boolean => {
+		const cs = tableCells(line);
+		return cs.length > 0 && cs.every((c) => /^:?-+:?$/.test(c));
+	};
+	const isTableLine = (line: string): boolean => {
+		const s = line.trim();
+		if (!s.includes("|")) return false;
+		return s.startsWith("|") || s.endsWith("|") || (s.match(/\|/g)?.length ?? 0) >= 2;
+	};
+	const findTable = (
+		headerMatches: (header: string[]) => boolean
+	): { header: string[]; rows: string[][] } | null => {
+		for (let i = 0; i < tableLines.length - 1; i++) {
+			if (!isTableLine(tableLines[i]) || !isSepRow(tableLines[i + 1])) continue;
+			const header = tableCells(tableLines[i]).map((c) => c.replace(/`/g, "").trim());
+			if (!headerMatches(header)) continue;
+			const rows: string[][] = [];
+			for (let j = i + 2; j < tableLines.length && tableLines[j].trim() && isTableLine(tableLines[j]); j++) {
+				rows.push(tableCells(tableLines[j]));
+			}
+			return { header, rows };
+		}
+		return null;
+	};
+	/** Read one named column of the first table matching the signature, in row
+	 * order: the cell's literal with backticks/trailing slash stripped, skipping
+	 * blanks and wildcard-only (`<token>`) cells. Column found by NAME (index), so
+	 * a reordered or added column never shifts the read. */
+	const column = (headerMatches: (h: string[]) => boolean, colName: string): string[] => {
+		const tbl = findTable((h) => headerMatches(h) && h.includes(colName));
+		if (!tbl) return [];
+		const idx = tbl.header.indexOf(colName);
 		const out: string[] = [];
-		for (const m of sec.matchAll(/^\|[^|]*\|\s*`([^`<][^`]*)`\s*\|/gm)) {
-			const lit = m[1].trim().replace(/\/+$/, "");
-			if (lit && !out.includes(lit)) out.push(lit);
+		for (const row of tbl.rows) {
+			const lit = (row[idx] ?? "").replace(/`/g, "").trim().replace(/\/+$/, "");
+			if (lit && !lit.startsWith("<") && !out.includes(lit)) out.push(lit);
 		}
 		return out;
 	};
-	const rootOrder = sectionLiterals("Folders").filter((l) => !l.includes("/"));
-	const subfolderOrder = sectionLiterals("Subfolders");
+
+	// Type vocabulary: the table that HAS a `type` column (the § Types table by
+	// shape). Read the `type` column by name — heading-rename-proof AND
+	// column-order-proof.
+	const types = column((h) => h.includes("type"), "type").filter((t) => /^[a-z][\w-]*$/.test(t));
+
+	// Section literals, by column signature (not heading literal): § Folders is the
+	// table with `wildcard` + `literal`; § Subfolders has `type-role` + `subfolder`.
+	const rootOrder = column(
+		(h) => h.includes("wildcard") && h.includes("literal"),
+		"literal"
+	).filter((l) => !l.includes("/"));
+	const subfolderOrder = column(
+		(h) => h.includes("type-role") && h.includes("subfolder"),
+		"subfolder"
+	);
 
 	return {
 		inboxLiteral: inbox,

@@ -760,6 +760,15 @@ export default class NoteKitUiPlugin extends Plugin {
 		s.nowQueueFolders = [f.outboxLiteral];
 		s.userQueuePath = f.userQueuePath;
 		s.machineQueuePath = f.machineQueuePath;
+		// The archive root is the kit's canonical sink (§ Folders `<archive>`). Derive
+		// the sink term from CONFIG so a renamed archive (e.g. `Cold-Store`) is still
+		// dimmed — the manual default ["Archive"] only matches a folder literally
+		// named with that word, which a renamed archive is not. Union with the user's
+		// own sink additions (never clobber a hand-added term); contains-word match in
+		// the decorator means the bare literal is the right term.
+		if (f.archiveLiteral && !s.sinkFolders.some((t) => t.toLowerCase() === f.archiveLiteral.toLowerCase())) {
+			s.sinkFolders = [f.archiveLiteral, ...s.sinkFolders.filter((t) => t.toLowerCase() !== "archive")];
+		}
 		// CONFIG § Numbering prefixes are still parsed (kitConfig) but no longer
 		// consumed — the legacy numeric-prefix styling was retired.
 		// A type CONFIG names but the colour list doesn't gets a row on every

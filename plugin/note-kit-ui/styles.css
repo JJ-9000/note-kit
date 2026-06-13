@@ -1997,7 +1997,10 @@ body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
 	inset: 0;
 	z-index: 5;
 	pointer-events: none;
-	background: var(--nkui-type-color, var(--background-primary));
+	/* A faint type-TINTED BACKGROUND, not the saturated type colour — the bright
+	   pill-colour flash was jarring on note open; this washes the background
+	   toward the type so the eye reads the kind without the glare. */
+	background: color-mix(in srgb, var(--nkui-type-color, var(--background-primary)) 14%, var(--background-primary));
 	opacity: 1;
 	/* The fade runs on the shared motion clock (scales with --nkui-speed). */
 	transition: opacity var(--nkui-flash) var(--nkui-ease);
@@ -3454,4 +3457,13 @@ body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-
 }
 body.nkui-minimal .nkui-reviewed-header {
 	display: none !important;
+}
+
+/* § X full-bleed: the file-pane highlight band stopped ~24px short of the right
+   edge = the container's 12px right padding + the 12px overlay scrollbar. Drop
+   the right padding on desktop so the band reaches the scrollbar edge (the
+   overlay scrollbar then sits on top, as intended). Left inset is the tree
+   indent — left as-is. */
+body:not(.is-mobile) .nav-files-container {
+	padding-right: 0;
 }

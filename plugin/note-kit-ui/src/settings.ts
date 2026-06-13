@@ -167,7 +167,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	holdMs: 500,
 	solidIcons: true,
 	largeMouths: true,
-	roundedCorners: true,
+	// Sharp stays the kit default — rounded is the opt-in iOS look (the author
+	// tried it on, then settled back to sharp; current-settings sync 2026-06-12).
+	roundedCorners: false,
 	minimalistMode: false,
 };
 

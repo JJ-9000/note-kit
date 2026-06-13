@@ -92,6 +92,10 @@ export class ExplorerDecorator {
 	private rankKeys = new Map<string, string>();
 	/** Debounced explorer re-sort for metadata-driven rank changes. */
 	private sortRefresh: Debouncer<[], void>;
+	/** Pending post-expand catch-up timer (onMutations defers the full pass past
+	 * the native folder-expand animation; cleared on stop so it can't fire into a
+	 * dead plugin's explorer). */
+	private expandRedrawTimer: number | undefined;
 
 	constructor(plugin: NoteKitUiPlugin) {
 		this.plugin = plugin;
@@ -179,6 +183,10 @@ export class ExplorerDecorator {
 		this.countsRefresh.cancel();
 		this.scrollRedraw.cancel();
 		this.sortRefresh.cancel();
+		if (this.expandRedrawTimer) {
+			window.clearTimeout(this.expandRedrawTimer);
+			this.expandRedrawTimer = undefined;
+		}
 		this.clearAll();
 		// Unwrap getSortedFolderItems, then hand the row order back to Obsidian.
 		this.unpatchExplorerSort();
@@ -327,7 +335,26 @@ export class ExplorerDecorator {
 				}
 			});
 		}
-		if (childrenInserted) this.redraw();
+		if (childrenInserted) {
+			// A folder just expanded: its rows are ALREADY decorated synchronously
+			// by the loop above (so they paint styled, never raw-then-snap), and
+			// Obsidian reads their height to arm its JS-driven children-height
+			// expand animation. The full decorateAll catch-up (re-stamps every
+			// rendered row AND forces a container reflow via offsetHeight) must NOT
+			// land in the middle of that height transition, or the reflow/re-stamp
+			// can stomp the inline height Obsidian is animating — the lost
+			// folder-expand animation. Defer the catch-up past the native animation
+			// window (Obsidian's --anim-duration-moderate ≈ 300ms) so the expand
+			// plays clean; the rows are already correct, so the wait costs nothing
+			// visible. countsRefresh (600ms) is already well clear. One in-flight
+			// timer at a time (a rapid second expand just resets it); cleared in
+			// stop() so it never fires into a dead plugin's explorer.
+			if (this.expandRedrawTimer) window.clearTimeout(this.expandRedrawTimer);
+			this.expandRedrawTimer = window.setTimeout(() => {
+				this.expandRedrawTimer = undefined;
+				this.redraw();
+			}, 360);
+		}
 		// Counts only — the targeted work above already decorated every touched
 		// row. A full decorateAll per mutation batch made scrolling the
 		// virtualized explorer (which churns childList constantly) drop frames.

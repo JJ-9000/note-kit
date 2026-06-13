@@ -13,6 +13,9 @@ package-lock.json
 # Per-user plugin settings (written by Obsidian at runtime)
 plugin/note-kit-ui/data.json
 
+# Dev-loop runbook + CDP helper — holds machine-local absolute paths, kept private
+plugin/note-kit-ui/dev/
+
 # OS noise
 .DS_Store
 Thumbs.db

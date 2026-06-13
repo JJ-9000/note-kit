@@ -1938,6 +1938,25 @@ body:not(.nkui-anim) .nkui-now .is-settling {
 	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	opacity: 1;
 }
+/* Entrance — the offer appears the moment the JS swaps it in (a frame before
+   .is-counting arms the slow depletion). A QUICK fade on the shared fade clock,
+   not the long count window, so it reads as a fluid arrival rather than a hard
+   pop; a hair of upward travel makes the fade feel placed. A keyframe animation,
+   NOT a transition: it runs once on insert and never collides with the
+   .is-counting opacity transition that drives the depletion afterward. */
+body.nkui-anim .nkui-close-offer {
+	animation: nkui-close-offer-in var(--nkui-fade) var(--nkui-ease);
+}
+@keyframes nkui-close-offer-in {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
 .nkui-close-offer::before {
 	content: "";
 	position: absolute;
@@ -2252,7 +2271,15 @@ body.nkui-anim .nkui-now-gatemembers.is-open {
 	display: flex;
 	align-items: center;
 	gap: var(--nkui-gap-s);
-	padding: 0.06em 0.5em 0.06em 2.8em;
+	/* Left-justification (item 2): a gated child's NAME aligns with the top-level
+	   file-name column, never further right than the section header's title text.
+	   A top-level row's title starts at its 1.55em indent PLUS the dot (9px) and
+	   the dot↔title gap; a gatemember carries no dot, so its name needs that whole
+	   span as padding to land in the same name column — read as a continuation of
+	   the file list, indented from the header text rather than past it. The old
+	   2.8em pushed the name a notch deeper than that column (and right of the
+	   header text). Right/vertical are unchanged. */
+	padding: 0.06em 0.5em 0.06em calc(1.55em + 9px + var(--nkui-gap-s));
 	margin: 0 -0.5em;
 	font-size: var(--font-ui-small, 13px);
 	cursor: pointer;
@@ -3155,6 +3182,29 @@ body.nkui-rounded.is-mobile .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .
 body.nkui-rounded.is-mobile .nav-file-title,
 body.nkui-rounded.is-mobile .nav-folder-title {
 	margin-inline: var(--nkui-gap-s) !important;
+}
+/* ── Full-pill explorer highlights (item 4) — in rounded mode the file-pane
+   selection / hover / role-wash bands read as FULL PILLS (rounded ends), not the
+   soft-16px box the shared --nkui-radius hook gives every band. The explorer rows
+   are single-line, so the pill tier is safe here (no overflow-clip of wrapped
+   text the way a multi-line For-You card would crop). Routes through the same §
+   radius token split as every other chip — --nkui-radius-pill (999px in rounded
+   mode) — and outranks the explorer rows' own `var(--nkui-radius) !important`.
+   SHARP mode is untouched: the rows keep var(--nkui-radius) = 0 there, so the
+   bands stay full-bleed and touching (the For You column language). */
+body.nkui-rounded .nav-files-container .nav-file-title,
+body.nkui-rounded .nav-files-container .nav-folder-title {
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius)) !important;
+}
+/* Desktop: the full-bleed wave drops the container's right padding to 0 so sharp
+   bands reach the scrollbar edge; a pill needs its rounded RIGHT end to clear
+   that edge or it clips. Inset the band a row-step on the right (background only —
+   content stays left, so a long name still ellipsises against the pill). The LEFT
+   end already clears inside the tree indent. Mobile already floats the band off
+   both edges with its margin-inline rule above. */
+body.nkui-rounded:not(.is-mobile) .nav-files-container .nav-file-title,
+body.nkui-rounded:not(.is-mobile) .nav-files-container .nav-folder-title {
+	margin-right: var(--nkui-gap-s);
 }
 
 /* ── Minimalist mode (body.nkui-minimal) — DEEP silence: everything but the

@@ -215,9 +215,6 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (this.settings.syncGraphColors) void this.applyGraphColors();
 			this.decorator.start();
 			this.noteClass.start();
-			if (this.settings.nowOpenOnStartup && this.app.workspace.getLeavesOfType(NOW_VIEW_TYPE).length === 0) {
-				this.activateNowView();
-			}
 			// One-time layout seed; after it the panes behave like normal Obsidian
 			// panes — nothing is forced or reinstalled (seedLayout).
 			this.seedLayout();
@@ -226,6 +223,10 @@ export default class NoteKitUiPlugin extends Plugin {
 			this.applySidebarNow();
 			// Collapse any duplicate For You tabs a restored workspace brought back.
 			this.dedupeNowView();
+			// The right dock opens to the For You page ONLY (the user's default):
+			// one For You there, the restore's re-piled extras detached. Replaces
+			// the old "open For You in the main area" startup behaviour.
+			if (this.settings.nowOpenOnStartup) this.ensureRightForYouOnly();
 		});
 	}
 
@@ -697,6 +698,30 @@ export default class NoteKitUiPlugin extends Plugin {
 		const sideNow = ws.getLeavesOfType(NOW_SIDE_VIEW_TYPE);
 		const sideQueues = ws.getLeavesOfType(QUEUE_VIEW_TYPE).filter((l) => this.inSidebar(l));
 		for (const leaf of [...sideNow, ...sideQueues]) leaf.detach();
+	}
+
+	/** The right dock opens to the For You page ONLY (the user's default): keep one
+	 * For You in the right sidebar, detach every other right-dock leaf a restored
+	 * workspace re-piled, and close any For You that landed outside the right dock.
+	 * Runs on layout-ready only — the user can still open more right-dock tabs in a
+	 * session; this just sets the opening state. */
+	private ensureRightForYouOnly(): void {
+		const ws = this.app.workspace;
+		const right = ws.rightSplit;
+		if (!right) return;
+		const isFY = (l: WorkspaceLeaf): boolean => {
+			const t = l.view?.getViewType?.();
+			return t === NOW_VIEW_TYPE || t === NOW_SIDE_VIEW_TYPE;
+		};
+		// Close any For You that isn't in the right dock (a stray main/left one).
+		ws.iterateAllLeaves((l) => { if (isFY(l) && l.getRoot() !== right) l.detach(); });
+		// Right dock: keep one For You, detach the rest.
+		const rightLeaves: WorkspaceLeaf[] = [];
+		ws.iterateAllLeaves((l) => { if (l.getRoot() === right) rightLeaves.push(l); });
+		const fy = rightLeaves.find(isFY);
+		for (const l of rightLeaves) if (l !== fy) l.detach();
+		// None there → open one (kept inactive so it never steals focus on load).
+		if (!fy) { const rl = ws.getRightLeaf(false); if (rl) void rl.setViewState({ type: NOW_VIEW_TYPE, active: false }); }
 	}
 
 	/** Open (or reveal) a queue file's clean view — the place-anywhere command

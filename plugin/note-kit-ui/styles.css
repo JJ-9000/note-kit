@@ -3572,3 +3572,118 @@ body.nkui-solid-icons .lucide-sort-asc { -webkit-mask-image: url("data:image/svg
 body.nkui-solid-icons .lucide-tags { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M80-160v-640h560l240 320-240 320H80Z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M80-160v-640h560l240 320-240 320H80Z'/%3E%3C/svg%3E"); }
 body.nkui-solid-icons .lucide-terminal { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M80-160v-640h800v640H80Zm80-80h640v-400H160v400Zm140-40-56-56 103-104-104-104 57-56 160 160-160 160Zm180 0v-80h240v80H480Z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M80-160v-640h800v640H80Zm80-80h640v-400H160v400Zm140-40-56-56 103-104-104-104 57-56 160 160-160 160Zm180 0v-80h240v80H480Z'/%3E%3C/svg%3E"); }
 body.nkui-solid-icons .lucide-text { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M120-240v-80h480v80H120Zm0-200v-80h720v80H120Zm0-200v-80h720v80H120Z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M120-240v-80h480v80H120Zm0-200v-80h720v80H120Zm0-200v-80h720v80H120Z'/%3E%3C/svg%3E"); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Skim mode — a reading-view declutter (main.ts SkimProcessor + body classes).
+   Reading view only: the rules below scope to .markdown-preview-view so the
+   live-preview editor (.markdown-source-view) is never touched. Three shapes:
+   minimize-completed (pure CSS, body.nkui-skim-min-done), fold-keywords and
+   first-last (the post-processor sets the classes/attrs; body.nkui-skim carries
+   the affordance). ════════════════════════════════════════════════════════════ */
+
+/* ── Minimize completed items — a checked `- [x]` list item reads like a
+   crossed-off queue line: struck, dimmed, recessed. Obsidian marks the
+   completed item with data-task="x" on the <li> (and .is-checked on the
+   checkbox). Hovering restores full opacity so a finished item stays reachable.
+   The struck text + faint colour mirror .nkui-now-reducedtitle.is-struck. */
+body.nkui-skim-min-done .markdown-preview-view .task-list-item[data-task="x"],
+body.nkui-skim-min-done .markdown-preview-view .task-list-item[data-task="X"] {
+	opacity: 0.5;
+	text-decoration: line-through;
+	text-decoration-color: var(--text-faint);
+	color: var(--text-faint);
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
+}
+body.nkui-skim-min-done .markdown-preview-view .task-list-item[data-task="x"]:hover,
+body.nkui-skim-min-done .markdown-preview-view .task-list-item[data-task="X"]:hover {
+	opacity: 1;
+}
+/* A nested INCOMPLETE sub-item under a done parent must not inherit the strike +
+   dim: the line-through/colour/opacity above cascade into descendant <li>s, so
+   reset them on any descendant task item that is not itself checked. The checked
+   parent's own label keeps the treatment. */
+body.nkui-skim-min-done
+	.markdown-preview-view
+	.task-list-item[data-task="x"]
+	.task-list-item:not([data-task="x"]):not([data-task="X"]),
+body.nkui-skim-min-done
+	.markdown-preview-view
+	.task-list-item[data-task="X"]
+	.task-list-item:not([data-task="x"]):not([data-task="X"]) {
+	opacity: 1;
+	text-decoration: none;
+	color: var(--text-normal);
+}
+
+/* ── Folding affordance — every decorated heading carries a leading chevron and
+   becomes a click target (whole-row interaction). The chevron is a small solid
+   triangle masked in currentColor; it rotates from pointing-down (open) to
+   pointing-right (folded). The grow token drives the rotation so it eases on the
+   same clock as the rest of the motion table. */
+body.nkui-skim .markdown-preview-view .nkui-skim-heading {
+	cursor: pointer;
+}
+body.nkui-skim .nkui-skim-chevron {
+	display: inline-block;
+	width: 0.6em;
+	height: 0.6em;
+	margin-right: 0.4em;
+	vertical-align: baseline;
+	background-color: currentColor;
+	opacity: 0.55;
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-344 240-584l56-56 184 184 184-184 56 56-240 240Z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-344 240-584l56-56 184 184 184-184 56 56-240 240Z'/%3E%3C/svg%3E");
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+	-webkit-mask-position: center;
+	mask-position: center;
+	-webkit-mask-size: contain;
+	mask-size: contain;
+	transition: transform var(--nkui-grow) var(--nkui-ease), opacity var(--nkui-fade) var(--nkui-ease);
+}
+body.nkui-skim .nkui-skim-head:hover .nkui-skim-chevron {
+	opacity: 1;
+}
+/* Folded: the chevron points right (a closed disclosure). */
+body.nkui-skim .nkui-skim-head.is-folded .nkui-skim-chevron {
+	transform: rotate(-90deg);
+}
+
+/* ── Hidden section — a folded heading's owned sibling sections collapse away.
+   max-height + opacity gives a soft close on the unroll clock rather than a
+   hard pop; the post-processor toggles .nkui-skim-hidden on each owned section.
+   overflow:hidden clips the collapsing block; pointer-events:none keeps a
+   half-collapsed block from catching clicks. */
+body.nkui-skim .markdown-preview-view .nkui-skim-hidden {
+	max-height: 0 !important;
+	margin-block: 0 !important;
+	padding-block: 0 !important;
+	opacity: 0;
+	overflow: hidden;
+	pointer-events: none;
+	transition: max-height var(--nkui-unroll-max) var(--nkui-ease),
+		opacity var(--nkui-fade) var(--nkui-ease);
+}
+
+/* ── Icons settings — a small live glyph preview beside each control row,
+   masked in the row's text colour exactly as the live control will render. The
+   data-URI mask is set inline by settings.ts (--nkui-icon-mask). */
+.nkui-icon-preview {
+	display: inline-block;
+	width: 1.1em;
+	height: 1.1em;
+	margin-right: var(--nkui-gap-s, 8px);
+	vertical-align: -0.18em;
+	background-color: var(--text-normal);
+	-webkit-mask-image: var(--nkui-icon-mask);
+	mask-image: var(--nkui-icon-mask);
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+	-webkit-mask-position: center;
+	mask-position: center;
+	-webkit-mask-size: contain;
+	mask-size: contain;
+}
+.nkui-icon-help {
+	margin-bottom: var(--nkui-gap-s, 8px);
+}

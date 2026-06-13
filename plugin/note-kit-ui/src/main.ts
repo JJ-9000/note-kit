@@ -8,7 +8,8 @@ import { QueueView, QUEUE_VIEW_TYPE, rawEscapes } from "./queueView";
 import { closeOfferMs, configureHolds } from "./holds";
 import { KitFacts, readKitFacts } from "./kitConfig";
 import { autoColor, deriveThemePalette } from "./palette";
-import { syncGraphColors } from "./graph";
+import { syncGraphColors, openGraphForTag } from "./graph";
+import { SkimProcessor } from "./skim";
 
 /** The default palette shipped BEFORE 0.4.49 (recovered from git, 0.4.46) —
  * compared once against the saved palette: an exact match means the user never
@@ -44,6 +45,8 @@ export default class NoteKitUiPlugin extends Plugin {
 	private styleEl!: HTMLStyleElement;
 	private decorator!: ExplorerDecorator;
 	private noteClass!: NoteClassApplier;
+	/** Reading-view skim post-processor (fold-by-keyword, first/last). */
+	private skim!: SkimProcessor;
 	/** Last-known `reviewed` value per file — lets us catch the false→true flip
 	 * (the user checking the box) and offer to close the tab. Seeded on file-open so
 	 * the very first flip is caught (an unseen file has no prior `false` to compare). */
@@ -77,6 +80,7 @@ export default class NoteKitUiPlugin extends Plugin {
 
 		this.decorator = new ExplorerDecorator(this);
 		this.noteClass = new NoteClassApplier(this);
+		this.skim = new SkimProcessor(this);
 
 		this.registerView(NOW_VIEW_TYPE, (leaf) => new NowView(leaf, this));
 		this.registerView(NOW_SIDE_VIEW_TYPE, (leaf) => new NowView(leaf, this, true));
@@ -131,6 +135,12 @@ export default class NoteKitUiPlugin extends Plugin {
 		// the file. Fires on every section render; the first section within the sizer
 		// injects the header once, subsequent sections no-op.
 		this.registerMarkdownPostProcessor((el, ctx) => this.injectReviewedHeader(el, ctx));
+
+		// Skim mode — a second reading-view post-processor (same per-section
+		// composition pattern). Cheap and idempotent: it coalesces to one fold
+		// pass per render and no-ops when skimMode is off or minimize-completed
+		// (that mode is pure CSS via the body class).
+		this.registerMarkdownPostProcessor((el, ctx) => this.skim.process(el, ctx));
 
 		this.addSettingTab(new NoteKitUiSettingTab(this.app, this));
 
@@ -207,6 +217,16 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (path) window.setTimeout(() => this.foldDescendants(path), 0);
 		});
 
+		// Tag click → graph view filtered to that tag. Capture phase so we run
+		// before Obsidian's own tag-search handler, intercepting the click only
+		// when the feature is on (otherwise Obsidian's default behaviour stands).
+		this.registerDomEvent(
+			document,
+			"click",
+			(ev) => this.maybeOpenGraphForTag(ev),
+			{ capture: true }
+		);
+
 		this.app.workspace.onLayoutReady(() => {
 			// Theme CSS is reliably in by now — derive (or re-derive) and paint.
 			this.onCssChange();
@@ -233,6 +253,7 @@ export default class NoteKitUiPlugin extends Plugin {
 	onunload(): void {
 		this.decorator?.stop();
 		this.noteClass?.stop();
+		this.skim?.stop();
 		this.styleEl?.remove();
 		this.minimalExitEl?.remove();
 		this.minimalExitEl = null;
@@ -243,6 +264,8 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-large-mouths");
 		document.body.removeClass("nkui-rounded");
 		document.body.removeClass("nkui-minimal");
+		document.body.removeClass("nkui-skim-min-done");
+		document.body.removeClass("nkui-skim");
 	}
 
 	private applyBodyClasses(): void {
@@ -253,6 +276,16 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-large-mouths", this.settings.largeMouths);
 		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
 		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
+		// Skim: minimize-completed is a pure-CSS dim of `- [x]` items (body class);
+		// the folding modes also wear nkui-skim so the collapse affordance shows.
+		document.body.toggleClass(
+			"nkui-skim-min-done",
+			this.settings.skimMode === "minimize-completed"
+		);
+		document.body.toggleClass(
+			"nkui-skim",
+			this.settings.skimMode === "fold-keywords" || this.settings.skimMode === "first-last"
+		);
 		// Re-apply the persisted animation-speed multiplier on load (§ Z slider
 		// writes it live; without this it stays at the stylesheet default until
 		// the slider is next moved).
@@ -496,6 +529,45 @@ export default class NoteKitUiPlugin extends Plugin {
 				it.setCollapsed(true);
 			}
 		}
+	}
+
+	/** Tag click → open the graph view filtered to that tag. Reads the tag text
+	 * from a clicked tag element — Obsidian renders frontmatter tags as
+	 * `a.tag`/`.tag` pills and inline tags as `a.tag` — strips the leading `#`,
+	 * and hands off to graph.openGraphForTag. Gated behind tagClickOpensGraph;
+	 * when on, the click is consumed (preventDefault + stop) so the default
+	 * tag-search pane doesn't also open. Plain modifier-clicks are left alone so
+	 * the user can still middle/ctrl-click a tag the normal way. */
+	private maybeOpenGraphForTag(ev: MouseEvent): void {
+		if (!this.settings.tagClickOpensGraph) return;
+		if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+		const target = ev.target as HTMLElement | null;
+		// Inline reading-view tags (a.tag / .tag) and live-preview tag tokens
+		// (.cm-hashtag) are tag-specific. A frontmatter `.multi-select-pill` is
+		// generic (any list property renders as pills), so it only counts inside
+		// the tags property — a `parent`/list pill must not open the graph.
+		let el = target?.closest?.("a.tag, .tag, .cm-hashtag") as HTMLElement | null;
+		if (!el) {
+			const pill = target?.closest?.(".multi-select-pill") as HTMLElement | null;
+			const prop = pill?.closest?.(".metadata-property") as HTMLElement | null;
+			const key = prop?.getAttribute("data-property-key");
+			if (pill && (key === "tags" || key === "tag")) el = pill;
+		}
+		if (!el) return;
+		// Pull the tag text: the href (#tag) is most reliable for a.tag; otherwise
+		// the element's own text. Strip a leading # and any stray whitespace.
+		const href = el.getAttribute("href") ?? "";
+		let tag = href.startsWith("#") ? href : el.textContent ?? "";
+		tag = tag.trim().replace(/^#/, "");
+		// A live-preview hashtag splits into a # token and a text token; if we
+		// landed on the bare # marker, the readable name is the next sibling.
+		if (!tag && el.classList.contains("cm-hashtag")) {
+			tag = (el.nextElementSibling?.textContent ?? "").trim().replace(/^#/, "");
+		}
+		if (!tag) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		void openGraphForTag(this.app, tag);
 	}
 
 	/** Keep a single For You tab in the main area — detach any extras (e.g. two

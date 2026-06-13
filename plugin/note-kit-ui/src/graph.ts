@@ -40,3 +40,71 @@ export async function syncGraphColors(app: App, styles: TypeStyle[]): Promise<vo
 		}
 	}
 }
+
+/**
+ * Open (or reveal) the global graph view with its search filter set to a tag, so
+ * the graph shows and highlights that tag's notes. Best-effort, on the same
+ * undocumented dataEngine surface syncGraphColors uses:
+ *  · reveal an existing graph leaf, else open one (core "graph" internal plugin),
+ *  · then set the data engine's search query to `tag:#<tag>` so the matching
+ *    nodes stay lit and the rest dim — the graph's own search behaviour.
+ * Every step is wrapped so a failure (a renamed internal API) just leaves the
+ * graph open without the filter rather than throwing into the click handler.
+ *
+ * @param tag the tag WITHOUT its leading `#` (the caller strips it).
+ */
+export async function openGraphForTag(app: App, tag: string): Promise<void> {
+	const clean = tag.replace(/^#/, "").trim();
+	if (!clean) return;
+	const query = `tag:#${clean}`;
+
+	// Find an open graph leaf, or open one via the core graph plugin.
+	let leaf = app.workspace.getLeavesOfType("graph")[0] ?? null;
+	if (!leaf) {
+		try {
+			const graphPlugin = (
+				app as unknown as {
+					internalPlugins?: { getPluginById?: (id: string) => { enable?: () => void } | null };
+				}
+			).internalPlugins?.getPluginById?.("graph");
+			graphPlugin?.enable?.();
+		} catch {
+			/* the global graph may already be enabled; ignore */
+		}
+		// Open the graph in a new main-area tab.
+		leaf = app.workspace.getLeaf("tab");
+		try {
+			await leaf.setViewState({ type: "graph", active: true });
+		} catch {
+			return; // graph view unavailable — nothing more to do
+		}
+	}
+	try {
+		await app.workspace.revealLeaf(leaf);
+	} catch {
+		/* best effort */
+	}
+
+	// Set the search query on the data engine. setOptions with search is the
+	// surface the graph's own search box drives; filterOptions.search is the
+	// nested shape some builds expose — set both, ignoring whichever is absent.
+	const apply = (): void => {
+		const view = leaf?.view as unknown as {
+			dataEngine?: {
+				setOptions?: (o: unknown) => void;
+				searchQueries?: unknown;
+			};
+		} | undefined;
+		const engine = view?.dataEngine;
+		if (!engine?.setOptions) return;
+		try {
+			engine.setOptions({ search: query, filterOptions: { search: query } });
+		} catch {
+			/* best effort */
+		}
+	};
+	// The view may need a tick to build its data engine after setViewState; apply
+	// now and once more after layout settles.
+	apply();
+	window.setTimeout(apply, 50);
+}

@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type NoteKitUiPlugin from "./main";
+import { ICON_CONTROLS, encodeSvgDataUri, normalizeOverrideSvg } from "./icons";
 
 /** One note-type rule (feature c). `type` matches the frontmatter `type` value. */
 export interface TypeStyle {
@@ -96,6 +97,27 @@ export interface NoteKitUiSettings {
 	 * animation durations by this value (default 1.0; higher = faster). Range
 	 * 0.5–2.0. Persisted and re-applied on load. */
 	animSpeed: number;
+
+	/** Skim mode — a reading-view declutter (reading view only; live preview is a
+	 * CM6 surface a post-processor never sees). One of:
+	 *  · "off"               — no skim treatment.
+	 *  · "minimize-completed"— `- [x]` checked items render dim + reduced.
+	 *  · "fold-keywords"     — sections whose header matches skimFoldKeywords start folded.
+	 *  · "first-last"        — fold every section except the first and last header. */
+	skimMode: "off" | "minimize-completed" | "fold-keywords" | "first-last";
+	/** Comma-separated header keywords that start folded under skimMode
+	 * "fold-keywords" (case-insensitive substring match on the header text). */
+	skimFoldKeywords: string;
+
+	/** User-replaceable control icons: control-key → raw SVG (a full `<svg>…</svg>`
+	 * or a bare path-d). Feeds the nkui-solid-icons mask machinery via css.ts; an
+	 * empty/blank entry falls through to the shipped glyph. See icons.ts for the
+	 * control set and the encode/normalize helpers. */
+	iconOverrides: Record<string, string>;
+
+	/** Clicking a tag (frontmatter pill or inline `a.tag`) opens the graph view
+	 * filtered to that tag (tag:#<tag>) instead of the default tag search. */
+	tagClickOpensGraph: boolean;
 }
 
 /** Defaults seeded from the kit's CONFIG vocabulary (types, inbox path). */
@@ -178,6 +200,18 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	minimalistMode: false,
 	// 1.0 = real-time (default); the CSS token --nkui-speed-user divides durations.
 	animSpeed: 1.1,
+
+	// Skim off by default — it's an opt-in reading treatment, not a baseline look.
+	skimMode: "off",
+	// A sensible starter set of "boilerplate" headers worth folding away.
+	skimFoldKeywords: "appendix, references, notes, changelog, metadata",
+
+	// No icon overrides ship — every control uses its solid-icon default until the
+	// user pastes their own SVG in the Icons settings group.
+	iconOverrides: {},
+
+	// The feature's whole point — on by default; a tag click opens the graph.
+	tagClickOpensGraph: true,
 };
 
 /** Sanitize a type value into a CSS class suffix. Shared by css + noteClass. */
@@ -404,6 +438,44 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					await save();
 				})
 			);
+
+		// ── Skim (reading view) ─────────────────────────────────────────────────
+		// A reading-view declutter for long notes. Reading view only — live preview
+		// is a CM6 editor surface a post-processor never reaches.
+		new Setting(containerEl).setName("Skim").setHeading();
+
+		new Setting(containerEl)
+			.setName("Skim mode")
+			.setDesc(
+				"Declutter long notes in READING VIEW (live preview is unaffected). Minimize completed dims `- [x]` checked items the way crossed-off lines read. Fold by keyword starts matching-header sections folded — click a header to expand. First/last folds every section except each note's first and last header."
+			)
+			.addDropdown((d) =>
+				d
+					.addOption("off", "Off")
+					.addOption("minimize-completed", "Minimize completed items")
+					.addOption("fold-keywords", "Fold sections by keyword")
+					.addOption("first-last", "First/last header only")
+					.setValue(s.skimMode)
+					.onChange(async (v) => {
+						s.skimMode = v as NoteKitUiSettings["skimMode"];
+						await save();
+						this.display(); // show/hide the keyword field
+					})
+			);
+
+		if (s.skimMode === "fold-keywords") {
+			new Setting(containerEl)
+				.setName("Fold keywords")
+				.setDesc(
+					"Comma-separated words; a reading-view header whose text contains any of them starts folded. Case-insensitive substring match."
+				)
+				.addText((t) =>
+					t.setValue(s.skimFoldKeywords).onChange(async (v) => {
+						s.skimFoldKeywords = v;
+						await save();
+					})
+				);
+		}
 
 		// ── Explorer & notes ──────────────────────────────────────────────────
 		new Setting(containerEl).setName("Explorer & notes").setHeading();
@@ -689,6 +761,17 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				})
 			);
 		new Setting(explorerAdv)
+			.setName("Tag click opens graph")
+			.setDesc(
+				"Clicking a tag — a frontmatter pill or an inline #tag — opens the graph view filtered to that tag (tag:#…), so its notes light up. Off keeps Obsidian's default tag-search behaviour."
+			)
+			.addToggle((t) =>
+				t.setValue(s.tagClickOpensGraph).onChange(async (v) => {
+					s.tagClickOpensGraph = v;
+					await save();
+				})
+			);
+		new Setting(explorerAdv)
 			.setName("Hide folder arrows")
 			.setDesc("Remove the collapse chevrons from explorer folders. Folders still toggle when you click their name.")
 			.addToggle((t) =>
@@ -790,6 +873,58 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					ta.inputEl.rows = 3;
 					ta.inputEl.style.width = "100%";
 				});
+		});
+
+		// ── Icons ────────────────────────────────────────────────────────────
+		// User-replaceable control glyphs, feeding the solid-icon mask machinery.
+		// One row per known control: a live preview of the current glyph, an SVG
+		// paste field, and a per-row reset. Only meaningful while Solid icons is on.
+		const iconsAdv = advancedGroup(
+			containerEl,
+			"Advanced — replaceable icons" + (s.solidIcons ? "" : " (turn on Solid icons to use)")
+		);
+		iconsAdv.createDiv({
+			cls: "nkui-icon-help setting-item-description",
+			text: "Paste a full <svg>…</svg> or a bare path-d for any control. The shape masks in the icon's colour, so its own fills/strokes are ignored. Blank uses the shipped glyph.",
+		});
+		ICON_CONTROLS.forEach((ctrl) => {
+			const raw = s.iconOverrides[ctrl.key] ?? "";
+			// Preview: mask a swatch with either the override (if usable) or the
+			// shipped default — exactly what css.ts will emit live.
+			const previewSvg = normalizeOverrideSvg(raw) ?? ctrl.defaultSvg;
+			const setting = new Setting(iconsAdv)
+				.setClass("nkui-icon-row")
+				.setName(ctrl.label)
+				.setDesc(raw ? "Custom" : "Default");
+			// Live glyph preview to the left of the controls.
+			const preview = createSpan({ cls: "nkui-icon-preview" });
+			preview.style.setProperty(
+				"--nkui-icon-mask",
+				`url("${encodeSvgDataUri(previewSvg)}")`
+			);
+			setting.nameEl.prepend(preview);
+			setting.addText((t) => {
+				t.setPlaceholder("<svg …>…</svg> or path-d");
+				t.setValue(raw);
+				t.inputEl.style.flex = "1 1 0";
+				t.inputEl.style.minWidth = "0";
+				t.onChange(async (v) => {
+					const trimmed = v.trim();
+					if (trimmed) s.iconOverrides[ctrl.key] = trimmed;
+					else delete s.iconOverrides[ctrl.key];
+					await save();
+				});
+			});
+			setting.addExtraButton((b) =>
+				b
+					.setIcon("rotate-ccw")
+					.setTooltip("Reset to the shipped glyph")
+					.onClick(async () => {
+						delete s.iconOverrides[ctrl.key];
+						await save();
+						this.display();
+					})
+			);
 		});
 
 	}

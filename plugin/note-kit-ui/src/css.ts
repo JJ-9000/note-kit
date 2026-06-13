@@ -1,6 +1,7 @@
 import { NoteKitUiSettings, TypeStyle, typeClass } from "./settings";
 import { toneVars } from "./palette";
 import { armDelayMs } from "./holds";
+import { ICON_CONTROLS, encodeSvgDataUri, normalizeOverrideSvg } from "./icons";
 
 /** Serialize a type colour + its derived sub-tones as CSS declarations. */
 function colorDecls(color: string): string {
@@ -78,6 +79,30 @@ export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): 
 			out.push(`.nav-file-title[data-nkui-type="${attr(t.type)}"] { ${decls} }`);
 			// open-note accent colour + derived sub-tones
 			out.push(`.${typeClass(t.type)} { ${decls} }`);
+		}
+	}
+
+	// User-replaceable icons — feed the existing nkui-solid-icons mask machinery a
+	// per-control SVG override. Emitted AFTER the static stylesheet (this whole
+	// block is injected after styles.css), so these mask-image rules win by source
+	// order over the shipped defaults. A blank/unusable override falls through to
+	// the shipped glyph (normalizeOverrideSvg returns null). Only meaningful when
+	// solid icons are on — that's the body class the mask rides on.
+	if (s.solidIcons && s.iconOverrides) {
+		for (const ctrl of ICON_CONTROLS) {
+			const raw = s.iconOverrides[ctrl.key];
+			if (!raw) continue;
+			const svg = normalizeOverrideSvg(raw);
+			if (!svg) continue;
+			const uri = encodeSvgDataUri(svg);
+			// One rule per Lucide class the control rides on (edit covers pencil +
+			// square-pen). currentColor masking is already set by the static block;
+			// we only swap the mask-image so the user's shape replaces the glyph.
+			for (const cls of ctrl.lucideClasses) {
+				out.push(
+					`body.nkui-solid-icons .${cls} { -webkit-mask-image: url("${uri}"); mask-image: url("${uri}"); }`
+				);
+			}
 		}
 	}
 

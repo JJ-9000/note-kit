@@ -556,6 +556,12 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	--nkui-row-end: var(--nkui-gap-m);
 }
 .nkui-now > * {
+	/* width:100% so every child fills the SAME column width (capped at the cap,
+	   centred by the auto margins) — without it, flex: 0 0 auto sizes each child
+	   to its own content and the auto margins centre them individually, so a
+	   narrow collapsed head and a wide open section land at different left edges
+	   (the column-misalignment bug). One column width → left edges align. */
+	width: 100%;
 	max-width: 760px;
 	margin-inline: auto;
 }

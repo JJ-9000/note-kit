@@ -19,6 +19,7 @@ Throughout this document, tokens like `<inbox>` and `<projects>` appear — thes
 
 - [Why use this kit?](#why-use-this-kit)
 - [What you get](#what-you-get)
+- [User experience](#user-experience)
 - [Before you install](#before-you-install)
 - [Install](#install)
 - [First session — fit the kit to you](#first-session--fit-the-kit-to-you)
@@ -52,7 +53,21 @@ AI output tends to be chaotic, and prone to contradiction over time. Many tools 
 - **Skills** — nine Claude skills that produce structured work, each introduced at its step in the loop below.
 - **Four scheduled agents** that maintain the vault automatically.
 - **Semantic search** over the vault, served by a small local daemon the assistant queries through MCP.
-- **An Obsidian UI plugin**, `note-kit-ui`, that renders all of this calmly inside Obsidian — type dots, unreviewed markers, and a "For You" pane that shows only what needs your attention.
+- **An Obsidian UI plugin** (`note-kit-ui`) and a matching **`Note-Kit` theme**, built together to cut information noise and make the vault navigable at a glance: a colored dot per `type`, structural prefixes hidden from display names, explorer rows weighted and faded by folder so the ones that matter stand out, an unreviewed flag (with a live "N unreviewed" count on the inbox), and a one-click **"For You"** page (the sun icon) that surfaces only your queues, drafts, and active projects. The plugin reads the kit's own `CONFIG.md`, so its labels never drift from your setup, and it takes its colors from the theme. Everything stays plain markdown underneath, and it runs on mobile over Obsidian Sync or git.
+
+---
+
+## User experience
+
+Note-kit is just plain markdown files in a normal folder tree on your disk. Two apps open that folder for different jobs:
+
+- **Obsidian is your review window:** the calm surface you check on your own cadence (every hour, once a day, whenever) to read what's waiting and approve it. You don't run the AI assistant from inside Obsidian.
+- **Claude Code does the work, against the vault folder itself.** Open that folder as the project (the Desktop app, the CLI, or the VS Code extension) and the AI assistant edits the files directly. It is the same folder Obsidian has open, worked by both.
+
+**You steer the kit by setting values in your notes.** Approving a draft is flipping `reviewed: true`; answering the kit is ticking a checkbox in a queue; handing it work is dropping a file in `<outbox>`. That is the whole control surface. Asking the AI assistant in a live session to set a value works too, at one step more than changing it yourself.
+
+> [!WARNING]
+> You can operate note-kit outside the Obsidian UI — the files are plain markdown and the agents still run. Without the plugin and theme, though, you navigate the vault as raw folders and frontmatter, which is much harder.
 
 ---
 
@@ -62,7 +77,7 @@ AI output tends to be chaotic, and prone to contradiction over time. Many tools 
 
 1. **Python 3.9 or newer** (python.org) — runs the kit's scripts. **Windows users:** on the installer's first screen, tick **"Add python.exe to PATH"** before clicking Install. Without it, the commands below won't be found.
 2. **Obsidian** (obsidian.md) — the notes app. Free. Name and set up an empty vault location, and copy the path.
-3. **Claude Code desktop app** (claude.com/claude-code) — the AI assistant. The kit needs the standalone version that runs *on your computer*  to schedule and automate tasks. **The note-kit does not work on the claude web app**. The agents and skills may work with local non-claude code platforms (Codex, Ollama, etc.) but these are not tested or configured.
+3. **Claude Code desktop app** (claude.com/claude-code) — the AI assistant. **How you run it for interactive work is your choice:** the Desktop app, the CLI, and the VS Code extension all open the vault and drive the kit the same way. **Scheduling is the exception.** Running the four agents automatically on a clock needs the **Desktop app**, the only runtime that registers routines today; spawning agents from the terminal on a schedule is possible but unconfigured in this kit. **The kit does not run on the Claude web app,** which cannot reach your files. The skills and agents may also run on local non-Claude platforms (Codex, Ollama, and the like), though those are untested and unconfigured.
 
 **The install uses a terminal** — the text window where you type commands. To open one:
 
@@ -93,16 +108,16 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 2. **Scaffold the vault.** Still in the kit folder, run:
 
    ```
-   python .claude/scripts/scaffold_vault.py --path <path-to-your-vault>
+   python .claude/scripts/scaffold_vault.py --path <path-to-your-vault> --with-ui-plugin plugin/note-kit-ui
    ```
 
-   This creates the folder structure (the real folders behind the tokens), copies the kit into `<vault>/.claude/`, seeds both queues with worked examples, and writes the config files:
+   This creates the folder structure (the real folders behind the tokens), copies the kit into `<vault>/.claude/`, seeds both queues with worked examples, installs the Obsidian UI (the `note-kit-ui` plugin and the `Note-Kit` theme), and writes the config files:
 
    - **Hooks and `settings.json`** — wires three hooks: always-on rules fed to every message, a vault briefing at session start, and a config re-sync at session end.
    - **`.mcp.json`** — registers the vault-search daemon as the `vault` MCP tool. Approve the tool when Claude Code prompts on first launch.
    - **`settings.local.json`** — holds machine-local permission grants and appears as you approve tools; don't sync or share it between machines.
 
-   To install the Obsidian plugin at the same time, add `--with-ui-plugin plugin/note-kit-ui` to the command.
+   You can omit `--with-ui-plugin plugin/note-kit-ui` for a headless install, but the UI is how you'll actually read the vault.
 
 3. **Move to your vault folder.** The remaining steps run from the vault, not the kit folder:
 
@@ -143,7 +158,7 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 
    None of them need network or credential access.
 
-6. **The UI plugin (optional, but recommended).** Copy `main.js`, `manifest.json`, and `styles.css` from the kit's `plugin/note-kit-ui/` into `<vault>/.obsidian/plugins/note-kit-ui/`, then enable it in Obsidian's Community plugins settings. The kit is fully functional without it — no skill, agent, or script depends on the plugin.
+6. **The UI — plugin and theme.** The `--with-ui-plugin` flag in step 2 installs both, and you want both: the plugin into `.obsidian/plugins/note-kit-ui/` (enabled in `community-plugins.json`) and the `Note-Kit` theme into `.obsidian/themes/Note-Kit/` (selected in `appearance.json`). Together they are how you read the vault: type colors, hidden prefixes, review flags, and the For You page. To add them to an existing vault by hand: copy `main.js`, `manifest.json`, and `styles.css` from `plugin/note-kit-ui/` into `<vault>/.obsidian/plugins/note-kit-ui/` and enable **Note-Kit UI** under Community plugins; copy `theme/Note-Kit/` into `<vault>/.obsidian/themes/Note-Kit/` and pick **Note-Kit** under Appearance. The plugin takes its colors from the theme, and a true-black **AMOLED** variant is available through the **Style Settings** plugin. The automation runs without them, but the vault is far harder to navigate as raw folders and frontmatter.
 
 ---
 
@@ -202,7 +217,7 @@ These surfaces are yours. Everything else runs on its own.
 
 **Approve gate files.** Reviewing a working set means reading one document. Its first five lines tell you what the set adds, what deserves a real read, and what your approval triggers. Flip `reviewed: true` and the agents take it from there.
 
-If you install the optional `note-kit-ui` plugin, the **For You** pane surfaces exactly these three: the two queues as live checklists, and your unreviewed drafts grouped by type — plus your active projects.
+The `note-kit-ui` **For You** pane surfaces exactly these three: the two queues as live checklists, and your unreviewed drafts grouped by type — plus your active projects.
 
 One more surface is quietly yours: **the vault root.** A file sitting loose at the root is your scratch space — never typed, normalized, auto-filed, or flagged. Draft there freely; nothing touches it.
 
@@ -283,6 +298,7 @@ The kit is complete without community plugins — `note-kit-ui` already shows ty
 - **QuickAdd** — one-keystroke capture into `<outbox>`; the action agent routes it from there.
 - **Advanced URI**, and **Actions for Obsidian** on iOS — capture from your phone via share sheet or Shortcuts. Point captures at `<outbox>` and the loop takes over.
 - **MCP servers for Obsidian** — community servers (most ride on the Local REST API plugin) that let AI tools drive the Obsidian app itself. The kit needs none: Claude Code edits vault files directly and ships its own `vault` MCP for semantic search. What one adds is app control — opening notes, arranging the workspace. If you run one, include it in the first-session audit like any other pre-existing tool.
+- **Style Settings** — exposes the `Note-Kit` theme's options, including the AMOLED true-black toggle. Optional; the theme is complete without it.
 
 Two cautions. A plugin that stamps or rewrites frontmatter (Templater used on `type`/`tags`/`date`) overlaps the janitor, which repairs those fields itself — keep templates to note bodies. And a replacement file explorer (Notebook Navigator and kin) swaps out the pane `note-kit-ui` decorates, so the type dots and review flags disappear with it. Anything that writes frontmatter or moves files belongs in the first-session audit.
 

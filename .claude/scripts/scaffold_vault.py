@@ -14,9 +14,11 @@ Produces:
     in the canonical proposal shape).
   - Optionally (--with-ui-plugin <dir>): installs the note-kit-ui Obsidian
     plugin (main.js / manifest.json / styles.css copied into
-    <vault>/.obsidian/plugins/note-kit-ui/) and MERGES "note-kit-ui" into
+    <vault>/.obsidian/plugins/note-kit-ui/), MERGES "note-kit-ui" into
     .obsidian/community-plugins.json (created if absent; other entries are
-    never touched).
+    never touched), and installs the sibling Note-Kit theme
+    (<kit>/theme/Note-Kit -> <vault>/.obsidian/themes/Note-Kit/, selected via
+    cssTheme in appearance.json when one is freshly written).
   - A full install of the kit at <scaffold>/.claude/ (hooks, skills,
     scheduled-tasks, scripts, CONFIG.md, CLAUDE.md, AGENTS.md, RULES.md) — the
     location Claude Code auto-loads CLAUDE.md from, vault-wide. The whole kit
@@ -238,7 +240,8 @@ def main() -> None:
              "(main.js, manifest.json, styles.css). They are copied into "
              "<vault>/.obsidian/plugins/note-kit-ui/ and 'note-kit-ui' is merged "
              "into .obsidian/community-plugins.json (created if absent; existing "
-             "entries are never removed).",
+             "entries are never removed). The sibling Note-Kit theme "
+             "(<kit>/theme/Note-Kit) is installed in the same pass.",
     )
     args = parser.parse_args()
     if args.upgrade is not None:
@@ -636,28 +639,79 @@ def main() -> None:
                     f"({len(entries)} entr{'y' if len(entries) == 1 else 'ies'} total)."
                 )
 
-            # The kit's calm appearance ships with the plugin: no ribbon, no view
-            # header, compact base type. Written only when no appearance.json
-            # exists — an existing vault's appearance is the user's, untouched.
+            # The UI ships as plugin + theme; the Note-Kit theme sits beside the
+            # plugin in the kit (<kit>/theme/Note-Kit). Derive it from the plugin
+            # dir and install it in the same pass. Absent -> plugin-only, note it.
+            installed_theme_name = None
+            theme_src = plugin_src.parent.parent / "theme" / "Note-Kit"
+            theme_present = [
+                f for f in ("theme.css", "manifest.json")
+                if (theme_src / f).is_file()
+            ]
+            if "theme.css" not in theme_present:
+                print(
+                    f"[scaffold] note: no theme at {theme_src}; installed the "
+                    "plugin without the Note-Kit theme.",
+                    file=sys.stderr,
+                )
+            else:
+                theme_name = theme_src.name
+                try:
+                    manifest = json.loads(
+                        (theme_src / "manifest.json").read_text(encoding="utf-8")
+                    )
+                    if (
+                        isinstance(manifest, dict)
+                        and isinstance(manifest.get("name"), str)
+                        and manifest["name"].strip()
+                    ):
+                        theme_name = manifest["name"].strip()
+                except Exception:
+                    pass
+                theme_dest = vault / ".obsidian" / "themes" / theme_name
+                theme_dest.mkdir(parents=True, exist_ok=True)
+                for fname in theme_present:
+                    shutil.copy2(theme_src / fname, theme_dest / fname)
+                installed_theme_name = theme_name
+                print(
+                    f"[scaffold] '{theme_name}' theme installed "
+                    f"({', '.join(theme_present)}) -> .obsidian/themes/{theme_name}/."
+                )
+
+            # The kit's calm appearance ships with the UI: no ribbon, no view
+            # header, compact base type, and the Note-Kit theme when it installed.
+            # Written only when no appearance.json exists — an existing vault's
+            # appearance is the user's, untouched.
             ap_path = vault / ".obsidian" / "appearance.json"
             if not ap_path.exists():
+                appearance = {
+                    "theme": "system",
+                    "showRibbon": False,
+                    "showViewHeader": False,
+                    "nativeMenus": False,
+                    "baseFontSize": 12,
+                    "baseFontSizeAction": False,
+                    "accentColor": "",
+                }
+                if installed_theme_name:
+                    appearance["cssTheme"] = installed_theme_name
                 ap_path.write_text(
-                    json.dumps(
-                        {
-                            "theme": "system",
-                            "showRibbon": False,
-                            "showViewHeader": False,
-                            "nativeMenus": False,
-                            "baseFontSize": 12,
-                            "baseFontSizeAction": False,
-                            "accentColor": "",
-                        },
-                        indent=2,
-                    )
-                    + "\n",
-                    encoding="utf-8",
+                    json.dumps(appearance, indent=2) + "\n", encoding="utf-8"
                 )
-                print("[scaffold] calm appearance defaults written (.obsidian/appearance.json).")
+                print(
+                    "[scaffold] calm appearance defaults written "
+                    "(.obsidian/appearance.json)"
+                    + (
+                        f", theme '{installed_theme_name}' selected."
+                        if installed_theme_name
+                        else "."
+                    )
+                )
+            elif installed_theme_name:
+                print(
+                    "[scaffold] existing appearance.json preserved — select "
+                    f"'{installed_theme_name}' in Settings -> Appearance -> Themes."
+                )
             else:
                 print("[scaffold] existing appearance.json preserved.")
 

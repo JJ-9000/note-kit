@@ -577,15 +577,16 @@ export class ExplorerDecorator {
 			if (fcolor) el.style.setProperty("--nkui-folder-color", fcolor);
 			else el.style.removeProperty("--nkui-folder-color");
 
-			// (f) session host — a subfolder whose bare name is "sessions" (the kit's
-			// canonical containing-folder for session notes).  Stamped so the lead
-			// stylesheet can give it and its children the same size/indent as other
-			// entries instead of the smaller "typed subfolder" treatment.
-			const isSessionHost =
-				!path.includes("/")
-					? false
-					: bare === "sessions" ||
-					  (bare.endsWith("s") && bare.slice(0, -1) === "session");
+			// (f) session host — a folder matching the kit's session subfolder. The
+			// literal comes from CONFIG (§ Subfolders `<sessions>`, via facts) so a
+			// renamed sessions folder is tracked, not a hard-coded name; the bare
+			// "sessions"/singular name is only the CONFIG-less / token-absent
+			// fallback. Stamped so the lead stylesheet can give it and its children
+			// the same size/indent as other entries (not the smaller subfolder look).
+			const sessLit = facts?.sessionsLiteral ? facts.sessionsLiteral.toLowerCase() : "";
+			const isSessionHost = sessLit
+				? bare === sessLit
+				: bare === "sessions" || (bare.endsWith("s") && bare.slice(0, -1) === "session");
 			this.setAttr(el, "data-nkui-session-host", isSessionHost ? "" : null);
 
 			// Recycled-row hygiene: the explorer reuses elements while scrolling,
@@ -698,9 +699,12 @@ export class ExplorerDecorator {
 			const parentBare = parentPath.includes("/")
 				? parentPath.split("/").pop()?.replace(/^\d{2,}[ _-]+/, "").toLowerCase() ?? ""
 				: parentPath.replace(/^\d{2,}[ _-]+/, "").toLowerCase();
-			const isSessionChild =
-				parentBare === "sessions" ||
-				(parentBare.endsWith("s") && parentBare.slice(0, -1) === "session");
+			const sessLitC = this.plugin.kitFacts?.sessionsLiteral
+				? this.plugin.kitFacts.sessionsLiteral.toLowerCase()
+				: "";
+			const isSessionChild = sessLitC
+				? parentBare === sessLitC
+				: parentBare === "sessions" || (parentBare.endsWith("s") && parentBare.slice(0, -1) === "session");
 			this.setAttr(el, "data-nkui-session-child", isSessionChild ? "" : null);
 
 			// (e3) cover note — BOTH conventions: a 00-/01- structural prefix (the

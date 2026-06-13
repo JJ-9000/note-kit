@@ -756,8 +756,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		window.requestAnimationFrame(() => {
 			flash.addClass("is-fading");
 			// Fallback removal: parse --nkui-flash from the computed style; default 220ms.
-			const raw = getComputedStyle(document.documentElement).getPropertyValue("--nkui-flash").trim();
-			const ms = parseFloat(raw) || 220;
+			// --nkui-flash is calc(var/var) — getPropertyValue returns it unresolved,
+			// so read the element's own resolved transition-duration ("0.22s"/"220ms").
+			const dur = getComputedStyle(flash).transitionDuration.trim();
+			const ms = dur.endsWith("ms") ? parseFloat(dur) : (parseFloat(dur) || 0.22) * 1000;
 			flash.addEventListener("transitionend", () => flash.remove(), { once: true });
 			window.setTimeout(() => flash.remove(), ms + 50);
 		});
@@ -774,6 +776,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		// section re-renders. The sizer is the direct parent of every section el.
 		const sizer = el.parentElement;
 		if (!sizer) return;
+		// Reading view only — never an embed (![[note]]) or a hover-preview. Their
+		// render has a sizer too, so without this the header sprouts mid-document
+		// and its checkbox would write the EMBEDDED file's frontmatter.
+		if (el.closest(".markdown-embed, .popover, .hover-popover")) return;
 		// Only inject once per full render (idempotent on repeated section calls).
 		if (sizer.querySelector(".nkui-reviewed-header")) return;
 		const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);

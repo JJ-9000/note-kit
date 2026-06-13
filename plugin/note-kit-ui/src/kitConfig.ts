@@ -13,6 +13,11 @@ export interface KitFacts {
 	/** the archive root from § Folders, e.g. "Archive" — "" when CONFIG
 	 * carries no `<archive>` row (consumers fall back to their own heuristic) */
 	archiveLiteral: string;
+	/** the session subfolder literal (§ Subfolders `<sessions>`), e.g. "Sessions"
+	 * — "" when CONFIG defines no such token; consumers then fall back to the
+	 * conventional bare name. Lets the session-unification look track a renamed
+	 * sessions folder instead of a hard-coded literal. */
+	sessionsLiteral: string;
 	/** resolved queue file paths, e.g. "Inbox/User-Queue.md" */
 	userQueuePath: string;
 	machineQueuePath: string;
@@ -94,6 +99,7 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 		inboxLiteral: inbox,
 		outboxLiteral: outbox,
 		archiveLiteral: tokens.get("archive") ?? "",
+		sessionsLiteral: tokens.get("sessions") ?? "",
 		userQueuePath: resolve(uq),
 		machineQueuePath: resolve(mq),
 		prefixes,

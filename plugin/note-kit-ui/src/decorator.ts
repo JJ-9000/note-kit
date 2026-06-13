@@ -44,9 +44,10 @@ export class ExplorerDecorator {
 	private observers: MutationObserver[] = [];
 	private redraw: Debouncer<[], void>;
 
-	/** Declared sink folder names (settings.sinkFolders), prefix-stripped and
-	 * lower-cased — a folder anywhere whose own name matches is a sink. */
-	private sinkSet = new Set<string>();
+	/** Declared sink terms (settings.sinkFolders), prefix-stripped and
+	 * lower-cased — a folder anywhere whose name CONTAINS any term is a sink
+	 * (contains-word match; exact match is the degenerate case). */
+	private sinkTerms: string[] = [];
 	private typeColors = new Set<string>();
 	private floatSet = new Set<string>();
 	private floatEnabled = false;
@@ -201,13 +202,15 @@ export class ExplorerDecorator {
 		const s = this.plugin.settings;
 		this.folderColorCache.clear(); // type colours / settings may have changed
 		// A "sink" is a declared low-attention folder (settings.sinkFolders, e.g.
-		// Archive): a folder anywhere whose name — prefix-stripped, case-insensitive
-		// — equals an entry. The stylesheet dims its whole subtree.
-		this.sinkSet = new Set(
-			(s.sinkFolders ?? [])
-				.map((n) => n.replace(/^\d{2,}[-_ ]+/, "").trim().toLowerCase())
-				.filter(Boolean)
-		);
+		// "Archive").  Each entry (already a separate array element — the settings
+		// UI splits on commas when saving) is prefix-stripped and lower-cased;
+		// a folder anywhere whose own name CONTAINS any term is a sink
+		// (contains-word semantics; exact match is the degenerate case where the
+		// term equals the full bare name).  No hard-coded folder literals here —
+		// everything derives from settings.sinkFolders.
+		this.sinkTerms = (s.sinkFolders ?? [])
+			.map((n) => n.replace(/^\d{2,}[-_ ]+/, "").trim().toLowerCase())
+			.filter(Boolean);
 		this.typeColors = new Set(this.plugin.typeStyles().filter((t) => t.color).map((t) => t.type));
 		this.floatSet = new Set(s.floatTopTypes ?? []);
 		// One gate for ALL explorer ordering (per-folder float AND the root's
@@ -373,6 +376,12 @@ export class ExplorerDecorator {
 			c.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((cc) =>
 				this.applyFolderStyles(cc)
 			);
+			// Item 1 — force a style-flush after re-stamping all attributes so the
+			// browser repaints the new border-radius immediately (e.g. when rounded
+			// mode toggles).  Reading offsetHeight is a minimal forced reflow; it
+			// costs one layout pass per container but runs only after a full
+			// decoration pass, never in the hot scroll/mutation path.
+			void c.offsetHeight; // eslint-disable-line @typescript-eslint/no-unused-expressions
 		}
 	}
 
@@ -526,7 +535,7 @@ export class ExplorerDecorator {
 			// Strip a legacy `NN-` token for ROLE matching only — no styling or
 			// attribute is keyed on the prefix itself anymore.
 			const bare = name.replace(/^\d{2,}[ _-]+/, "").toLowerCase();
-			isSink = this.sinkSet.has(bare);
+			isSink = this.sinkTerms.some((term) => bare.includes(term));
 			this.setAttr(el, "data-nkui-sink", isSink ? "" : null);
 			const wrapper = el.closest<HTMLElement>(".nav-folder");
 			if (wrapper) this.setAttr(wrapper, "data-nkui-sink", isSink ? "" : null);
@@ -568,6 +577,17 @@ export class ExplorerDecorator {
 			if (fcolor) el.style.setProperty("--nkui-folder-color", fcolor);
 			else el.style.removeProperty("--nkui-folder-color");
 
+			// (f) session host — a subfolder whose bare name is "sessions" (the kit's
+			// canonical containing-folder for session notes).  Stamped so the lead
+			// stylesheet can give it and its children the same size/indent as other
+			// entries instead of the smaller "typed subfolder" treatment.
+			const isSessionHost =
+				!path.includes("/")
+					? false
+					: bare === "sessions" ||
+					  (bare.endsWith("s") && bare.slice(0, -1) === "session");
+			this.setAttr(el, "data-nkui-session-host", isSessionHost ? "" : null);
+
 			// Recycled-row hygiene: the explorer reuses elements while scrolling,
 			// so a folder title can surface still carrying a previous FILE row's
 			// marks — clear everything a folder never owns, so stale decoration
@@ -582,6 +602,7 @@ export class ExplorerDecorator {
 					"data-nkui-cover",
 					"data-nkui-weight",
 					"data-nkui-nonmd",
+					"data-nkui-session-child",
 				]) {
 					el.removeAttribute(a);
 				}
@@ -636,6 +657,7 @@ export class ExplorerDecorator {
 			if (recycled) {
 				this.setAttr(el, "data-nkui-folder-type", null);
 				el.removeAttribute("data-nkui-role");
+				el.removeAttribute("data-nkui-session-host");
 				el.style.removeProperty("--nkui-folder-color");
 				el.querySelector(".nkui-inbox-count")?.remove();
 				if (!isQueue) {
@@ -668,6 +690,18 @@ export class ExplorerDecorator {
 			// attribute stays for the stylesheet. Uses the raw type, colour or not.
 			const rawType = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
 			this.setAttr(el, "data-nkui-float", rawType && this.floatSet.has(rawType) ? "true" : null);
+
+			// (f2) session child — a file directly inside a sessions-host folder
+			// inherits the unification look (same size/indent as any other entry).
+			// Derive the parent folder path and check for a session-host marker.
+			const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+			const parentBare = parentPath.includes("/")
+				? parentPath.split("/").pop()?.replace(/^\d{2,}[ _-]+/, "").toLowerCase() ?? ""
+				: parentPath.replace(/^\d{2,}[ _-]+/, "").toLowerCase();
+			const isSessionChild =
+				parentBare === "sessions" ||
+				(parentBare.endsWith("s") && parentBare.slice(0, -1) === "session");
+			this.setAttr(el, "data-nkui-session-child", isSessionChild ? "" : null);
 
 			// (e3) cover note — BOTH conventions: a 00-/01- structural prefix (the
 			// legacy numeric scheme) and the folder-note (basename equals its folder's
@@ -1116,6 +1150,8 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-empty");
 				el.removeAttribute("data-nkui-nonmd");
 				el.removeAttribute("data-nkui-weight");
+				el.removeAttribute("data-nkui-session-host");
+				el.removeAttribute("data-nkui-session-child");
 				el.style.removeProperty("--nkui-weight-heat");
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"

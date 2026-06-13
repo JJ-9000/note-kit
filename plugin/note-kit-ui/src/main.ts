@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { MarkdownPostProcessorContext, MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { DEFAULT_SETTINGS, NoteKitUiSettings, NoteKitUiSettingTab, TypeStyle } from "./settings";
 import { buildDynamicCss } from "./css";
 import { ExplorerDecorator } from "./decorator";
@@ -125,6 +125,13 @@ export default class NoteKitUiPlugin extends Plugin {
 			callback: () => void this.openQueueView(this.settings.machineQueuePath),
 		});
 
+		// Reviewed header — a fixed header row surfacing the `reviewed` frontmatter
+		// property at the top of every note in reading view (§ Y item 9). Runs in the
+		// post-processor so it composes with Obsidian's own rendering without touching
+		// the file. Fires on every section render; the first section within the sizer
+		// injects the header once, subsequent sections no-op.
+		this.registerMarkdownPostProcessor((el, ctx) => this.injectReviewedHeader(el, ctx));
+
 		this.addSettingTab(new NoteKitUiSettingTab(this.app, this));
 
 		// Register the For You view as a hover-link source so a right-click (desktop)
@@ -165,6 +172,9 @@ export default class NoteKitUiPlugin extends Plugin {
 				// clean view (the command alone wasn't discoverable).
 				this.maybeAddCleanViewAction(file);
 				this.restoreViewMode(file);
+				// Note-open flash — a type-coloured overlay wipes the black-tab gap
+				// that appears before a file renders (§ V contract, § Y item 5).
+				this.injectFlash(file);
 			})
 		);
 
@@ -242,6 +252,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-large-mouths", this.settings.largeMouths);
 		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
 		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
+		// Re-apply the persisted animation-speed multiplier on load (§ Z slider
+		// writes it live; without this it stays at the stylesheet default until
+		// the slider is next moved).
+		document.body.style.setProperty("--nkui-speed-user", String(this.settings.animSpeed));
 		this.applyMinimalExit();
 	}
 
@@ -712,6 +726,83 @@ export default class NoteKitUiPlugin extends Plugin {
 		const root = leaf.getRoot();
 		if (Platform.isMobile) return root !== ws.rootSplit;
 		return root === ws.leftSplit || root === ws.rightSplit;
+	}
+
+	/** Note-open flash overlay (§ V contract / § Y item 5): a type-coloured overlay
+	 * child of the active leaf's container fades out as the note renders, replacing
+	 * the black gap that appeared before the content loaded. Only fires for main-area
+	 * markdown leaves (sidebar queue/nowView leaves get their own background); no-op
+	 * when animations are off or the file has no mapped type colour. */
+	private injectFlash(file: TFile | null): void {
+		if (!this.settings.animations) return;
+		if (!file) return;
+		const leaf = this.app.workspace.activeLeaf;
+		if (!leaf) return;
+		// Only the main tab area — sidebar leaves already have their background.
+		if (leaf.getRoot() !== this.app.workspace.rootSplit) return;
+		// Only markdown views — custom views (queue, now) own their own background.
+		if (leaf.view?.getViewType() !== "markdown") return;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const typeVal = fm?.[this.settings.typeField];
+		if (!typeVal) return;
+		const color = this.typeStyles().find((t) => t.type === String(typeVal))?.color;
+		if (!color) return;
+		const container = leaf.view.containerEl;
+		// Remove any lingering flash from a prior open (a very fast tab-switch).
+		container.querySelectorAll(".nkui-flash").forEach((el) => el.remove());
+		const flash = container.createDiv("nkui-flash");
+		flash.style.setProperty("--nkui-type-color", color);
+		// Add is-fading on the next frame so the transition has a starting state.
+		window.requestAnimationFrame(() => {
+			flash.addClass("is-fading");
+			// Fallback removal: parse --nkui-flash from the computed style; default 220ms.
+			const raw = getComputedStyle(document.documentElement).getPropertyValue("--nkui-flash").trim();
+			const ms = parseFloat(raw) || 220;
+			flash.addEventListener("transitionend", () => flash.remove(), { once: true });
+			window.setTimeout(() => flash.remove(), ms + 50);
+		});
+	}
+
+	/** Reviewed header post-processor (§ Y item 9): inject a fixed header row at
+	 * the top of the reading view for any note that has a `reviewed` frontmatter
+	 * field. Fires on every section render; the first section (no prior header
+	 * in the sizer) injects the row once. Subsequent sections no-op.
+	 * Toggling goes through Obsidian's own processFrontMatter (the existing
+	 * reviewed-toggle path — no custom file writer). */
+	private injectReviewedHeader(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
+		// Walk up to the preview sizer — the stable container that persists across
+		// section re-renders. The sizer is the direct parent of every section el.
+		const sizer = el.parentElement;
+		if (!sizer) return;
+		// Only inject once per full render (idempotent on repeated section calls).
+		if (sizer.querySelector(".nkui-reviewed-header")) return;
+		const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+		if (!(file instanceof TFile)) return;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		// Only notes that carry the reviewed field get the header.
+		if (!fm || !(this.settings.reviewedField in fm)) return;
+		const reviewed = fm[this.settings.reviewedField] === true || fm[this.settings.reviewedField] === "true";
+		const header = createDiv("nkui-reviewed-header");
+		header.setAttr("data-reviewed", reviewed ? "true" : "false");
+		// A <label> wraps both checkbox and text: clicking either toggles the box.
+		const lbl = header.createEl("label", { cls: "nkui-reviewed-label" });
+		const cb = lbl.createEl("input", {
+			cls: "nkui-reviewed-checkbox",
+			attr: { type: "checkbox" },
+		});
+		cb.checked = reviewed;
+		lbl.createSpan({ cls: "nkui-reviewed-text", text: reviewed ? "reviewed" : "unreviewed" });
+		cb.addEventListener("change", () => {
+			void this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+				frontmatter[this.settings.reviewedField] = cb.checked;
+			});
+			// Update header state attribute and label text immediately.
+			header.setAttr("data-reviewed", cb.checked ? "true" : "false");
+			const text = lbl.querySelector(".nkui-reviewed-text");
+			if (text) text.textContent = cb.checked ? "reviewed" : "unreviewed";
+		});
+		// Prepend so it anchors to the top of the sizer regardless of note content.
+		sizer.prepend(header);
 	}
 
 	async saveSettings(): Promise<void> {

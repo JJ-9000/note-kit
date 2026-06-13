@@ -301,18 +301,16 @@ export class NowView extends ItemView {
 		const head = c.createDiv("nkui-now-head");
 		const tb = head.createDiv("nkui-now-titleblock");
 		tb.createDiv({ cls: "nkui-now-title", text: formatToday() });
-		tb.createDiv({
-			cls: "nkui-now-subtitle",
-			// "To review" counts only what still needs you; the waiting segment
-			// counts what you settled and an agent still owes (approved sets
-			// awaiting filing + resolved decisions awaiting execution).
-			text: summary(
-				needs.length,
-				active.length,
-				openDecisions.length,
-				waiting.length + resolvedDecisions.length
-			),
-		});
+		// Build the subtitle as DOM so each segment can carry twin spans for the
+		// container-query shortening (item W3). Plain-text segments stay as text
+		// nodes; count segments wrap their label in nkui-twin-long / nkui-twin-short.
+		renderSubtitle(
+			tb,
+			needs.length,
+			active.length,
+			openDecisions.length,
+			waiting.length + resolvedDecisions.length
+		);
 		const refresh = head.createEl("button", { cls: "clickable-icon nkui-now-refresh" });
 		setIcon(refresh, "refresh-cw");
 		refresh.setAttr("aria-label", "Refresh");
@@ -390,9 +388,6 @@ export class NowView extends ItemView {
 			);
 		}
 
-		// Version footer — a quiet build stamp below the last section.
-		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
-
 		this.squareHeadPills();
 		// The view's FIRST render runs before its bands have laid out (height 0
 		// or pre-font metrics), so the pass above measures nothing useful and
@@ -412,6 +407,10 @@ export class NowView extends ItemView {
 		if (document.fonts && document.fonts.status !== "loaded") {
 			void document.fonts.ready.then(() => this.onResize());
 		}
+
+		// Version footer — appended LAST so it anchors to the bottom of the pane
+		// content rather than sitting directly under the final section (W1).
+		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
 	}
 
 	/** Square the section-head count pills, measured — not guessed in CSS. The
@@ -907,7 +906,11 @@ export class NowView extends ItemView {
 		const gh = bucket.createDiv("nkui-now-group-head");
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");
-		const cnt = gh.createSpan({ cls: "nkui-now-count", text: String(count) });
+		const cnt = gh.createSpan({ cls: "nkui-now-count" });
+		// Inner span wraps the digit so CSS transform: scale() can animate the
+		// glyph (count-change pop) while squareHeadPills measures the UNSCALED
+		// outer box — the outer pill must NEVER carry a transform (W2 wobble fix).
+		cnt.createSpan({ cls: "nkui-now-count-digit", text: String(count) });
 		// Seed the square from the last measured side, so the FIRST paint is
 		// already square (no skinny-pill pop); squareHeadPills re-measures and
 		// corrects if the head band changed.
@@ -1958,14 +1961,20 @@ export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => v
 	const submitBtn = add.createEl("button", { cls: "nkui-now-qaddsubmit" });
 	setIcon(submitBtn, "plus");
 	submitBtn.setAttr("aria-label", "Add task");
-	submitBtn.addEventListener("click", (ev) => {
+	// preventDefault on pointerdown stops the tap stealing focus from the input
+	// (and, on some mobile webviews, suppresses the click — the attachHold
+	// lesson), so on mobile the submit must ride pointerup; desktop keeps click.
+	submitBtn.addEventListener("pointerdown", (ev) => ev.preventDefault());
+	const fireSubmit = (ev: Event): void => {
 		ev.preventDefault();
 		submit();
 		// Desktop keeps focus for the next task; mobile blurs so the iOS
 		// keyboard retracts once the task is in.
 		if (Platform.isMobile) input.blur();
 		else input.focus();
-	});
+	};
+	if (Platform.isMobile) submitBtn.addEventListener("pointerup", fireSubmit);
+	else submitBtn.addEventListener("click", fireSubmit);
 	input.addEventListener("input", () => autoGrow(input));
 	input.addEventListener("keydown", (ev) => {
 		if (ev.key === "Enter" && !ev.shiftKey) {
@@ -1973,23 +1982,9 @@ export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => v
 			submit();
 		}
 	});
-	// Mobile-only "done" — blurs the field so the soft keyboard retracts (the
-	// return key inserts a newline here, so nothing else dismisses it). The
-	// stylesheet shows it only while the box has focus.
-	if (Platform.isMobile) {
-		const done = add.createEl("button", { cls: "nkui-now-qadddone" });
-		setIcon(done, "check");
-		done.setAttr("aria-label", "Done — dismiss the keyboard");
-		// preventDefault on pointerdown keeps the tap from moving focus to the
-		// button first — and suppresses the click on some mobile platforms (the
-		// attachHold lesson), so the blur rides pointerup, not click.
-		done.addEventListener("pointerdown", (ev) => ev.preventDefault());
-		done.addEventListener("pointerup", (ev) => {
-			ev.preventDefault();
-			const ae = document.activeElement;
-			if (ae instanceof HTMLElement) ae.blur();
-		});
-	}
+	// (The mobile "done" checkmark was removed per user request — redundant now
+	// that the + button blurs the input on submit on mobile, which dismisses the
+	// soft keyboard. The .nkui-now-qadddone CSS is now dead — sweep in § DD.)
 	return input;
 }
 
@@ -2088,14 +2083,44 @@ function pluralLabel(key: string, n: number): string {
 	return /(?:[sxz]|ch|sh)$/.test(key) ? `${key}es` : `${key}s`;
 }
 
-/** Secondary title line — a quiet status summary. Zero segments are omitted. */
-function summary(review: number, active: number, decide: number, waiting: number): string {
-	const parts: string[] = [];
-	if (decide > 0) parts.push(`${decide} to decide`);
-	if (review > 0) parts.push(`${review} to review`);
-	if (active > 0) parts.push(`${active} active`);
-	if (waiting > 0) parts.push(`${waiting} waiting for agent`);
-	return parts.length ? parts.join("  ·  ") : "All clear";
+/** Build the subtitle DOM with twin-span labels so the container query can
+ * shorten them on narrow panes (item W3). Each count segment wraps its label
+ * in nkui-twin-long / nkui-twin-short pairs; the dot separators are plain text
+ * nodes so they inherit the surrounding style. */
+function renderSubtitle(
+	parent: HTMLElement,
+	review: number,
+	active: number,
+	decide: number,
+	waiting: number
+): void {
+	const sub = parent.createDiv("nkui-now-subtitle");
+	// Collect segments (decide first, then review, active, waiting — matching the
+	// old summary() order: most urgent to least). Zero-count segments are omitted.
+	const segments: Array<{ count: number; long: string; short: string }> = [];
+	if (decide > 0) segments.push({ count: decide, long: "to decide", short: "" });
+	if (review > 0) segments.push({ count: review, long: "to review", short: "" });
+	if (active > 0) segments.push({ count: active, long: "active", short: "" });
+	if (waiting > 0)
+		segments.push({ count: waiting, long: "waiting for agent", short: "waiting" });
+
+	if (!segments.length) {
+		sub.appendText("All clear");
+		return;
+	}
+	segments.forEach((seg, i) => {
+		if (i > 0) sub.appendText("  ·  ");
+		// The count digit is plain text — no twin needed; only the label varies.
+		sub.appendText(`${seg.count} `);
+		if (seg.short) {
+			// Responsive label: long text on wide panes, short on narrow.
+			sub.createSpan({ cls: "nkui-twin-long", text: seg.long });
+			sub.createSpan({ cls: "nkui-twin-short", text: seg.short });
+		} else {
+			// Single-form label — no shortening needed.
+			sub.appendText(seg.long);
+		}
+	});
 }
 
 /** Compact relative age, news-feed style: just now / 5m / 3h / 2d / 3w / 4mo / 1y.

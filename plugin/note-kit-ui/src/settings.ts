@@ -25,7 +25,8 @@ export interface NoteKitUiSettings {
 	animations: boolean; // enable the view's animations (fold grow/shrink, hold fills, check pulse)
 
 	/** Folders that render small and dim with all their contents — cold storage
-	 * (the decorator marks them; the static stylesheet carries the look). */
+	 * (the decorator marks them; the static stylesheet carries the look).
+	 * Matches any folder whose name CONTAINS any entry (case-insensitive). */
 	sinkFolders: string[];
 	/** Files carrying a `weight` frontmatter value sort and tint heaviest-first
 	 * among their siblings. */
@@ -91,6 +92,10 @@ export interface NoteKitUiSettings {
 	 * explainer text — leaving the notes (body class nkui-minimal). The settings
 	 * path stays visible, so the mode is always exitable. */
 	minimalistMode: boolean;
+	/** Animation speed multiplier. The live CSS token --nkui-speed-user divides
+	 * animation durations by this value (default 1.0; higher = faster). Range
+	 * 0.5–2.0. Persisted and re-applied on load. */
+	animSpeed: number;
 }
 
 /** Defaults seeded from the kit's CONFIG vocabulary (types, inbox path). */
@@ -171,6 +176,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// tried it on, then settled back to sharp; current-settings sync 2026-06-12).
 	roundedCorners: false,
 	minimalistMode: false,
+	// 1.0 = real-time (default); the CSS token --nkui-speed-user divides durations.
+	animSpeed: 1.0,
 };
 
 /** Sanitize a type value into a CSS class suffix. Shared by css + noteClass. */
@@ -235,7 +242,99 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.setHeading();
 		header.descEl.addClass("nkui-settings-version");
 
-		// ── Essentials — the controls a user actually reaches for ────────────
+		// ── Essentials ─────────────────────────────────────────────────────────
+		// Most-reached controls first: hold, corners, minimalist, large mouths,
+		// vertical alignment, animation speed.
+		new Setting(containerEl).setName("Essentials").setHeading();
+
+		new Setting(containerEl)
+			.setName("Hold duration")
+			.setDesc("How long a press-and-hold (approve, undo) takes to commit, in milliseconds.")
+			.addSlider((sl) =>
+				sl
+					.setLimits(150, 800, 10)
+					.setValue(s.holdMs)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						s.holdMs = v;
+						await save();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Rounded corners")
+			.setDesc(
+				"Round the kit's corners — pills, badges, washes, buttons — to match iOS and native menus. Off keeps the kit's sharp default."
+			)
+			.addToggle((t) =>
+				t.setValue(s.roundedCorners).onChange(async (v) => {
+					s.roundedCorners = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Minimalist mode")
+			.setDesc(
+				"Hide the app chrome — tab bar, ribbons, nav buttons, version stamps, explainer text — leaving the notes. The settings gear stays, so this screen is always reachable to exit."
+			)
+			.addToggle((t) =>
+				t.setValue(s.minimalistMode).onChange(async (v) => {
+					s.minimalistMode = v;
+					await save();
+					if (v) new Notice("Minimalist mode on — Settings → Note-Kit UI to exit");
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Large inbox/outbox rows")
+			.setDesc(
+				"Render the inbox and outbox — the working mouths where draft and queue types flow — as larger explorer rows, so the folders you act on lead the eye."
+			)
+			.addToggle((t) =>
+				t.setValue(s.largeMouths).onChange(async (v) => {
+					s.largeMouths = v;
+					document.body.classList.toggle("nkui-large-mouths", v);
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Vertical alignment")
+			.setDesc(
+				"Shift the For You page's centred position, as a percent-ish share of the screen height — negative sits the content higher, positive lower. 0 is true centre. Also governs inbox and queue view vertical placement."
+			)
+			.addSlider((sl) =>
+				sl
+					.setLimits(-50, 50, 1)
+					.setValue(s.nowVerticalBias)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						s.nowVerticalBias = v;
+						await save();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Animation speed")
+			.setDesc(
+				"Multiply the speed of all kit animations (fold, hold fills, check pulse). 1× is real-time; 2× is twice as fast; 0.5× is half speed."
+			)
+			.addSlider((sl) =>
+				sl
+					.setLimits(0.5, 2.0, 0.1)
+					.setValue(s.animSpeed)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						s.animSpeed = v;
+						document.body.style.setProperty("--nkui-speed-user", String(v));
+						await save();
+					})
+			);
+
+		// ── Kit CONFIG sync ────────────────────────────────────────────────────
+		new Setting(containerEl).setName("Kit sync").setHeading();
+
 		const kitSync = new Setting(containerEl)
 			.setName("Follow the kit's CONFIG.md")
 			.setDesc(
@@ -265,6 +364,9 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					})
 			);
 		}
+
+		// ── Visual controls ────────────────────────────────────────────────────
+		new Setting(containerEl).setName("Visual").setHeading();
 
 		new Setting(containerEl)
 			.setName("Theme palette")
@@ -299,163 +401,6 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.calmReading).onChange(async (v) => {
 					s.calmReading = v;
-					await save();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Rounded corners")
-			.setDesc(
-				"Round the kit's corners — pills, badges, washes, buttons — to match iOS and native menus. Off keeps the kit's sharp default."
-			)
-			.addToggle((t) =>
-				t.setValue(s.roundedCorners).onChange(async (v) => {
-					s.roundedCorners = v;
-					await save();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Minimalist mode")
-			.setDesc(
-				"Hide the app chrome — tab bar, ribbons, nav buttons, version stamps, explainer text — leaving the notes. The settings gear stays, so this screen is always reachable to exit."
-			)
-			.addToggle((t) =>
-				t.setValue(s.minimalistMode).onChange(async (v) => {
-					s.minimalistMode = v;
-					await save();
-					if (v) new Notice("Minimalist mode on — Settings → Note-Kit UI to exit");
-				})
-			);
-
-		// ── For You view ──────────────────────────────────────────────────────
-		new Setting(containerEl).setName("For You").setHeading();
-
-		new Setting(containerEl)
-			.setName("Open on startup")
-			.setDesc("Open the For You front page automatically when this vault loads.")
-			.addToggle((t) =>
-				t.setValue(s.nowOpenOnStartup).onChange(async (v) => {
-					s.nowOpenOnStartup = v;
-					await save();
-				})
-			);
-		new Setting(containerEl)
-			.setName("New tab opens For You")
-			.setDesc("Turn a new empty tab (Ctrl/Cmd-T or +) into the For You page — a Home button.")
-			.addToggle((t) =>
-				t.setValue(s.nowReplaceNewTab).onChange(async (v) => {
-					s.nowReplaceNewTab = v;
-					await save();
-				})
-			);
-		new Setting(containerEl)
-			.setName("Allow sidebar views")
-			.setDesc(
-				"Allow the plugin's views in the side docks. The panes behave like normal Obsidian panes: place For You or a queue wherever you like (the Open … commands) and your arrangement stands. Off removes the plugin's views from the sidebars."
-			)
-			.addToggle((t) =>
-				t.setValue(s.sidebarNow).onChange(async (v) => {
-					s.sidebarNow = v;
-					await save();
-				})
-			);
-		new Setting(containerEl)
-			.setName("Vertical placement")
-			.setDesc(
-				"Shift the For You page's centred position, as a percent-ish share of the screen height — negative sits the content higher, positive lower. 0 is true centre."
-			)
-			.addSlider((sl) =>
-				sl
-					.setLimits(-50, 50, 1)
-					.setValue(s.nowVerticalBias)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						s.nowVerticalBias = v;
-						await save();
-					})
-			);
-		new Setting(containerEl)
-			.setName("Clean queue view")
-			.setDesc("Open queue files in the clean queue view.")
-			.addToggle((t) =>
-				t.setValue(s.queueCleanView).onChange(async (v) => {
-					s.queueCleanView = v;
-					await save();
-				})
-			);
-		new Setting(containerEl)
-			.setName("Hold duration")
-			.setDesc("How long a press-and-hold (approve, undo) takes to commit, in milliseconds.")
-			.addSlider((sl) =>
-				sl
-					.setLimits(150, 800, 10)
-					.setValue(s.holdMs)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						s.holdMs = v;
-						await save();
-					})
-			);
-		const forYouAdv = advancedGroup(containerEl, "Advanced — For You sources");
-		new Setting(forYouAdv)
-			.setName("Active types")
-			.setDesc("Comma-separated note types treated as active work in the Active section.")
-			.addText((t) =>
-				t.setValue(s.nowActiveTypes.join(", ")).onChange(async (v) => {
-					s.nowActiveTypes = v
-						.split(",")
-						.map((x) => x.trim())
-						.filter(Boolean);
-					await save();
-				})
-			);
-		kitFact(forYouAdv, "Queue folders", s.nowQueueFolders.join(", "), () => {
-			new Setting(forYouAdv)
-				.setName("Queue folders")
-				.setDesc("One folder path per line. Items here join the Needs-you section.")
-				.addTextArea((ta) => {
-					ta.setValue(s.nowQueueFolders.join("\n")).onChange(async (v) => {
-						s.nowQueueFolders = v
-							.split("\n")
-							.map((l) => l.trim())
-							.filter(Boolean);
-						await save();
-					});
-					ta.inputEl.rows = 2;
-					ta.inputEl.style.width = "100%";
-				});
-		});
-		kitFact(forYouAdv, "User queue", s.userQueuePath, () => {
-			new Setting(forYouAdv)
-				.setName("User queue")
-				.setDesc("Path to the AI→you checklist; its open items appear in the Decide bucket.")
-				.addText((t) =>
-					t.setValue(s.userQueuePath).onChange(async (v) => {
-						s.userQueuePath = v.trim();
-						await save();
-					})
-				);
-		});
-		kitFact(forYouAdv, "Machine queue", s.machineQueuePath, () => {
-			new Setting(forYouAdv)
-				.setName("Machine queue")
-				.setDesc("Path to the you→AI checklist; open items appear in the Queue bucket, which can add to it.")
-				.addText((t) =>
-					t.setValue(s.machineQueuePath).onChange(async (v) => {
-						s.machineQueuePath = v.trim();
-						await save();
-					})
-				);
-		});
-		new Setting(forYouAdv)
-			.setName("Animations")
-			.setDesc(
-				"Animate the For You view — section grow/shrink on fold, the press-and-hold fills, and a pulse when a queue item is checked or submitted."
-			)
-			.addToggle((t) =>
-				t.setValue(s.animations).onChange(async (v) => {
-					s.animations = v;
 					await save();
 				})
 			);
@@ -543,6 +488,9 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				.addText((t) => {
 					t.setPlaceholder("type name");
 					addTypeInput = t;
+					// Keep the text input from overflowing the pane
+					t.inputEl.style.flex = "1 1 0";
+					t.inputEl.style.minWidth = "0";
 				})
 				.addButton((b) =>
 					b.setButtonText("Add").onClick(async () => {
@@ -565,6 +513,9 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				})
 			);
 
+		// ── List ordering ─────────────────────────────────────────────────────
+		new Setting(containerEl).setName("List ordering").setHeading();
+
 		new Setting(containerEl)
 			.setName("Float types to top")
 			.setDesc(
@@ -582,7 +533,9 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Sink folders")
-			.setDesc("Folders that render small and dim with all their contents — cold storage.")
+			.setDesc(
+				"Folders that render small and dim with all their contents — cold storage. Matches any folder whose name contains any of these words (comma-separated, case-insensitive)."
+			)
 			.addText((t) =>
 				t.setValue(s.sinkFolders.join(", ")).onChange(async (v) => {
 					s.sinkFolders = v
@@ -603,18 +556,112 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 				})
 			);
 
+		// ── For You view ──────────────────────────────────────────────────────
+		new Setting(containerEl).setName("For You").setHeading();
+
 		new Setting(containerEl)
-			.setName("Large inbox/outbox rows")
+			.setName("Open on startup")
+			.setDesc("Open the For You front page automatically when this vault loads.")
+			.addToggle((t) =>
+				t.setValue(s.nowOpenOnStartup).onChange(async (v) => {
+					s.nowOpenOnStartup = v;
+					await save();
+				})
+			);
+		new Setting(containerEl)
+			.setName("New tab opens For You")
+			.setDesc("Turn a new empty tab (Ctrl/Cmd-T or +) into the For You page — a Home button.")
+			.addToggle((t) =>
+				t.setValue(s.nowReplaceNewTab).onChange(async (v) => {
+					s.nowReplaceNewTab = v;
+					await save();
+				})
+			);
+		new Setting(containerEl)
+			.setName("Allow sidebar views")
 			.setDesc(
-				"Render the inbox and outbox — the working mouths where draft and queue types flow — as larger explorer rows, so the folders you act on lead the eye."
+				"Allow the plugin's views in the side docks. The panes behave like normal Obsidian panes: place For You or a queue wherever you like (the Open … commands) and your arrangement stands. Off removes the plugin's views from the sidebars."
 			)
 			.addToggle((t) =>
-				t.setValue(s.largeMouths).onChange(async (v) => {
-					s.largeMouths = v;
+				t.setValue(s.sidebarNow).onChange(async (v) => {
+					s.sidebarNow = v;
+					await save();
+				})
+			);
+		new Setting(containerEl)
+			.setName("Clean queue view")
+			.setDesc("Open queue files in the clean queue view.")
+			.addToggle((t) =>
+				t.setValue(s.queueCleanView).onChange(async (v) => {
+					s.queueCleanView = v;
 					await save();
 				})
 			);
 
+		const forYouAdv = advancedGroup(containerEl, "Advanced — For You sources");
+		new Setting(forYouAdv)
+			.setName("Active types")
+			.setDesc("Comma-separated note types treated as active work in the Active section.")
+			.addText((t) =>
+				t.setValue(s.nowActiveTypes.join(", ")).onChange(async (v) => {
+					s.nowActiveTypes = v
+						.split(",")
+						.map((x) => x.trim())
+						.filter(Boolean);
+					await save();
+				})
+			);
+		kitFact(forYouAdv, "Queue folders", s.nowQueueFolders.join(", "), () => {
+			new Setting(forYouAdv)
+				.setName("Queue folders")
+				.setDesc("One folder path per line. Items here join the Needs-you section.")
+				.addTextArea((ta) => {
+					ta.setValue(s.nowQueueFolders.join("\n")).onChange(async (v) => {
+						s.nowQueueFolders = v
+							.split("\n")
+							.map((l) => l.trim())
+							.filter(Boolean);
+						await save();
+					});
+					ta.inputEl.rows = 2;
+					ta.inputEl.style.width = "100%";
+				});
+		});
+		kitFact(forYouAdv, "User queue", s.userQueuePath, () => {
+			new Setting(forYouAdv)
+				.setName("User queue")
+				.setDesc("Path to the AI→you checklist; its open items appear in the Decide bucket.")
+				.addText((t) =>
+					t.setValue(s.userQueuePath).onChange(async (v) => {
+						s.userQueuePath = v.trim();
+						await save();
+					})
+				);
+		});
+		kitFact(forYouAdv, "Machine queue", s.machineQueuePath, () => {
+			new Setting(forYouAdv)
+				.setName("Machine queue")
+				.setDesc("Path to the you→AI checklist; open items appear in the Queue bucket, which can add to it.")
+				.addText((t) =>
+					t.setValue(s.machineQueuePath).onChange(async (v) => {
+						s.machineQueuePath = v.trim();
+						await save();
+					})
+				);
+		});
+		new Setting(forYouAdv)
+			.setName("Animations")
+			.setDesc(
+				"Animate the For You view — section grow/shrink on fold, the press-and-hold fills, and a pulse when a queue item is checked or submitted."
+			)
+			.addToggle((t) =>
+				t.setValue(s.animations).onChange(async (v) => {
+					s.animations = v;
+					await save();
+				})
+			);
+
+		// ── Advanced — explorer & note options ────────────────────────────────
 		const explorerAdv = advancedGroup(containerEl, "Advanced — explorer & note options");
 		new Setting(explorerAdv)
 			.setName("Accent the open note")

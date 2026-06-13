@@ -10,7 +10,6 @@ import {
 	plainText,
 	renderAddTaskBox,
 	renderMachineItemRow,
-	renderReducedRow,
 } from "./nowView";
 import * as queueWrites from "./queueWrites";
 import { CHECKBOX_RE } from "./queueWrites";
@@ -47,11 +46,8 @@ export class QueueView extends ItemView {
 	/** The add-task box (machine mode) — re-focused after an add re-render. */
 	private addInput: HTMLTextAreaElement | null = null;
 	private scheduleRender: () => void;
-	/** Mobile sidebar gate: while true the rendered queue sits behind an
-	 * "are you sure?" hold-to-unlock scrim (a swipe-left opens the drawer with
-	 * the finger already over the content — a write surface must not take that
-	 * landing as a tap). Re-armed by main.ts on each drawer open. */
-	private sideLocked = false;
+	// sideLocked / hold-to-unlock scrim removed (§ Y item 6 — "no gate").
+	// The whole-row holds on each item already guard against stray taps.
 
 	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
 		super(leaf);
@@ -99,9 +95,6 @@ export class QueueView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
-		// A sidebar-hosted queue on mobile starts locked — the first reveal is a
-		// swipe, and the gate must already be up for it.
-		if (Platform.isMobile && this.isSideLeaf()) this.sideLocked = true;
 		// React to the queue file changing under us (an agent pass, a sync).
 		this.registerEvent(
 			this.app.vault.on("modify", (f) => {
@@ -152,37 +145,6 @@ export class QueueView extends ItemView {
 	 * where drawers can report a different root). */
 	private isSideLeaf(): boolean {
 		return this.plugin.inSidebar(this.leaf);
-	}
-
-	/** Re-arm the sidebar unlock gate — called by main.ts when the right drawer
-	 * flips open (the swipe), and a no-op everywhere else. */
-	lockForReveal(): void {
-		if (!Platform.isMobile || !this.isSideLeaf() || this.sideLocked) return;
-		this.sideLocked = true;
-		this.renderLockOverlay(this.contentEl);
-	}
-
-	/** The "are you sure?" scrim over a sidebar-hosted queue: every interaction
-	 * waits behind a press-and-hold (the kit's shared commit gesture), so the
-	 * swipe that opened the drawer can't fall through onto a live control. */
-	private renderLockOverlay(c: HTMLElement): void {
-		if (c.querySelector(".nkui-queue-lock")) return;
-		const scrim = c.createDiv("nkui-queue-lock");
-		scrim.createDiv({ cls: "nkui-queue-lock-title", text: "Are you sure?" });
-		scrim.createDiv({
-			cls: "nkui-queue-lock-text",
-			text: "This queue writes for the agents — unlock it to interact.",
-		});
-		const btn = scrim.createEl("button", { cls: "nkui-queue-lock-btn", text: "hold to unlock" });
-		const hint = "Hold to unlock the queue";
-		btn.setAttr("aria-label", hint);
-		btn.setAttr("title", hint);
-		attachHold(btn, {
-			onCommit: () => {
-				this.sideLocked = false;
-				scrim.remove();
-			},
-		});
 	}
 
 	private async reloadAndRender(): Promise<void> {
@@ -259,8 +221,6 @@ export class QueueView extends ItemView {
 		const list = c.createDiv("nkui-now-list");
 		if (user) this.renderDecisions(list);
 		else this.renderChecklist(list);
-		// The mobile sidebar gate survives re-renders until its hold commits.
-		if (this.sideLocked) this.renderLockOverlay(c);
 	}
 
 	/** Switch this leaf to the normal markdown view for the file. The path joins
@@ -452,24 +412,32 @@ export class QueueView extends ItemView {
 		}
 	}
 
-	/** A resolved decision lingers as the shared reduced row; unchecking re-opens it. */
+	/** A resolved decision lingers as a struck reduced row; the checkbox OR a
+	 * whole-row hold re-opens it (§ Y item 1 — the whole-row hold replaced the
+	 * old tap path, so we expose both affordances: the familiar checkbox remains,
+	 * and the hold gesture mirrors every other queue row). attachHold exempts
+	 * interactive children (checkboxes), so both paths remain live. */
 	private renderResolvedDecision(list: HTMLElement, d: Decision): void {
 		const picked = d.options.find((o) => o.state === "x" || o.state === "X");
 		if (!picked) return;
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
-		renderReducedRow(list, {
-			title: label,
-			note: "awaiting action agent",
-			struck: true,
-			checkbox: {
-				checked: true,
-				onChange: async () => {
-					await this.setChecked(picked.text, false);
-					await this.reloadAndRender();
-				},
-			},
-			ariaLabel: "Approved — the agent executes and clears this on its next pass. Uncheck to re-open.",
-		});
+		const restore = async (): Promise<void> => {
+			await this.setChecked(picked.text, false);
+			await this.reloadAndRender();
+		};
+		const aria = "Approved — hold or uncheck to re-open; the agent executes and clears this on its next pass.";
+		const row = list.createDiv("nkui-now-reducedrow nkui-row-hold");
+		row.setAttr("aria-label", aria);
+		row.setAttr("title", aria);
+		row.setAttr("role", "button");
+		row.setAttr("tabindex", "0");
+		const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+		cb.checked = true;
+		cb.addEventListener("change", () => void restore());
+		const main = row.createDiv("nkui-now-reducedmain");
+		main.createSpan({ cls: "nkui-now-reducedtitle is-struck", text: label });
+		main.createSpan({ cls: "nkui-now-fatenote", text: "awaiting action agent" });
+		attachHold(row, { onCommit: restore, keyHold: true });
 	}
 
 	/** Toggle a checkbox by matching its text — robust to the file shifting. */

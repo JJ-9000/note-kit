@@ -3381,3 +3381,77 @@ body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-
 	opacity: 0.55;
 	font-size: 0.7em;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Pass 3 Wave-2 integration (lead) — additive rules for stream-emitted DOM.
+   Behaviour-tuned deltas (close-offer fade, dropdown left-justify, row-width
+   guard, full-pill explorer rows, the folder-expand margin candidate) are HELD
+   for the on-screen pass — applying them blind risks trading one regression for
+   another. See the § DD/§ EE notes in the plan.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* § W — count-pill inner digit. The OUTER .nkui-now-count box is measured by
+   squareHeadPills and must never carry a transform; the digit scales here. */
+.nkui-now-count-digit {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+	transition: transform var(--nkui-grow) var(--nkui-ease);
+}
+
+/* § X — session unification: a "sessions" host folder (data-nkui-session-host)
+   and its file children (data-nkui-session-child) render at standard size and
+   justification (resetting the smaller typed-subfolder step), the folder name
+   alone separating them. */
+.nav-folder-title[data-nkui-session-host],
+.nav-folder-title[data-nkui-session-host] .nav-folder-title-content,
+.nav-file-title[data-nkui-session-child],
+.nav-file-title[data-nkui-session-child] .nav-file-title-content {
+	font-size: 1em;
+	opacity: 1;
+}
+
+/* § X — weight + inline tags right-align in the file panel; the unreviewed
+   draft dot clears the badge so the two never overlap. */
+.nav-file-title .nkui-weight-badge {
+	margin-left: auto;
+}
+.nav-file-title[data-nkui-weight][data-nkui-reviewed="false"]::after {
+	margin-left: var(--nkui-gap-s);
+}
+
+/* § X — inbox & queue numbers share one right-edge column. */
+.nav-file-title:has(> .nkui-queue-count) {
+	padding-right: calc(2.6em + var(--size-4-2, 8px));
+}
+
+/* § Y — reviewed-checkbox header row: a fixed top-of-note control (reading
+   view) so the reviewed state sits in the same place in every file. */
+.nkui-reviewed-header {
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s, 6px);
+	padding: var(--nkui-gap-s, 6px) var(--nkui-gap-m, 16px);
+	margin-bottom: var(--nkui-gap-s, 6px);
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+	user-select: none;
+}
+.nkui-reviewed-header[data-reviewed="true"] {
+	color: var(--text-success, var(--color-green));
+}
+.nkui-reviewed-label {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--nkui-gap-s, 6px);
+	cursor: pointer;
+}
+.nkui-reviewed-checkbox {
+	cursor: pointer;
+	accent-color: var(--color-green);
+}
+body.nkui-minimal .nkui-reviewed-header {
+	display: none !important;
+}

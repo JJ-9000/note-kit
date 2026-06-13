@@ -18,23 +18,78 @@
 	   the shared token (sharp default); rounded mode declares the split. */
 	/* ── Motion — every plugin duration in one place, so a timing change is one
 	   edit. JS twins (keep in sync by hand): HOLD_MS in holds.ts pairs with
-	   --nkui-hold; CLOSE_OFFER_MS in holds.ts pairs with --nkui-count. */
+	   --nkui-hold; CLOSE_OFFER_MS in holds.ts pairs with --nkui-count.
+
+	   ONE MOTION SYSTEM. Every animated duration in the plugin resolves through
+	   the four "base" literals below and the single speed MULTIPLIER. A settings
+	   slider will bind to --nkui-speed (default 1.0 = no feel change); a smaller
+	   value runs the whole motion table faster, a larger one slower — every
+	   coordinated pair (a section head's grow with its list unfurl, a row's
+	   highlight with its text move) keeps its relationship because they all
+	   divide the same base by the same multiplier. The shared curve token
+	   --nkui-ease keeps every transition on one easing so nothing eases on its
+	   own clock. --nkui-hold / --nkui-count are NOT scaled by the multiplier:
+	   their JS twins (holds.ts) own the commit timing, so scaling them would
+	   desync the visible fill from the real commit. */
+	/* Global animation-speed multiplier. A settings slider binds to
+	   --nkui-speed-user (default 1.0 = no feel change); --nkui-speed is the live
+	   value the table divides by. They are split so a mode (minimalist) can
+	   COMPOSE its own factor on top of the user's choice without clobbering it
+	   (see body.nkui-minimal). A larger multiplier = faster motion (durations
+	   divide by it). */
+	--nkui-speed-user: 1;
+	--nkui-speed: var(--nkui-speed-user, 1);
+	--nkui-ease: ease; /* shared easing curve — one curve for the whole motion table */
 	--nkui-hold: 303ms; /* press-and-hold commit fill (approve gate / approve all) */
 	--nkui-count: 1517ms; /* close-offer depleting window */
-	--nkui-fade: 120ms; /* hover / opacity micro-fades */
-	--nkui-arm: 100ms; /* arming wash while a hold is in progress */
-	--nkui-settle: 170ms; /* a resolved card softening before re-render */
-	--nkui-grow: 240ms; /* open-head grow — title size, head padding, count pill (slow, deliberate) */
+	/* Base (×1) durations — the shipped feel. The live token each rule reads is
+	   the base divided by the speed multiplier, so default 1.0 reproduces the
+	   shipped values byte-for-byte. */
+	--nkui-fade-base: 120ms; /* hover / opacity micro-fades */
+	--nkui-arm-base: 100ms; /* arming wash while a hold is in progress */
+	--nkui-settle-base: 170ms; /* a resolved card softening before re-render */
+	--nkui-grow-base: 240ms; /* open-head grow — title size, head padding, count pill */
+	--nkui-flash-base: 220ms; /* note-open colour flash fade-out (item 17) */
+	--nkui-fade: calc(var(--nkui-fade-base) / var(--nkui-speed));
+	--nkui-arm: calc(var(--nkui-arm-base) / var(--nkui-speed));
+	--nkui-settle: calc(var(--nkui-settle-base) / var(--nkui-speed));
+	--nkui-grow: calc(var(--nkui-grow-base) / var(--nkui-speed));
+	/* Flash-fade — the colour wash a freshly-opened note's leaf paints while the
+	   tab repaints, fading quickly to replace the black flash (item 17). The
+	   empty-leaf handling (main.ts, later wave) stamps the leaf and reads this. */
+	--nkui-flash: calc(var(--nkui-flash-base) / var(--nkui-speed));
 	/* Unroll/collapse scales with the section's length: the view sets --nkui-rows
 	   (child row count) on the unrolling container; duration is one step per row,
 	   clamped, so short and long sections feel the same speed per row.
 	   Step and floor are the shipped 28/120 at ×0.8 — the ×0.7 "30% faster" cut
-	   read a touch too snappy on the dropdown headers; eased back slightly. */
-	--nkui-row-ms: 22ms;
-	--nkui-unroll-min: 96ms;
+	   read a touch too snappy on the dropdown headers; eased back slightly.
+	   Base literals divide through --nkui-speed like the rest of the table. */
+	--nkui-row-ms-base: 22ms;
+	--nkui-unroll-min-base: 96ms;
 	/* Ceiling raised 336→480: the per-row step is unchanged, so only LONG lists
 	   slow — a big dropdown unrolls instead of snapping open. */
-	--nkui-unroll-max: 480ms;
+	--nkui-unroll-max-base: 480ms;
+	--nkui-row-ms: calc(var(--nkui-row-ms-base) / var(--nkui-speed));
+	--nkui-unroll-min: calc(var(--nkui-unroll-min-base) / var(--nkui-speed));
+	--nkui-unroll-max: calc(var(--nkui-unroll-max-base) / var(--nkui-speed));
+	/* ── Shared alignment token (item 12) — the vertical-placement bias every
+	   centred surface (For You, queue, and later the inbox) honours, so a single
+	   settings slider moves them identically. The view stamps --nkui-screen-shift
+	   on the pane (2×(screen centre − pane centre) + this bias, in px); this
+	   alias names the user's intent in vh-share terms for a future slider to bind.
+	   Default 0 = true centre, matching the un-shifted feel. nowView/queueView
+	   read settings.nowVerticalBias today (see Wave-2 contract). */
+	--nkui-align-bias: 0;
+	/* ── Dot shape (item 15) — bullet dots, type dots, notification dots are
+	   SHARP QUADS by default; rounded mode flips this one token to a circle.
+	   Markers, not boxes, so they take their own token, never --nkui-radius. */
+	--nkui-dot-radius: 0px;
+	/* ── List-row vertical padding (item 13) — one token for the breathing room
+	   on For You + explorer rows, so "roomier" is a single measured edit. The
+	   text base steps up from the prior 0.2em to 0.32em (a measured, gentle
+	   step — rows read roomier without going airy); the 2xs gap floor is
+	   unchanged, so it composes the same way the old literal did. */
+	--nkui-row-pad-y: calc(0.32em + var(--nkui-gap-2xs, 4px));
 }
 
 /* Neutral markers (the inbox count pill, unreviewed draft dots, draft pills)
@@ -63,6 +118,16 @@ body {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+/* Roomier explorer rows (item 13) — the same measured vertical breathing room
+   the For You lists carry, on the shared --nkui-row-pad-y token. Desktop only:
+   mobile rows already set their own larger tap-target padding (mobile-hardening
+   block). A min on the theme's own row padding so a theme that already pads
+   generously is never shrunk. */
+body:not(.is-mobile) .nav-files-container .nav-file-title,
+body:not(.is-mobile) .nav-files-container .nav-folder-title {
+	padding-top: max(var(--nkui-row-pad-y), var(--size-4-1, 4px));
+	padding-bottom: max(var(--nkui-row-pad-y), var(--size-4-1, 4px));
+}
 
 /* ── (c) per-type dot on explorer rows ─────────────────────────────────────── */
 .nav-file-title[data-nkui-type]::before {
@@ -72,7 +137,9 @@ body {
 	width: var(--nkui-dot-size);
 	height: var(--nkui-dot-size);
 	margin-right: var(--nkui-dot-gap);
-	border-radius: 50%;
+	/* Type dot — sharp quad by default, circle in rounded mode, via the shared
+	   dot-shape token (item 15). */
+	border-radius: var(--nkui-dot-radius);
 	background: var(--nkui-type-color, var(--text-faint));
 	align-self: center;
 }
@@ -238,6 +305,35 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rende
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-link, .cm-hmd-internal-link, .cm-url) {
 	color: var(--nkui-tm);
 }
+/* ── Tertiary-leaf tint sweep (item 14) — the small marks left theme-neutral on
+   a typed, tinted page join the family. RECOLOUR existing marks only; no new
+   glyphs. Each leans on --nkui-type-ink (the shared lighter tone), so a stray
+   grey dot/slash/rule never sits in a tinted page.
+   • List BULLETS / numbers — reading-mode ::marker and the live-preview list
+     formatting glyphs (the bullet, the "1." number, the task-list dash). */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(ul, ol) > li::marker {
+	color: var(--nkui-type-ink);
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] :is(.cm-formatting-list, .cm-formatting-list-ul, .cm-formatting-list-ol, .list-bullet) {
+	color: var(--nkui-type-ink);
+}
+/* • DATE SLASHES — the date / datetime property value renders YYYY-MM-DD with
+     separator glyphs; the value text is already tinted, but the native input's
+     spin/placeholder separators keep their own colour, so pin them to the ink. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .metadata-property-value :is(input[type="date"], input[type="datetime-local"]) {
+	color: var(--nkui-type-ink);
+}
+/* • Horizontal RULES and table borders — the page's structural hairlines lean
+     to the type at low strength, so a divider on a tinted page reads as kin to
+     the wash rather than a neutral grey line. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered hr,
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-hr {
+	border-color: color-mix(in srgb, var(--nkui-type-color) 35%, var(--background-modifier-border));
+	background-color: color-mix(in srgb, var(--nkui-type-color) 35%, var(--background-modifier-border));
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(th, td) {
+	border-color: color-mix(in srgb, var(--nkui-type-color) 25%, var(--background-modifier-border));
+}
 /* A button inside a tinted note gets ONE controlled tint (type mixed with a
    neutral field colour) instead of the page-background tint showing THROUGH a
    second button tint. */
@@ -334,7 +430,8 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	width: var(--nkui-dot-size);
 	height: var(--nkui-dot-size);
 	margin-left: auto;
-	border-radius: 50%;
+	/* Notification (unreviewed-draft) dot — shared dot shape (item 15). */
+	border-radius: var(--nkui-dot-radius);
 	background: var(--nkui-draft-color);
 	align-self: center;
 }
@@ -374,6 +471,24 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	font-weight: var(--font-semibold, 600);
 	font-variant-numeric: tabular-nums;
 	line-height: 1;
+	/* Gentle hover emphasis (item 7) eases on the fade clock. */
+	transition: filter var(--nkui-fade) var(--nkui-ease), transform var(--nkui-fade) var(--nkui-ease);
+}
+
+/* ── Gentle pill hover emphasis (item 7, DESKTOP ONLY) ────────────────────────
+   When the row is hovered the count pill / number lifts a touch — slightly
+   larger and brighter — a smooth, quiet acknowledgement. Touch has no hover so
+   the whole block is gated to non-mobile. Transform-scale (not a size change)
+   so the pill never reflows the row or pushes a name; the inbox pill is
+   absolutely positioned and the queue number is inline, so a centred scale
+   stays inside the row's reserved padding. */
+body:not(.is-mobile) .nav-folder-title:has(> .nkui-inbox-count):hover .nkui-inbox-count {
+	filter: brightness(1.1);
+	transform: scale(1.08);
+}
+body:not(.is-mobile) .nav-file-title[data-nkui-queue]:hover .nkui-queue-count {
+	color: var(--text-normal);
+	transform: scale(1.08);
 }
 
 /* ── "Now" front-page view ─────────────────────────────────────────────────── */
@@ -388,6 +503,17 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 .nkui-now {
 	padding: 1.5em 1.25em 3em;
 	overflow-y: auto;
+	/* SHARED centring mechanism (item 12) — desktop adopts the same flex-column +
+	   flex-spacer centring mobile already uses, so there is no desktop-only
+	   top-align. .nkui-now is a flex column on every platform; the ::before /
+	   ::after pseudo spacers (further down) flex 1 1 0 and share the slack, so
+	   short content centres in the pane and a tall page anchors to the top with
+	   no jump. The vertical placement honours ONE shared bias — the view stamps
+	   --nkui-screen-shift (settings.nowVerticalBias feeds it; --nkui-align-bias
+	   in :root names the same intent for a future slider) — identically across
+	   For You and queue. */
+	display: flex;
+	flex-direction: column;
 	/* Reserve the scrollbar gutter on both edges: unfolding a bucket makes the
 	   content taller, the scrollbar appears, the viewport narrows, and the
 	   centered 760px column re-centers — a visible jump left. A stable
@@ -396,6 +522,13 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	/* Opaque hover colour so text never sits on a semi-transparent background
 	   (which disables Windows ClearType and looks like the text resizing). */
 	--nkui-hover: color-mix(in srgb, var(--background-primary), var(--text-normal) 6%);
+}
+/* The page's own children are fixed-height in the column (they size to content);
+   only the spacer pseudos flex. A flex column defaults align-items: stretch,
+   which would blow the 760px cap — pin each child to its content/cap width and
+   keep the margin-inline: auto centring from the cap rule above. */
+.nkui-now > * {
+	flex: 0 0 auto;
 }
 
 /* A tinted row's hover wash follows its TYPE colour (applyTint stamps the
@@ -425,6 +558,25 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now > * {
 	max-width: 760px;
 	margin-inline: auto;
+}
+/* ── Aspect switch (item 8) — narrow panes use their full width; wide panes keep
+   the centred column. A WIDE main pane keeps the comfortable centred 760px
+   column cap above (the shipped reading width). A NARROW pane — a side split,
+   the right dock — drops the cap so the rows fill the pane's width instead of
+   being capped and centred with wasted edges (the same direction mobile and the
+   explorer take). Driven by a CONTAINER query against the For You pane itself
+   (container-name: nkui-now, declared below), NOT body.is-mobile, so a narrow
+   DESKTOP split behaves like a phone pane. A pane this narrow is portrait past
+   roughly 9:16 on a normal-height leaf; width is the in-scope proxy (a true
+   max-aspect-ratio query needs container-type: size, which risks a height-0
+   collapse on a hidden pane). This drops the CAP only — the page keeps its
+   1.25em inline padding (the text gutter); true glass-edge bleed stays the
+   mobile block's job. */
+@container nkui-now (max-width: 600px) {
+	.nkui-now > * {
+		max-width: none;
+		margin-inline: 0;
+	}
 }
 .nkui-now-head {
 	display: flex;
@@ -485,7 +637,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	/* Open-head grow ANIMATES — the band's block step eases on the slow grow
 	   clock instead of snapping. Inline padding/margins are state-identical
 	   (open changes padding-BLOCK only), so nothing moves horizontally. */
-	transition: padding var(--nkui-grow) ease;
+	transition: padding var(--nkui-grow) var(--nkui-ease);
 }
 /* The count pill fills the head band's full height — flush with the highlight,
    the number evenly margined inside its own box (negative block margin eats
@@ -503,89 +655,35 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-group-head:hover {
 	background: var(--nkui-hover);
 }
-/* Per-section "approve all" — a quiet text affordance at the section head's
-   right edge that stamps every draft reviewed. Faint and small at rest so it
-   recedes; only the armed state colours up (accent text), so the second,
-   committing tap is unmistakable without a loud pill. Shown ONLY while the
-   section is expanded (rule below) — a collapsed section is just count + title.
-   margin-left:auto floats it past the count + title. */
-/* Selectors carry the .nkui-now-group-head parent to outrank Obsidian's default
-   `button` styling (a `.theme-dark button` chip background would otherwise bleed
-   through `background: transparent`). */
-/* "approve all?" — a pressable immediately right of the section title, in the
-   shared pressable language (small italic, like "edit?" / "un-approve"), coloured
-   like the section header it belongs to. PRESS AND HOLD to commit: a fill in the
-   section colour sweeps left→right over the hold, and the candidate rows light up
-   (the section's `is-arming`); release early and nothing happens. */
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   approve-all hold now lives on the section head itself via .nkui-row-hold;
-   no .nkui-now-approveall button is emitted). */
-.nkui-now-group-head .nkui-now-approveall {
-	position: relative;
-	isolation: isolate;
-	overflow: hidden;
-	flex: 0 0 auto;
-	/* Flush with the head band, like the count pill: stretch to the band height,
-	   negative block margin eats the band padding, the label centres in its own
-	   evenly-padded box — the hold fill sweeps the full band height. */
-	align-self: stretch;
-	/* It's a <button>: the theme's fixed input height beats stretch — clear it. */
-	height: auto;
-	display: inline-flex;
-	align-items: center;
-	margin-block: calc(-1 * var(--nkui-gap-2xs, 4px));
-	padding: 0 0.6em;
-	border: none;
-	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
-	background: transparent;
-	box-shadow: none;
-	color: var(--nkui-tm, var(--interactive-accent));
-	font-size: var(--font-ui-smaller, 11px);
-	font-style: italic;
-	font-weight: var(--font-normal, 400);
-	line-height: 1.4;
-	cursor: pointer;
-	touch-action: none; /* a hold must not scroll the page */
-	user-select: none;
+/* Gentle count-pill emphasis on a hovered (collapsed) section head (item 7,
+   desktop only). brightness — NOT transform/scale — so getBoundingClientRect
+   is unchanged and squareHeadPills' measurement can never be corrupted by a
+   hover state. Open heads carry their own solid-band treatment; this is the
+   resting collapsed pill lifting a hair under the pointer. */
+body:not(.is-mobile) .nkui-now-group-head .nkui-now-count {
+	transition: filter var(--nkui-fade) var(--nkui-ease),
+		min-width var(--nkui-grow) var(--nkui-ease),
+		min-height var(--nkui-grow) var(--nkui-ease),
+		font-size var(--nkui-grow) var(--nkui-ease),
+		margin var(--nkui-grow) var(--nkui-ease);
 }
-/* Hover speaks through the shared opacity fade (quiet-pill block, further
-   down) — never an underline: text that changes shape on pointer reads messy. */
-.nkui-now-group-head .nkui-now-approveall::before {
-	content: "";
-	position: absolute;
-	inset: 0;
-	z-index: -1;
-	border-radius: inherit;
-	background: currentColor;
-	opacity: 0.22;
-	transform: scaleX(0);
-	transform-origin: left center;
-}
-/* No weight change while holding — bolding widens the label, which shifts the
-   centred title and reads as a layout snap; the sweeping fill and full opacity
-   are the arming signal. */
-.nkui-now-group-head .nkui-now-approveall.is-holding::before {
-	transform: scaleX(1);
-	transition: transform var(--nkui-hold) linear;
+body:not(.is-mobile) .nkui-now-group-head:hover .nkui-now-count {
+	filter: brightness(1.1);
 }
 /* While a hold is in progress, the section's draft candidates light up in their
    own type colour, so it's clear what the approval would file. */
 .nkui-now-group.is-arming .nkui-now-row-draft {
 	background: color-mix(in srgb, var(--nkui-row-color, var(--interactive-accent)) 16%, transparent);
-	transition: background var(--nkui-arm) ease;
+	transition: background var(--nkui-arm) var(--nkui-ease);
 }
 /* The dropdown header lights up with the candidates — its title takes the section
    colour and the header a matching wash, so the whole section reads as "arming". */
 .nkui-now-group.is-arming > .nkui-now-group-head {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 14%, transparent);
-	transition: background var(--nkui-arm) ease;
+	transition: background var(--nkui-arm) var(--nkui-ease);
 }
 .nkui-now-group.is-arming > .nkui-now-group-head .nkui-now-group-title {
 	color: var(--nkui-section-color, var(--text-normal));
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands. */
-.nkui-now-group.is-collapsed .nkui-now-approveall {
-	display: none;
 }
 
 /* fold animation — list stays in the DOM; grid rows animate 1fr ⇄ 0fr.
@@ -606,8 +704,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 		var(--nkui-unroll-max)
 	);
 	transition:
-		grid-template-rows var(--nkui-unroll) ease,
-		opacity var(--nkui-unroll) ease;
+		grid-template-rows var(--nkui-unroll) var(--nkui-ease),
+		opacity var(--nkui-unroll) var(--nkui-ease);
 }
 .nkui-now-group.is-collapsed .nkui-now-foldwrap {
 	grid-template-rows: 0fr;
@@ -638,7 +736,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	letter-spacing: -0.01em;
 	color: var(--text-normal);
 	/* The open-step size change eases on the grow clock — no snap. */
-	transition: font-size var(--nkui-grow) ease;
+	transition: font-size var(--nkui-grow) var(--nkui-ease);
 }
 /* count as a notification bubble; background colour is set inline to the type colour.
    Fixed box (height + inline-flex centring + tabular digits) so a 1→2 digit count
@@ -668,10 +766,10 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   changes — and the digit's open font step + flush negative margins ride
 	   along. */
 	transition:
-		min-width var(--nkui-grow) ease,
-		min-height var(--nkui-grow) ease,
-		font-size var(--nkui-grow) ease,
-		margin var(--nkui-grow) ease;
+		min-width var(--nkui-grow) var(--nkui-ease),
+		min-height var(--nkui-grow) var(--nkui-ease),
+		font-size var(--nkui-grow) var(--nkui-ease),
+		margin var(--nkui-grow) var(--nkui-ease);
 }
 .nkui-now-count-neutral {
 	background: var(--background-modifier-border);
@@ -719,9 +817,10 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	align-items: center;
 	gap: var(--nkui-gap-s);
 	min-height: 26px;
-	/* A 2xs step over the round-6 0.2em — the lists read snug; text gets its
-	   gutter inside the row band. */
-	padding: calc(0.2em + var(--nkui-gap-2xs)) 0.5em;
+	/* Vertical room is the shared --nkui-row-pad-y token (item 13) — one knob for
+	   For You + explorer list-row breathing room; the inline 0.5em is the band
+	   outdent eaten back by the matching negative margin. */
+	padding: var(--nkui-row-pad-y) 0.5em;
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
@@ -737,7 +836,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	flex: 0 0 auto;
 	width: 9px;
 	height: 9px;
-	border-radius: 50%;
+	/* For You row dot — shared dot shape (item 15). */
+	border-radius: var(--nkui-dot-radius);
 	background: var(--text-faint);
 }
 .nkui-now-dot-empty {
@@ -832,37 +932,6 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	font-weight: 600;
 	line-height: 1.3;
 }
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (waiting
-   gates render as .nkui-now-waitgate reduced rows under the agent sub-heads;
-   no .nkui-now-row-waiting rows are emitted). */
-.nkui-now-row-waiting {
-	opacity: 0.5;
-}
-.nkui-now-row-waiting:hover {
-	opacity: 0.85;
-}
-.nkui-now-row-waiting .nkui-now-rowtitle {
-	color: var(--text-muted);
-	font-weight: var(--font-normal, 400);
-	font-size: 1em;
-}
-.nkui-now-row-waiting .nkui-now-gatepill {
-	border-color: var(--text-faint);
-	color: var(--text-faint);
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   per-row wait note is gone; the Waiting sub-head names the agent instead). */
-.nkui-now-waitnote {
-	font-size: var(--font-ui-smaller, 11px);
-	font-style: italic;
-	color: var(--text-faint);
-	white-space: nowrap;
-	/* Italic glyphs overhang their advance width and "g" descends below the
-	   baseline box — without this breathing room a clipping ancestor crops the
-	   trailing letter ("awaiting filing" losing its g's tail on the phone). */
-	padding-inline-end: 0.18em;
-	padding-block-end: 0.12em;
-}
 /* "+N" marking a folded working-set behind its gate row — muted-plus (was
    faint): visible at a glance, still passive (no cursor). Tinted rows lend it
    their type tone via --nkui-tm. */
@@ -890,12 +959,6 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-countslot {
 	display: inline-flex;
 	justify-content: flex-end;
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   wait-note slot left the gate trio; only count + gate slots remain). */
-.nkui-now-waitslot {
-	display: inline-flex;
-	justify-content: flex-start;
 }
 /* a slot column with no member anywhere in its list */
 .nkui-now-slot-void {
@@ -940,6 +1003,14 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now .nkui-now-qrow:nth-child(odd of .nkui-now-qrow):hover {
 	background: var(--nkui-hover);
 }
+/* On a clean-view QUEUE page (item 6) the page itself now carries the draft
+   wash, so the neutral zebra would vanish into it — step the odd-row stripe up
+   and mix it over the SAME draft family so the rows still read as discrete on
+   the tinted surface. Scoped to .nkui-queue so the For You Queue section's
+   neutral zebra is untouched. */
+.nkui-queue .nkui-now-qrow:nth-child(odd of .nkui-now-qrow) {
+	background: color-mix(in srgb, var(--nkui-draft-color) calc(var(--nkui-queue-wash) + 4%), var(--background-primary));
+}
 .nkui-now-qrow-strike {
 	cursor: pointer;
 }
@@ -956,11 +1027,6 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-qtext.is-done {
 	text-decoration: line-through;
 	color: var(--text-faint);
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (no
-   wait-note twins are emitted anymore). */
-.nkui-now-waitnote-short {
-	display: none;
 }
 .nkui-now-qadd {
 	display: flex;
@@ -1033,7 +1099,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	resize: none;
 	overflow: hidden;
 	overflow-wrap: anywhere;
-	transition: background var(--nkui-fade) ease, border-color var(--nkui-fade) ease;
+	transition: background var(--nkui-fade) var(--nkui-ease), border-color var(--nkui-fade) var(--nkui-ease);
 }
 .nkui-now-qaddinput:focus {
 	background: var(--nkui-hover);
@@ -1054,7 +1120,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 /* Picking an option softens the card over the fold animation's step before
    the re-render swaps it for its resolved row — a transition, not a snap. */
 .nkui-now-decision {
-	transition: opacity var(--nkui-settle) ease;
+	transition: opacity var(--nkui-settle) var(--nkui-ease);
 }
 .nkui-now-decision.is-resolving {
 	opacity: 0.3;
@@ -1067,7 +1133,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 }
 /* Hover dips the opacity on the fade token — no underline, no shape change. */
 .nkui-now-decision-title {
-	transition: opacity var(--nkui-fade) ease;
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
 }
 .nkui-now-decision-title:hover {
 	opacity: 0.8;
@@ -1292,7 +1358,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
    so a checked reviewed checkbox keeps its checkmark. */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
 	opacity: 0.8;
-	transition: opacity var(--nkui-fade) ease;
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:hover,
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property:focus-within {
@@ -1364,44 +1430,12 @@ body.is-mobile .workspace-tab-header:not(.is-active),
 body.is-mobile .workspace-tab-header .workspace-tab-header-inner-close-button {
 	opacity: 1 !important;
 }
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   approve-all and un-approve buttons are gone; the row/head is the target). */
-body.is-mobile .nkui-now-approveall {
-	padding: 0.2em 0.45em;
-}
-body.is-mobile .nkui-now-unapprove {
-	padding: 0.25em 0;
-}
 /* The add-task / edit textarea wraps on mobile (no horizontal scroll-off); a long
    task is reviewable across lines rather than trailing off one. */
 body.is-mobile .nkui-now-qaddinput {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	text-overflow: clip;
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (no
-   .nkui-now-row-waiting rows and no wait-note twins are emitted anymore). */
-body.is-mobile .nkui-now-row-waiting .nkui-now-rowtitle {
-	flex: 1 1 auto;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-body.is-mobile .nkui-now-row-waiting .nkui-now-rowset {
-	flex: 0 0 auto;
-}
-body.is-mobile .nkui-now-waitnote-short {
-	display: inline;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	max-width: 30vw;
-	/* overflow:hidden clips the italic overhang + g descender — pad them in. */
-	padding-inline-end: 0.18em;
-	padding-block-end: 0.12em;
-}
-body.is-mobile .nkui-now-waitnote-long {
-	display: none;
 }
 /* A crossed-off machine-queue line truncates instead of wrapping or pushing. */
 body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
@@ -1430,7 +1464,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	   muted title/note and made them hard to read; the struck title and muted note
 	   carry the "settled" read on their own. */
 	opacity: 0.78;
-	transition: opacity var(--nkui-fade) ease, background var(--nkui-fade) ease;
+	transition: opacity var(--nkui-fade) var(--nkui-ease), background var(--nkui-fade) var(--nkui-ease);
 }
 .nkui-now-reducedrow:hover {
 	opacity: 1;
@@ -1475,23 +1509,6 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	padding-inline-end: 0.18em;
 	padding-block-end: 0.12em;
 }
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   inline "awaiting filing" text is gone; the Waiting sub-head names the agent). */
-.nkui-now-waittext {
-	flex: 0 0 auto; /* never shrink — "awaiting filing" always shows in full */
-	color: var(--text-muted);
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (holding
-   the waiting row itself is the undo; no .nkui-now-unapprove is emitted). */
-.nkui-now-unapprove {
-	color: var(--text-accent, var(--interactive-accent));
-	font-style: italic;
-	cursor: pointer;
-	min-width: 4.5em;
-	text-align: right;
-}
-/* Hover lives in the shared opacity fade (quiet-pill block) — no underline. */
-
 /* ── Waiting section — neutral and low-key; it holds nothing that needs you. ── */
 .nkui-now-group-waiting > .nkui-now-group-head .nkui-now-group-title {
 	font-weight: 600;
@@ -1532,7 +1549,7 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 }
 /* The flush children keep eating the band's block padding at the new step
    (squareHeadPills re-measures the taller band into the pill's min-width). */
-.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head :is(.nkui-now-count, .nkui-now-approveall) {
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
 	margin-block: calc(-1 * var(--nkui-gap-s));
 }
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
@@ -1553,17 +1570,6 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	background: transparent !important;
 	color: var(--text-on-accent, #fff);
 	font-size: calc(var(--font-ui-smaller, 12px) * 1.15);
-}
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   head-band fill twin lives in the .nkui-row-hold block below). */
-.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall {
-	color: var(--text-on-accent, #fff);
-}
-.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall::before {
-	opacity: 0.35;
-}
-body.is-mobile .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-approveall.is-holding::before {
-	opacity: 0.5;
 }
 /* …and its CHILD rows carry a LIGHTER wash of the same colour at rest (folder →
    child tonal step: the header keeps its 10%, children sit at ~6%), so the open
@@ -1661,6 +1667,57 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
    whole tree sideways. The gutter is always there, so the content never reflows. */
 .workspace-leaf-content[data-type="file-explorer"] .nav-files-container {
 	scrollbar-gutter: stable;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Chrome — rounded-OFF stragglers · side-pane seam · desktop full-bleed
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Rounded-OFF stragglers (item 9) — leaf controls that still render rounded
+   when rounded mode is off. Every one routes through --nkui-radius (sharp 0 by
+   default, 16px in rounded mode), so a single token flip re-rounds them with the
+   rest of the plugin. The close-offer / inbox pill / count pills already route
+   through the token; these are the chrome leaves the theme rounds on its own:
+   the per-tab close button, the nav-toolbar / side-dock icon buttons, and the
+   Obsidian window controls (titlebar). Where a theme paints the rounding we do
+   what plugin CSS can; a companion theme owns the rest (out of scope — noted). */
+.mod-root .workspace-tab-header-inner-close-button,
+.nav-buttons-container .clickable-icon,
+.side-dock-actions .clickable-icon,
+.view-actions .clickable-icon,
+.titlebar-button,
+.workspace .clickable-icon {
+	border-radius: var(--nkui-radius);
+}
+
+/* ── Side-pane seam (item 10) — a side dock's tab strip / header must share the
+   panel's EXACT background tone, or a seam draws between the tab area and the
+   pane body. Both adjoining surfaces resolve to the IDENTICAL value: the side
+   dock's panel background (--background-secondary, the side-dock surface base),
+   with no border or shadow to draw a line. (The main area already shares
+   --background-primary via the .mod-root block higher up; this is its side-dock
+   twin.) */
+.workspace-split.mod-left-split .workspace-tab-header-container,
+.workspace-split.mod-right-split .workspace-tab-header-container,
+.workspace-split.mod-left-split .workspace-tab-header,
+.workspace-split.mod-right-split .workspace-tab-header,
+.workspace-split.mod-left-split .workspace-tab-header .workspace-tab-header-inner,
+.workspace-split.mod-right-split .workspace-tab-header .workspace-tab-header-inner {
+	background: var(--background-secondary) !important;
+	border: none !important;
+	box-shadow: none !important;
+}
+
+/* ── Desktop full-bleed regression (item 11) — file-pane rows and For-You rows
+   must reach the panel edge on desktop. A theme override was pulling the
+   explorer title rows in with an inline margin, leaving the highlight bands
+   short of the pane edge. Restore the flush rule: zero the row margin so the
+   wash band meets the panel edge; the text keeps its gutter from the row's own
+   padding and the tree indent. Desktop only — mobile owns its own full-bleed
+   block (it must also clear the safe-area). */
+body:not(.is-mobile) .nav-files-container .nav-file-title,
+body:not(.is-mobile) .nav-files-container .nav-folder-title {
+	margin-inline: 0;
 }
 
 /* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */
@@ -1784,63 +1841,19 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-semibold, 600);
 	font-variant-numeric: tabular-nums;
+	transform-origin: right center; /* scale toward the row edge, never over the name */
+	/* Gentle hover emphasis (item 7) eases on the fade clock. */
+	transition: color var(--nkui-fade) var(--nkui-ease), transform var(--nkui-fade) var(--nkui-ease);
 }
 
-/* ── 0.4.43 — gate hold-to-approve · one-line waiting · animations ──────────── */
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the gate
-   approve hold moved onto the row itself; no .nkui-now-gateapprove is emitted).
-   The whole block through .nkui-now-gateapprove.is-holding::before is dead. */
-.nkui-now-gateapprove {
-	position: relative;
-	isolation: isolate;
-	overflow: hidden;
-	cursor: pointer;
-	touch-action: none;
-	user-select: none;
-	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
-	display: inline-flex;
-	align-items: center;
-	/* Flush with the row band: generous even block padding reaches the band
-	   edges; the matching negative margin keeps the row height unchanged — so
-	   the hold fill sweeps a band-height box, not an inset chip. */
-	padding: 0.45em 0.55em;
-	margin-block: -0.45em;
-}
-/* Hover lives in the shared opacity fade below — no underline. */
-.nkui-now-gateapprove::before {
-	content: "";
-	position: absolute;
-	inset: 0;
-	z-index: -1;
-	border-radius: inherit;
-	background: currentColor;
-	opacity: 0.22;
-	transform: scaleX(0);
-	transform-origin: left center;
-}
-.nkui-now-gateapprove.is-holding::before {
-	transform: scaleX(1);
-	transition: transform var(--nkui-hold) linear;
-}
-
+/* ── 0.4.43 — one-line waiting · animations ─────────────────────────────────── */
 /* Quiet pill texts (draft) read a stop fainter at rest — less opaque, so they
    recede until the section arms — and go full while arming. The +N gatepill
-   left this group: it steps to muted-plus and stays fully opaque (visibility).
-   PARTLY DEAD after whole-row hold — integrator: once Stream A lands, the
-   .nkui-now-approveall / .nkui-now-gateapprove / .nkui-now-unapprove selectors
-   here are dead; .nkui-now-draftpill stays live. */
-.nkui-now-approveall,
-.nkui-now-gateapprove,
-.nkui-now-unapprove,
+   left this group: it steps to muted-plus and stays fully opaque (visibility). */
 .nkui-now-draftpill {
 	opacity: 0.6;
-	transition: opacity var(--nkui-fade) ease;
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
 }
-.nkui-now-approveall:hover,
-.nkui-now-gateapprove:hover,
-.nkui-now-unapprove:hover,
-.nkui-now-approveall.is-holding,
-.nkui-now-gateapprove.is-holding,
 .nkui-now-group.is-arming .nkui-now-gatepill,
 .nkui-now-group.is-arming .nkui-now-draftpill {
 	opacity: 1;
@@ -1870,13 +1883,6 @@ body:not(.nkui-anim) .nkui-now-group-title,
 body:not(.nkui-anim) .nkui-now-count {
 	transition: none !important;
 }
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (the
-   snap twin for the row fill lives in the .nkui-row-hold block below). */
-body:not(.nkui-anim) .nkui-now-approveall.is-holding::before,
-body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
-	transition: none !important;
-}
-
 /* Exit animation — a committed row gets `is-settling` for the settle window
    before the re-render removes it: it fades, and its band collapses (keyframes,
    not a transition, so no base max-height needs to exist on every row — rows
@@ -1887,8 +1893,8 @@ body:not(.nkui-anim) .nkui-now-gateapprove.is-holding::before {
 	transform: none;
 	pointer-events: none;
 	overflow: hidden;
-	transition: opacity var(--nkui-settle) ease;
-	animation: nkui-settle-collapse var(--nkui-settle) ease forwards;
+	transition: opacity var(--nkui-settle) var(--nkui-ease);
+	animation: nkui-settle-collapse var(--nkui-settle) var(--nkui-ease) forwards;
 }
 @keyframes nkui-settle-collapse {
 	from {
@@ -1947,7 +1953,7 @@ body:not(.nkui-anim) .nkui-now .is-settling {
 }
 .nkui-close-offer:hover {
 	opacity: 1 !important;
-	transition: opacity var(--nkui-fade) ease;
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
 }
 .nkui-close-offer:hover::before {
 	transform: scaleX(1);
@@ -1973,6 +1979,37 @@ body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
 }
 .popover.hover-popover[class*="nkui-type-"] :is(.markdown-embed-title, .inline-title, .markdown-preview-view h1) {
 	color: var(--nkui-type-color);
+}
+
+/* ── Note-open flash-fade (item 17) — replaces the black flash a fresh leaf
+   paints before its content renders. The empty-leaf handling (main.ts, later
+   wave) paints a full-leaf overlay in the clicked note's TYPE colour the instant
+   the leaf opens, then adds .is-fading a frame later; the overlay fades out over
+   --nkui-flash as the tab paints, so the eye sees the type colour wash away, not
+   a black gap. JS contract: create a child of the opening .workspace-leaf-content
+   (or .view-content) with class nkui-flash, set --nkui-type-color inline, add
+   .is-fading on the next frame, and remove the node on transitionend (or after
+   --nkui-flash). pointer-events: none so it never eats the first click. With
+   animations off the overlay is simply never added (or removed at once) by the
+   JS — the CSS still resolves to a 0-opacity no-op. */
+.nkui-flash {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	pointer-events: none;
+	background: var(--nkui-type-color, var(--background-primary));
+	opacity: 1;
+	/* The fade runs on the shared motion clock (scales with --nkui-speed). */
+	transition: opacity var(--nkui-flash) var(--nkui-ease);
+}
+.nkui-flash.is-fading {
+	opacity: 0;
+}
+/* Animations off → no fade; the JS removes it immediately, but guard the CSS so
+   a lingering node can't sit opaque over the note. */
+body:not(.nkui-anim) .nkui-flash {
+	opacity: 0 !important;
+	transition: none !important;
 }
 
 /* ── Version marker — the plugin version, in the For You footer and the settings
@@ -2016,7 +2053,6 @@ body:not(.nkui-anim) .nkui-close-offer.is-counting::before {
 .nkui-now-group-title,
 .nkui-now-containercap,
 .nkui-now-metatype,
-.nkui-now-waitnote,
 .nkui-now-setcount,
 .nkui-now-dropname {
 	min-width: 0;
@@ -2196,8 +2232,8 @@ body.nkui-anim .nkui-now-gatemembers {
 		var(--nkui-unroll-max)
 	);
 	transition:
-		grid-template-rows var(--nkui-unroll) ease,
-		opacity var(--nkui-unroll) ease;
+		grid-template-rows var(--nkui-unroll) var(--nkui-ease),
+		opacity var(--nkui-unroll) var(--nkui-ease);
 }
 body.nkui-anim .nkui-now-gatemembers.is-open {
 	grid-template-rows: 1fr;
@@ -2652,6 +2688,19 @@ body.is-mobile .metadata-property-value :is(input, .metadata-input-longtext, .me
 	min-height: 0;
 	padding-block: 2px;
 }
+/* Tight, dynamic frontmatter (item 19) — a single-line value (type, date,
+   parent link, a short text field) TRUNCATES legibly with an ellipsis instead
+   of wrapping into a tall stacked block at the top of the note. The longtext
+   editor (description) and the multi-select (tags) keep their own wrap rules
+   below; this targets the one-line text/link inputs that were stacking. The
+   row stays one comfortable line. */
+body.is-mobile .metadata-property-value .metadata-input-text input,
+body.is-mobile .metadata-property-value input:not([type="checkbox"]),
+body.is-mobile .metadata-property-value .metadata-link-inner {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
 /* Tag / multi-select rows wrap as tidy pill lines instead of jumbling: pills
    centre on each line, never exceed the row, and the trailing add-tag input
    flexes onto the next line rather than forcing the row wide. */
@@ -2675,20 +2724,9 @@ body.is-mobile .metadata-property-value .multi-select-input {
 }
 
 /* ── Mobile hold affordance — arming must be unmistakable under a thumb ───────
-   Touch has no hover: while a hold is arming, the fill doubles its contrast.
-   The close-offer's depleting fill takes the same stronger contrast.
-   The first two rules are DEAD after whole-row hold — integrator: remove once
-   Stream A lands (mobile contrast for the row fill lives in the .nkui-row-hold
-   block below; the close-offer rule stays live). */
-/* No scale — a width change on hold reads as a layout snap; brightness and
-   the sweeping fill carry the arming. Vertical-only emphasis everywhere. */
-body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding {
-	opacity: 1;
-	filter: brightness(1.12);
-}
-body.is-mobile :is(.nkui-now-approveall, .nkui-now-gateapprove).is-holding::before {
-	opacity: 0.45;
-}
+   Touch has no hover: the close-offer's depleting fill takes a stronger
+   contrast. (The row/head hold contrast lives in the .nkui-row-hold block
+   below.) */
 body.is-mobile .nkui-close-offer::before {
 	opacity: 0.32;
 }
@@ -2708,6 +2746,15 @@ body.is-mobile .nkui-now-group.is-arming > .nkui-now-group-head {
    Obsidian ancestor happens to be positioned. */
 .nkui-now.nkui-queue {
 	position: relative;
+	/* ── Queue-page tint wash (item 6) — a clean-view queue page reads as a
+	   deliberately TINTED surface, the way a typed note's .view-content washes
+	   ~4% toward its type colour. The queue's kind is the draft-accent family
+	   (its tree rows + the inbox pill draw from --nkui-draft-color), so the page
+	   leans that way. Stepped UP from the old near-invisible wash to a clear,
+	   intentional tint; the zebra below sits a step above it so rows still read
+	   as discrete. Token so the depth is one edit. */
+	--nkui-queue-wash: 5%;
+	background: color-mix(in srgb, var(--nkui-draft-color) var(--nkui-queue-wash), var(--background-primary));
 }
 .nkui-now.nkui-queue-side > * {
 	max-width: 100%;
@@ -2790,13 +2837,6 @@ body:not(.nkui-anim) .nkui-queue-lock-btn.is-holding::before {
 	transition: none !important;
 }
 
-/* DEAD after whole-row hold — integrator: remove once Stream A lands (no
-   .nkui-now-unapprove control and no shy-undo classes are emitted; the
-   waiting row holds to undo). */
-body.is-mobile .nkui-undo-shy:not(.is-undo-revealed) .nkui-now-unapprove {
-	opacity: 0;
-	pointer-events: none;
-}
 body.is-mobile .nkui-queue-lock-btn.is-holding {
 	filter: brightness(1.12); /* no scale — vertical-only emphasis everywhere */
 }
@@ -2873,11 +2913,11 @@ body.is-mobile .nkui-now-rowset {
 	flex: 0 1 auto;
 	min-width: 0;
 }
-body.is-mobile :is(.nkui-now-waitslot, .nkui-now-gateslot, .nkui-now-countslot) {
+body.is-mobile :is(.nkui-now-gateslot, .nkui-now-countslot) {
 	min-width: 0;
 	overflow: hidden;
 }
-body.is-mobile :is(.nkui-now-waitslot, .nkui-now-gateslot, .nkui-now-countslot) > * {
+body.is-mobile :is(.nkui-now-gateslot, .nkui-now-countslot) > * {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -2911,19 +2951,23 @@ body.is-mobile .workspace-leaf-content .view-content.nkui-now {
    top spacer grows for a positive shift, the bottom for a negative one — and
    the bottom spacer's floor stays the navbar + safe-area clearance, so long
    content still scrolls clear of the navbar. */
-/* UN-GATED: the shift works on any platform — with the var absent the spacers
-   resolve to 0px-tall blocks and desktop behaviour is byte-identical. On
-   mobile these same pseudos are the flex spacers above; display:block is
-   harmless there (flex items blockify). Only the navbar-clearance floor below
-   stays mobile-gated. */
+/* UN-GATED and now flex on every platform (item 12): the shared flex-spacer
+   centring works on desktop as on mobile — .nkui-now is a flex column on all
+   platforms (above), so these two spacers each take an equal share of the
+   slack (flex: 1 1 0) and short content centres in the pane. The shift rides
+   their min-heights on top of the equal share. With --nkui-screen-shift absent
+   the min-heights resolve to 0 and the spacers simply centre (no bias). Only
+   the navbar-clearance floor below stays mobile-gated. */
 .nkui-now::before {
 	content: "";
 	display: block;
+	flex: 1 1 0;
 	min-height: max(0px, var(--nkui-screen-shift, 0px));
 }
 .nkui-now::after {
 	content: "";
 	display: block;
+	flex: 1 1 0;
 	min-height: max(0px, calc(-1 * var(--nkui-screen-shift, 0px)));
 }
 body.is-mobile .nkui-now::after {
@@ -2936,11 +2980,16 @@ body.is-mobile .nkui-now::after {
    fold's re-centre can't be transitioned in CSS — needs JS (pin the spacers'
    measured heights across the fold and release them on --nkui-unroll). */
 
-/* ── One clock on the fold (mobile) — while a section is folding closed, no
+/* ── One clock on the fold (ALL platforms) — while a section is folding, no
    child runs its own opacity fade beside the wrapper's --nkui-unroll veil;
-   height and veil read as a single motion. (The gate-member peek already
-   shares the one-clock contract — grid rows + opacity on --nkui-unroll.) ───── */
-body.is-mobile .nkui-now-group.is-collapsed .nkui-now-foldwrap :is(.nkui-now-decision, .nkui-now-reducedrow, .nkui-now-gatepill, .nkui-now-draftpill) {
+   height and veil read as a single motion. This is the fix for the DESKTOP
+   two-step Waiting unfold: a Waiting section's nested sub-group / gate-member
+   peek used to ease on its OWN clock beside the list fold (height-then-fade as
+   two steps). Now every animatable descendant defers to the foldwrap's one
+   --nkui-unroll clock during the fold; the gate-member peek's standalone
+   tap-to-expand interaction (outside a folding section) keeps its own clock.
+   Was mobile-only; un-scoped here so desktop shares the single motion. */
+.nkui-now-group.is-collapsed .nkui-now-foldwrap :is(.nkui-now-decision, .nkui-now-reducedrow, .nkui-now-gatepill, .nkui-now-draftpill, .nkui-now-gatemembers, .nkui-now-subhead) {
 	transition: none;
 }
 
@@ -3025,6 +3074,8 @@ body.nkui-rounded {
 	   16px; single-line chips keep the full pill via --nkui-radius-pill. */
 	--nkui-radius: 16px;
 	--nkui-radius-pill: 999px;
+	/* Dots become circles only in rounded mode (item 15). */
+	--nkui-dot-radius: 50%;
 }
 body.nkui-rounded .nkui-now-count {
 	padding-inline: 0.85em;
@@ -3051,6 +3102,27 @@ body.nkui-rounded .nkui-now-qaddinput {
 body.nkui-rounded .nkui-now-group-head {
 	--nkui-head-pad-l: max(0.9em, var(--nkui-edge-l, 0px));
 	--nkui-head-pad-r: max(0.9em, var(--nkui-edge-r, 0px));
+}
+/* ── Rounded-mode right-crop fix (item 5, desktop) ────────────────────────────
+   The list rows / option rows / reduced rows out-dent -0.5em on BOTH sides to
+   bleed their sharp bands to the centred column's edges. In rounded mode the
+   RIGHT outdent pushes the band's rounded right corner past the column edge and
+   into the reserved scrollbar gutter (.nkui-now has scrollbar-gutter: stable
+   both-edges), where overflow-y: auto clips it — the right corner of an open
+   For-You dropdown reads chopped. On desktop, pull the RIGHT edge back inside
+   the column (zero the right outdent and repay it as right padding so text
+   keeps its position); the LEFT structural indents (0.5/1.55/2.8em) and the
+   left outdent are untouched. Mobile rounded floats bands off the glass with
+   its own margin-inline rule below. */
+body.nkui-rounded:not(.is-mobile) .nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
+	margin-right: 0;
+	padding-right: calc(var(--nkui-row-end) + 0.5em);
+}
+/* The group head outdents -0.5em the same way; pull its right edge in too so
+   its rounded end clears the gutter. The flush count pill is on the LEFT, so
+   the right pull never touches it. */
+body.nkui-rounded:not(.is-mobile) .nkui-now-group-head {
+	margin-right: 0;
 }
 /* iOS breathing room — pills don't stack seamless the way sharp bands do: a
    row-step gap between list rows, a block-step between dropdown sections, so
@@ -3089,6 +3161,21 @@ body.nkui-minimal .workspace-tab-header-container {
 body.nkui-minimal .view-header,
 body.nkui-minimal .view-actions {
 	display: none !important;
+}
+/* Frontmatter sat too low (item 18) — with the header / nav buttons gone, the
+   note content kept the top padding those bars used to need, so the property
+   block floated down from the pane top with a dead gap above it. Lift the
+   markdown content's top inset to a small, even gutter on BOTH platforms; the
+   editor (cm-sizer) and reading view both inset their first block, so trim each.
+   A modest --nkui-gap-m top so the title/frontmatter isn't flush to the glass,
+   but no header-sized void. Mobile especially benefited — the removed navbar +
+   header left the biggest gap there. */
+body.nkui-minimal .workspace-leaf-content[data-type="markdown"] .view-content {
+	padding-top: var(--nkui-gap-m);
+}
+body.nkui-minimal .markdown-source-view .cm-sizer,
+body.nkui-minimal .markdown-reading-view .markdown-preview-sizer {
+	padding-top: var(--nkui-gap-s) !important;
 }
 /* Pane nav-button rows (sort / collapse / new-note strips). */
 body.nkui-minimal .nav-buttons-container {
@@ -3140,7 +3227,7 @@ body.nkui-minimal .nkui-queue-explain {
 	font-size: var(--font-ui-small, 13px);
 	cursor: pointer;
 	opacity: 0.7;
-	transition: opacity var(--nkui-fade) ease, color var(--nkui-fade) ease;
+	transition: opacity var(--nkui-fade) var(--nkui-ease), color var(--nkui-fade) var(--nkui-ease);
 }
 .nkui-minimal-exit:hover {
 	opacity: 1;
@@ -3150,16 +3237,15 @@ body.nkui-minimal .nkui-queue-explain {
 body:not(.nkui-minimal) .nkui-minimal-exit {
 	display: none;
 }
-/* Speed: the motion table at ×0.7 — re-declared literals (a calc() on the same
-   custom property is a cycle). --nkui-hold / --nkui-count are NOT scaled: their
-   JS twins (holds.ts) would desync from the fill. Base values in :root. */
+/* Speed: minimalist mode runs the motion table 30% faster. This is now ONE edit
+   through the shared multiplier — every scaled token (--nkui-fade/-arm/-settle/
+   -grow/-flash/-row-ms/-unroll-min/-max) divides the same base by --nkui-speed,
+   so 1/0.7 ≈ 1.4286 reproduces the prior ×0.7 literals exactly. A user-set
+   --nkui-speed (settings slider) composes on top: minimalist multiplies it
+   further. --nkui-hold / --nkui-count stay unscaled — their JS twins (holds.ts)
+   own the commit timing and would desync from the fill. */
 body.nkui-minimal {
-	--nkui-fade: 84ms; /* 120 ×0.7 */
-	--nkui-arm: 70ms; /* 100 ×0.7 */
-	--nkui-settle: 119ms; /* 170 ×0.7 */
-	--nkui-row-ms: 15ms; /* 22 ×0.7 */
-	--nkui-unroll-min: 67ms; /* 96 ×0.7 */
-	--nkui-unroll-max: 336ms; /* 480 ×0.7 */
+	--nkui-speed: calc(var(--nkui-speed-user, 1) * 1.42857);
 }
 
 /* ── Settings on a phone — the colour grid and add-type row at hand scale ──── */
@@ -3210,6 +3296,39 @@ body.is-mobile div:has(> .setting-item .nkui-settings-version) .setting-item:has
 		display: none;
 	}
 	.nkui-weight-badge-short {
+		display: inline;
+	}
+}
+
+/* ── Reduced-width "twin" labels (item 16) — a GENERAL container-query mechanism
+   for any responsive inline label (the weight wN, a queue count, a meta word):
+   a consumer renders BOTH a long and a short variant wrapped in .nkui-twin-long
+   / .nkui-twin-short, and the narrow pane swaps which one shows — driven by the
+   pane's CONTAINER width, never body.is-mobile, so a thin desktop split adapts
+   like a phone. Long shows by default; short is hidden until the container is
+   narrow. Works inside either named container (the explorer or the For You
+   pane); the threshold is the same ~260/300px thin-pane point the weight badge
+   uses. Consumers in nowView/decorator opt in by emitting the two spans — see
+   the Wave-2 contract; nothing applies it yet, so this is inert until used. */
+.nkui-twin-short {
+	display: none;
+}
+.nkui-twin-long {
+	display: inline;
+}
+@container nkui-explorer (max-width: 260px) {
+	.nkui-twin-long {
+		display: none;
+	}
+	.nkui-twin-short {
+		display: inline;
+	}
+}
+@container nkui-now (max-width: 300px) {
+	.nkui-twin-long {
+		display: none;
+	}
+	.nkui-twin-short {
 		display: inline;
 	}
 }

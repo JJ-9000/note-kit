@@ -138,7 +138,9 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	],
 	applyTypeBodyClass: true,
 	typeTint: true,
-	themePalette: true,
+	// The curated palette ships as the default look; theme-derivation is the
+	// opt-in (the author's settled preference, promoted 2026-06-12).
+	themePalette: false,
 	syncGraphColors: true,
 	floatTopTypes: ["project", "index", "plan"],
 
@@ -161,10 +163,11 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// ≈ "two rows up": content sits a touch above true centre by default.
 	nowVerticalBias: -12,
 	paletteMigrated: false,
-	holdMs: 395,
+	// 500ms settled as the comfortable commit on a phone (395 grazed too easily).
+	holdMs: 500,
 	solidIcons: true,
-	largeMouths: false,
-	roundedCorners: false,
+	largeMouths: true,
+	roundedCorners: true,
 	minimalistMode: false,
 };
 

@@ -165,11 +165,11 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	queueCleanView: true,
 	sidebarNow: true,
 	layoutSeeded: false,
-	// ≈ "two rows up": content sits a touch above true centre by default.
-	nowVerticalBias: -12,
+	// The author's settled placement — content sits noticeably above true centre.
+	nowVerticalBias: -30,
 	paletteMigrated: false,
-	// 500ms settled as the comfortable commit on a phone (395 grazed too easily).
-	holdMs: 500,
+	// 610ms settled as the comfortable commit (the author's tuned hold).
+	holdMs: 610,
 	solidIcons: true,
 	largeMouths: true,
 	// Sharp stays the kit default — rounded is the opt-in iOS look (the author
@@ -177,7 +177,7 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	roundedCorners: false,
 	minimalistMode: false,
 	// 1.0 = real-time (default); the CSS token --nkui-speed-user divides durations.
-	animSpeed: 1.0,
+	animSpeed: 1.1,
 };
 
 /** Sanitize a type value into a CSS class suffix. Shared by css + noteClass. */

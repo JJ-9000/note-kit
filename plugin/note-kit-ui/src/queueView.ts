@@ -167,6 +167,27 @@ export class QueueView extends ItemView {
 		this.render();
 	}
 
+	/** Vertical placement bias — mirrors NowView.applyScreenShift so the queue
+	 * view honours settings.nowVerticalBias identically to For You (the .nkui-now
+	 * flex spacers read --nkui-screen-shift). Desktop emits the bias; mobile also
+	 * corrects for the pane sitting below the screen centre. Keeps every vertical
+	 * element on one setting across surfaces. */
+	private applyScreenShift(): void {
+		const bias = ((this.plugin.settings.nowVerticalBias ?? 0) / 100) * window.innerHeight;
+		if (!Platform.isMobile) {
+			this.contentEl.style.setProperty("--nkui-screen-shift", `${bias}px`);
+			return;
+		}
+		const pane = this.contentEl.getBoundingClientRect();
+		if (pane.height <= 0) return;
+		const shift = window.innerHeight / 2 - (pane.top + pane.height / 2);
+		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift + bias}px`);
+	}
+
+	onResize(): void {
+		this.applyScreenShift();
+	}
+
 	// ── rendering ──────────────────────────────────────────────────────────────
 
 	private render(): void {
@@ -177,6 +198,7 @@ export class QueueView extends ItemView {
 		// column (`.nkui-now > *`), the page padding, the stable scrollbar gutter.
 		c.addClass("nkui-now");
 		c.addClass("nkui-queue");
+		this.applyScreenShift();
 		// A sidebar dock is narrow — the stylesheet keys compact spacing off this.
 		c.toggleClass("nkui-queue-side", this.isSideLeaf());
 

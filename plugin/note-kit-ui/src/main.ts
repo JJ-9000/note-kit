@@ -773,8 +773,11 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * reviewed-toggle path — no custom file writer). */
 	private injectReviewedHeader(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
 		// Walk up to the preview sizer — the stable container that persists across
-		// section re-renders. The sizer is the direct parent of every section el.
-		const sizer = el.parentElement;
+		// section re-renders. closest(), NOT parentElement: Obsidian doesn't
+		// guarantee a section el's direct parent is the sizer (it isn't — the
+		// header never injected with parentElement). A detached el at process time
+		// returns null here, so a later attached section does the inject.
+		const sizer = el.closest(".markdown-preview-sizer");
 		if (!sizer) return;
 		// Reading view only — never an embed (![[note]]) or a hover-preview. Their
 		// render has a sizer too, so without this the header sprouts mid-document

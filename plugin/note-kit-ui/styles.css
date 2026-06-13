@@ -3161,9 +3161,13 @@ body.nkui-rounded.is-mobile .nav-folder-title {
    pane) is the guaranteed way back, so even the settings gear may go — the
    old conservative carve-outs (gear-bearing ribbon action, gear navbar
    action, mobile view-header) are retired with it. ──────────────────────────── */
-/* Tab strips — the main area AND the side docks/drawers. The exit control
-   replaces the lost-file-view safety net the sidebar strips used to provide. */
-body.nkui-minimal .workspace-tab-header-container {
+/* Tab strips stay as slim bars — each carries the window-DRAG region, the SIDEBAR
+   TOGGLES, and the dark bg that blends the window controls. Hiding the container
+   entirely (the old behaviour) left no way to move the window, no way to open a
+   collapsed sidebar, and bared the close/minimize controls on a mismatched colour.
+   Hide the tab items + new-tab button instead — minimal, but still functional. */
+body.nkui-minimal .workspace-tab-header,
+body.nkui-minimal .workspace-tab-header-new-tab-button {
 	display: none !important;
 }
 /* Every view-header, mobile included, and the edit/read pill with it. */

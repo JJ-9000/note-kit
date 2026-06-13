@@ -5,7 +5,7 @@ description: Writes and maintains a plan note: a living checklist of the work to
 
 # plan
 
-A goal in, a plan note out, and the same skill keeps it current. Reach for a plan when the work needs more than a sentence to sequence; a single instruction one step satisfies does not. The note-kit-handoff skill calls this skill rather than hand-rolling a plan.
+The note-kit-plan skill writes and maintains one plan per project — a living, multi-step checklist toward a goal, kept current as the work moves.
 
 ## Generation guardrails
 

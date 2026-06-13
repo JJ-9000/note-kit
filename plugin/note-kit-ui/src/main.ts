@@ -5,6 +5,7 @@ import { ExplorerDecorator } from "./decorator";
 import { NoteClassApplier } from "./noteClass";
 import { NowView, NOW_VIEW_TYPE, NOW_SIDE_VIEW_TYPE } from "./nowView";
 import { QueueView, QUEUE_VIEW_TYPE, rawEscapes } from "./queueView";
+import { ConfigView, CONFIG_VIEW_TYPE } from "./configView";
 import { closeOfferMs, configureHolds } from "./holds";
 import { KitFacts, readKitFacts } from "./kitConfig";
 import { autoColor, deriveThemePalette } from "./palette";
@@ -85,7 +86,15 @@ export default class NoteKitUiPlugin extends Plugin {
 		this.registerView(NOW_VIEW_TYPE, (leaf) => new NowView(leaf, this));
 		this.registerView(NOW_SIDE_VIEW_TYPE, (leaf) => new NowView(leaf, this, true));
 		this.registerView(QUEUE_VIEW_TYPE, (leaf) => new QueueView(leaf, this));
+		this.registerView(CONFIG_VIEW_TYPE, (leaf) => new ConfigView(leaf, this));
 		this.addRibbonIcon("sun", "Open For You view", () => this.activateNowView());
+		// CONFIG-editor ribbon — only when the feature is enabled, so an install
+		// that doesn't want it carries no extra ribbon icon.
+		if (this.settings.configEditor) {
+			this.addRibbonIcon("sliders-horizontal", "Open CONFIG editor", () =>
+				void this.openConfigView()
+			);
+		}
 		// `icon` so the command carries the For You sun when added to the mobile
 		// toolbar — the quick way into the view on a phone.
 		this.addCommand({
@@ -127,6 +136,21 @@ export default class NoteKitUiPlugin extends Plugin {
 			name: "Open machine queue (clean view)",
 			icon: "list-checks",
 			callback: () => void this.openQueueView(this.settings.machineQueuePath),
+		});
+		// CONFIG editor — the schema-driven editable view of the kit's CONFIG.md
+		// tables (read-only until held-to-unlock; saves archive-first + shape-check).
+		// Gated on the setting so an install that doesn't want it stays clean. Icon
+		// so it carries its glyph on the mobile toolbar like the other view commands.
+		this.addCommand({
+			id: "open-config-editor-view",
+			name: "Open CONFIG editor",
+			icon: "sliders-horizontal",
+			checkCallback: (checking) => {
+				if (checking) return this.settings.configEditor;
+				if (!this.settings.configEditor) return false;
+				void this.openConfigView();
+				return true;
+			},
 		});
 
 		// Reviewed header — a fixed header row surfacing the `reviewed` frontmatter
@@ -265,6 +289,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-rounded");
 		document.body.removeClass("nkui-minimal");
 		document.body.removeClass("nkui-skim-min-done");
+		document.body.removeClass("nkui-skim-condense");
+		document.body.removeClass("nkui-skim-tier-readable");
+		document.body.removeClass("nkui-skim-tier-faint");
+		document.body.removeClass("nkui-skim-tier-outline");
 		document.body.removeClass("nkui-skim");
 	}
 
@@ -277,14 +305,33 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
 		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
 		// Skim: minimize-completed is a pure-CSS dim of `- [x]` items (body class);
-		// the folding modes also wear nkui-skim so the collapse affordance shows.
+		// condense + the folding modes also wear nkui-skim so the chevron/heading
+		// affordance shows. condense additionally wears nkui-skim-condense, which
+		// drives the CSS that shrinks every non-heading block to an outline row.
 		document.body.toggleClass(
 			"nkui-skim-min-done",
 			this.settings.skimMode === "minimize-completed"
 		);
+		document.body.toggleClass("nkui-skim-condense", this.settings.skimMode === "condense");
+		// Condense intensity tier — one of nkui-skim-tier-readable / -faint /
+		// -outline, applied only in condense mode. Always strip all three first so a
+		// tier change (or a mode change away from condense) swaps cleanly with no
+		// stale tier class lingering. The extra body class raises specificity over
+		// the base condense rules, so each tier's opacity/margin overrides win.
+		const condensing = this.settings.skimMode === "condense";
+		document.body.removeClass(
+			"nkui-skim-tier-readable",
+			"nkui-skim-tier-faint",
+			"nkui-skim-tier-outline"
+		);
+		if (condensing) {
+			document.body.addClass("nkui-skim-tier-" + this.settings.condenseTier);
+		}
 		document.body.toggleClass(
 			"nkui-skim",
-			this.settings.skimMode === "fold-keywords" || this.settings.skimMode === "first-last"
+			this.settings.skimMode === "condense" ||
+				this.settings.skimMode === "fold-keywords" ||
+				this.settings.skimMode === "first-last"
 		);
 		// Re-apply the persisted animation-speed multiplier on load (§ Z slider
 		// writes it live; without this it stays at the stylesheet default until
@@ -812,6 +859,24 @@ export default class NoteKitUiPlugin extends Plugin {
 		}
 		const leaf = ws.getLeaf("tab");
 		await leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: path }, active: true });
+	}
+
+	/** Open (or reveal) the CONFIG editor view. Like openQueueView: an existing
+	 * leaf is revealed wherever the user docked it; otherwise it opens as a
+	 * main-area tab, ready to be dragged to a side dock (the place-anywhere
+	 * philosophy — the plugin never forces a pane). Right-panel auto-routing is
+	 * deliberately NOT wired (see the design note in onload): the existing
+	 * right-dock / sidebar logic is delicate, so the conservative Pass-4 choice is
+	 * a command + ribbon that open the view explicitly. */
+	private async openConfigView(): Promise<void> {
+		const ws = this.app.workspace;
+		const existing = ws.getLeavesOfType(CONFIG_VIEW_TYPE)[0];
+		if (existing) {
+			await ws.revealLeaf(existing);
+			return;
+		}
+		const leaf = ws.getLeaf("tab");
+		await leaf.setViewState({ type: CONFIG_VIEW_TYPE, active: true });
 	}
 
 	/** A leaf living in a side dock. Desktop popout windows are excluded by the

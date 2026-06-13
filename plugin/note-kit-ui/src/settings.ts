@@ -101,13 +101,27 @@ export interface NoteKitUiSettings {
 	/** Skim mode — a reading-view declutter (reading view only; live preview is a
 	 * CM6 surface a post-processor never sees). One of:
 	 *  · "off"               — no skim treatment.
+	 *  · "condense"          — the primary skim: every non-heading block (paragraphs,
+	 *                          blockquotes, lists, tables, completed `- [x]` items)
+	 *                          shrinks to a dim single-line outline row; headings stay
+	 *                          legible as scan anchors. Click a heading to restore its
+	 *                          section to full size; the rest stays condensed.
 	 *  · "minimize-completed"— `- [x]` checked items render dim + reduced.
 	 *  · "fold-keywords"     — sections whose header matches skimFoldKeywords start folded.
 	 *  · "first-last"        — fold every section except the first and last header. */
-	skimMode: "off" | "minimize-completed" | "fold-keywords" | "first-last";
+	skimMode: "off" | "condense" | "minimize-completed" | "fold-keywords" | "first-last";
 	/** Comma-separated header keywords that start folded under skimMode
 	 * "fold-keywords" (case-insensitive substring match on the header text). */
 	skimFoldKeywords: string;
+	/** Condense intensity — three tiers layered on the base condense look (only in
+	 * effect when skimMode is "condense"; drives body.nkui-skim-tier-<tier>):
+	 *  · "readable" — condensed content lifted to read clearly + heading margins
+	 *                 tightened to a dense stack; headings keep full size.
+	 *  · "faint"    — condensed content at the dimmest recede + sparse default
+	 *                 heading margins (pure scroll-past; today's original look).
+	 *  · "outline"  — readable's lift + tight margins PLUS shrunk heading fonts,
+	 *                 so the whole note reads as one uniform compact outline. */
+	condenseTier: "readable" | "faint" | "outline";
 
 	/** User-replaceable control icons: control-key → raw SVG (a full `<svg>…</svg>`
 	 * or a bare path-d). Feeds the nkui-solid-icons mask machinery via css.ts; an
@@ -118,6 +132,13 @@ export interface NoteKitUiSettings {
 	/** Clicking a tag (frontmatter pill or inline `a.tag`) opens the graph view
 	 * filtered to that tag (tag:#<tag>) instead of the default tag search. */
 	tagClickOpensGraph: boolean;
+
+	/** Enable the schema-driven CONFIG-editor view (a command + ribbon to open an
+	 * editable grid of CONFIG.md's tables). Off hides the command and ribbon. The
+	 * view itself opens read-only and gates every save behind a hold-to-unlock,
+	 * an archive-prior copy, and a shape check — but the editor is consequential
+	 * (it writes the canonical CONFIG), so it stays opt-in. */
+	configEditor: boolean;
 }
 
 /** Defaults seeded from the kit's CONFIG vocabulary (types, inbox path). */
@@ -205,6 +226,10 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	skimMode: "off",
 	// A sensible starter set of "boilerplate" headers worth folding away.
 	skimFoldKeywords: "appendix, references, notes, changelog, metadata",
+	// Readable is the kit default — the lifted dim + dense heading stack reads as a
+	// usable little list; faint (the original ultra-recede) and outline (uniform
+	// shrunk-heading outline) are the opt-in alternatives.
+	condenseTier: "readable",
 
 	// No icon overrides ship — every control uses its solid-icon default until the
 	// user pastes their own SVG in the Icons settings group.
@@ -212,6 +237,11 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 
 	// The feature's whole point — on by default; a tag click opens the graph.
 	tagClickOpensGraph: true,
+
+	// Opt-in: the CONFIG editor writes the canonical CONFIG, so it ships off and
+	// the user enables it deliberately (every save is still gated by the unlock,
+	// the archive-prior copy, and the shape check).
+	configEditor: false,
 };
 
 /** Sanitize a type value into a CSS class suffix. Shared by css + noteClass. */
@@ -399,6 +429,18 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			);
 		}
 
+		new Setting(containerEl)
+			.setName("CONFIG editor")
+			.setDesc(
+				"Add a command and ribbon icon that open an editable grid of the kit's .claude/CONFIG.md tables. The view opens read-only; a hold-to-unlock arms editing, and every save archives the prior CONFIG, refuses any change that would break the table shape, and asks you to run sync_config to propagate. The icon and command appear after the next reload."
+			)
+			.addToggle((t) =>
+				t.setValue(s.configEditor).onChange(async (v) => {
+					s.configEditor = v;
+					await save();
+				})
+			);
+
 		// ── Visual controls ────────────────────────────────────────────────────
 		new Setting(containerEl).setName("Visual").setHeading();
 
@@ -447,11 +489,12 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Skim mode")
 			.setDesc(
-				"Declutter long notes in READING VIEW (live preview is unaffected). Minimize completed dims `- [x]` checked items the way crossed-off lines read. Fold by keyword starts matching-header sections folded — click a header to expand. First/last folds every section except each note's first and last header."
+				"Declutter long notes in READING VIEW (live preview is unaffected). Condense shrinks every non-heading block — paragraphs, lists, completed `- [x]` items — to a dim single-line outline you scroll right past, keeping the headings legible as anchors; click a heading to restore its section to full size. Minimize completed dims only `- [x]` checked items. Fold by keyword starts matching-header sections folded — click a header to expand. First/last folds every section except each note's first and last header."
 			)
 			.addDropdown((d) =>
 				d
 					.addOption("off", "Off")
+					.addOption("condense", "Condense to outline (recommended)")
 					.addOption("minimize-completed", "Minimize completed items")
 					.addOption("fold-keywords", "Fold sections by keyword")
 					.addOption("first-last", "First/last header only")
@@ -460,6 +503,26 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 						s.skimMode = v as NoteKitUiSettings["skimMode"];
 						await save();
 						this.display(); // show/hide the keyword field
+					})
+			);
+
+		// Condense intensity — three tiers layered on the base condense look. Shown
+		// always (it only bites when Skim mode is Condense, noted in the description),
+		// so the user can set their preferred tier without first flipping to condense.
+		new Setting(containerEl)
+			.setName("Condense intensity")
+			.setDesc(
+				"Only when Skim mode is Condense. Readable lifts the dim so the outline reads clearly and tightens heading spacing into a dense stack. Faint is the dimmest scroll-past recede with sparse heading spacing. Outline does what Readable does and also shrinks the headings, so the whole note reads as one uniform compact outline."
+			)
+			.addDropdown((d) =>
+				d
+					.addOption("readable", "Readable (recommended)")
+					.addOption("faint", "Faint")
+					.addOption("outline", "Outline")
+					.setValue(s.condenseTier)
+					.onChange(async (v) => {
+						s.condenseTier = v as NoteKitUiSettings["condenseTier"];
+						await save();
 					})
 			);
 

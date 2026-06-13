@@ -658,14 +658,22 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	margin-left: calc(-1 * var(--nkui-head-pad-l));
 	padding-inline: 0.6em;
 }
+/* Resting hover (collapsed head) — the SAME faint wash the file-explorer rows
+   take on hover. A real-type section washes in its own section (type) colour at
+   the explorer's 12% hover step; a neutral/queue/waiting head (whose section
+   colour is the bare accent) keeps the neutral --nkui-hover grey so it doesn't
+   shout. The open-head hover (28%) is defined further down and wins by order. */
 .nkui-now-group-head:hover {
 	background: var(--nkui-hover);
+}
+.nkui-now-group:not(.nkui-now-group-queue):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 12%, var(--background-primary));
 }
 /* Gentle count-pill emphasis on a hovered (collapsed) section head (item 7,
    desktop only). brightness — NOT transform/scale — so getBoundingClientRect
    is unchanged and squareHeadPills' measurement can never be corrupted by a
-   hover state. Open heads carry their own solid-band treatment; this is the
-   resting collapsed pill lifting a hair under the pointer. */
+   hover state. Open heads carry their own wash treatment; this is the resting
+   collapsed pill lifting a hair under the pointer. */
 body:not(.is-mobile) .nkui-now-group-head .nkui-now-count {
 	transition: filter var(--nkui-fade) var(--nkui-ease),
 		min-width var(--nkui-grow) var(--nkui-ease),
@@ -1538,19 +1546,27 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	color: color-mix(in srgb, var(--text-accent, var(--interactive-accent)) 60%, var(--text-normal));
 }
 
-/* ── Open-section emphasis — an unfolded, non-empty section wears its tone:
-   the WHOLE head band takes the pill's colour (the pill melts into the band —
-   same tone, flush box; the count digit stays readable in on-accent text) and
-   the head GROWS: title a step up, band a step taller — vertical-only, the
-   title stays left-justified and the inline padding never changes, so nothing
-   shifts horizontally on open. Collapsed stays neutral, so unfolding is
-   visible feedback. Hover brightens instead of washing, since the band
-   already carries colour. ───────────────────────────────────────────────────── */
-/* Waiting stays out: it is the deliberately neutral, low-key section (its
-   section colour falls back to the accent, which would shout). */
+/* ── Open-section emphasis — an unfolded, non-empty section reads EXACTLY like an
+   open (selected) file-explorer row: a subtle TINTED WASH of its tone over the
+   page (NOT a solid saturated band), and the title turns the TYPE COLOUR (the
+   explorer's "active row takes its kind's colour" mechanism). The same wash
+   formulas the explorer rows use:
+     · rest (collapsed) — neutral text, no wash (the head's default + :hover
+       --nkui-hover above, mirroring an idle explorer row).
+     · hover            — --nkui-hover (neutral) on a typeless/queue head, or the
+       12%-type wash on a tinted head (the explorer's :hover step).
+     · open             — the 22%-type wash (the explorer's .is-active step), title
+       in the section colour.
+   The head still GROWS on open (taller band, bigger title — vertical only, no
+   horizontal shift; squareHeadPills re-measures the taller band into the pill's
+   min-width). The count pill keeps its solid type colour through every state, so
+   the coloured count reads the same resting and open — no white-on-solid band.
+   Waiting stays out: its section colour falls back to the accent, which would
+   shout; it keeps the neutral low-key treatment. ───────────────────────────── */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head {
-	background: var(--nkui-section-color, var(--interactive-accent));
-	color: var(--text-on-accent, #fff);
+	/* The explorer's open/selected-row wash: a faint tint over the page, opaque
+	   (over background-primary) so ClearType stays crisp on the title text. */
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 22%, var(--background-primary));
 	padding-block: var(--nkui-gap-s);
 }
 /* The flush children keep eating the band's block padding at the new step
@@ -1558,23 +1574,25 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
 	margin-block: calc(-1 * var(--nkui-gap-s));
 }
+/* Hover on an OPEN head steps the wash one stop stronger (28%), the explorer's
+   hover-over-active step — no brightness filter (the band is a wash now, not a
+   solid that a filter would lift). */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
-	background: var(--nkui-section-color, var(--interactive-accent));
-	filter: brightness(1.08);
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 28%, var(--background-primary));
 }
+/* The TITLE takes the section (type) colour on open — the explorer's "active row
+   wears its kind's colour" mechanism, applied to the head. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-group-title {
 	font-size: 1.6em; /* the 1.45em open step, grown a further ~10% */
-	color: var(--text-on-accent, #fff);
+	color: var(--nkui-section-color, var(--text-accent, var(--interactive-accent)));
 }
-/* The count pill on an OPEN solid band goes TRANSPARENT — its opaque inline
-   type colour otherwise paints over the sweeping hold fill and reads as a
-   stuck square during press-and-hold. The band tone shows through; the digit
-   stays in on-accent ink (pill content sits above the z:-1 fill, the fill
-   above the band background). Collapsed heads keep the solid pill. The digit
-   also grows a step with the open band, on the same slow clock as the title. */
+/* The count pill keeps its SOLID inline type colour on open (the digit stays in
+   on-accent ink, set by .nkui-now-count) — the coloured count reads the same
+   resting and open, like a steady explorer badge. It also grows a step with the
+   open band, on the same slow clock as the title. The hold-fill sweep (z:-1,
+   behind the pill) passes behind it; the pill stays an opaque coloured square,
+   which now matches the resting look instead of vanishing. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
-	background: transparent !important;
-	color: var(--text-on-accent, #fff);
 	font-size: calc(var(--font-ui-smaller, 12px) * 1.15);
 }
 /* …and its CHILD rows carry a LIGHTER wash of the same colour at rest (folder →
@@ -2511,6 +2529,158 @@ input.nkui-type-grid-swatch {
 	padding: 0.3em 0;
 }
 
+/* ── CONFIG editor view — the schema-driven editable grid of CONFIG.md's tables.
+   Shares the queue page chrome (nkui-now + nkui-queue: centred column, page
+   wash, head/title/raw-toggle). Its own pieces below: the per-section heading,
+   the table GRID (column count derived from the parsed header, never fixed), the
+   read-only marker for a table-less section, the save bar, and the inline
+   shape-refusal banner. The lock scrim reuses .nkui-queue-lock verbatim. ─────── */
+.nkui-config-section {
+	margin-bottom: var(--nkui-gap-l);
+}
+.nkui-config-section-title {
+	font-size: 1.15em;
+	font-weight: 800;
+	letter-spacing: -0.01em;
+	color: var(--text-normal);
+	margin-bottom: var(--nkui-gap-s);
+}
+/* A section with no table — visible, never dropped (the brief's read-only render
+   for an odd/prose section). */
+.nkui-config-readonly {
+	font-size: var(--font-ui-small, 13px);
+	font-style: italic;
+	color: var(--text-faint);
+	padding: 0.2em 0;
+}
+/* The grid: one CSS-grid per table, --nkui-config-cols (set inline from the
+   parsed header width) equal fractions across. Cells stack into a rectangular
+   grid; the header row reads as column labels. */
+.nkui-config-grid {
+	display: grid;
+	grid-template-columns: repeat(var(--nkui-config-cols, 1), minmax(0, 1fr));
+	gap: 1px;
+	margin-bottom: var(--nkui-gap-m);
+	/* The 1px gap shows the page wash between cells as hairline rules — the
+	   "table border" without drawing borders, kin to the queue zebra. */
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 18%, transparent);
+	border: 1px solid color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 18%, transparent);
+	border-radius: var(--nkui-radius);
+	overflow: hidden;
+}
+.nkui-config-row {
+	display: contents; /* the cells are the grid items; the row is a logical group */
+}
+.nkui-config-cell {
+	padding: var(--nkui-gap-2xs) var(--nkui-gap-s);
+	font-size: var(--font-ui-smaller, 12px);
+	color: var(--text-normal);
+	background: var(--background-primary);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+/* Header cells — the column names, the one row that reads as labels. */
+.nkui-config-colhead {
+	font-weight: 700;
+	color: var(--text-muted);
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 8%, var(--background-secondary));
+	text-transform: none;
+}
+/* A malformed row (cell count ≠ header) stays read-only even when unlocked, and
+   reads as flagged so the user knows to fix it in the raw markdown. */
+.nkui-config-row-malformed .nkui-config-cell {
+	color: var(--text-faint);
+	background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
+	font-style: italic;
+}
+/* An editable cell input — a slim auto-growing textarea that fills its cell. */
+.nkui-config-input {
+	width: 100%;
+	box-sizing: border-box;
+	resize: none;
+	border: none;
+	background: transparent;
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller, 12px);
+	font-family: var(--font-text, inherit);
+	line-height: 1.4;
+	padding: 0;
+	overflow: hidden;
+}
+.nkui-config-input:focus {
+	outline: 1px solid color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 55%, transparent);
+	border-radius: var(--nkui-radius);
+}
+/* The raw-markdown read view — the whole CONFIG in one read-only textarea. */
+.nkui-config-raw {
+	width: 100%;
+	box-sizing: border-box;
+	resize: vertical;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--nkui-radius);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-family: var(--font-monospace, monospace);
+	font-size: var(--font-ui-smaller, 12px);
+	line-height: 1.5;
+	padding: var(--nkui-gap-s);
+}
+/* The save bar (shown while unlocked): pending count, cancel, hold-to-save. */
+.nkui-config-savebar {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+	margin-top: var(--nkui-gap-m);
+	padding: var(--nkui-gap-s) 0;
+	background: color-mix(in srgb, var(--nkui-draft-color) var(--nkui-queue-wash, 5%), var(--background-primary));
+}
+.nkui-config-pending {
+	flex: 1 1 auto;
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-muted);
+}
+.nkui-config-cancelbtn,
+.nkui-config-savebtn {
+	flex: 0 0 auto;
+	cursor: pointer;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
+	background: transparent;
+	color: var(--text-normal);
+	padding: 0.4em 1em;
+	font-size: var(--font-ui-small, 13px);
+}
+/* Save is a hold (nkui-row-hold) — the fill sweeps the button on commit, the
+   shared hold language. touch-action/overflow come from .nkui-row-hold. */
+.nkui-config-savebtn {
+	position: relative;
+	z-index: 0;
+	color: var(--interactive-accent);
+	border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+}
+/* The inline shape-refusal banner — replaces the silent write the brief forbids
+   with a precise, visible message (one line per refusal). Error-tinted. */
+.nkui-config-refusal {
+	margin-bottom: var(--nkui-gap-m);
+	padding: var(--nkui-gap-s);
+	border: 1px solid color-mix(in srgb, var(--text-error) 45%, transparent);
+	border-radius: var(--nkui-radius);
+	background: color-mix(in srgb, var(--text-error) 10%, var(--background-primary));
+}
+.nkui-config-refusal-title {
+	font-weight: 700;
+	color: var(--text-error);
+	margin-bottom: var(--nkui-gap-2xs);
+}
+.nkui-config-refusal-list {
+	margin: 0;
+	padding-left: 1.2em;
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-normal);
+}
+
 /* ── Solid icons — minimal filled shapes replace the outline control glyphs,
    via CSS mask in currentColor (the staged plan in the icon-options note: mask
    the existing <svg>, hide only its child paths, so an uncovered glyph keeps
@@ -3068,11 +3238,12 @@ body.is-mobile .nkui-now::after {
 body:not(.nkui-anim) .nkui-row-hold.is-holding::before {
 	transition: none !important;
 }
-/* An OPEN coloured head band is already solid section colour — its fill sweeps
-   in on-accent ink instead, stepped up so it reads on the solid band. */
+/* An OPEN head band is now a faint section-colour WASH (matching the explorer's
+   active row), so the hold fill sweeps in the SAME section colour as every other
+   row — the base ::before (--nkui-section-color fallback) already does that. It
+   steps the opacity up a hair so the sweep reads clearly over the resting wash. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head.nkui-row-hold::before {
-	background: currentColor;
-	opacity: 0.35;
+	opacity: 0.3;
 }
 /* Mobile contrast steps — arming must be unmistakable under a thumb. */
 body.is-mobile .nkui-row-hold.is-holding {
@@ -3618,6 +3789,176 @@ body.nkui-skim-min-done
 	color: var(--text-normal);
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   Condense to outline (skimMode "condense", body.nkui-skim-condense) — the
+   PRIMARY skim. Every NON-heading block in the reading view shrinks to a dim,
+   single-line outline row you scroll right past; the headings stay legible as
+   anchors, so the note reads as a dense outline. Clicking a heading (the
+   nkui-skim post-processor toggles nkui-skim-expanded on its owned sections)
+   restores THAT section to full reading size; the rest stays condensed.
+   Reading view only — scoped to .markdown-preview-view, so the live-preview
+   editor is never touched. ──────────────────────────────────────────────────
+
+   The condense target: a preview sizer's direct children are one block each
+   (.el-p, .el-ul, .el-ol, .el-blockquote, .el-table, .el-pre, …) and headings
+   are .el-h1…h6. Condense every direct child that is NOT a heading section
+   (.nkui-skim-head wraps a heading) and NOT the reviewed-header chrome and NOT
+   an expanded section. */
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	font-size: var(--font-ui-smaller, 12px);
+	line-height: 1.25;
+	/* Tighten to a tidy stack — the brief's "little list" spacing. */
+	margin-block: 1px;
+	opacity: 0.5;
+	/* Single-line clamp: the whole block trails off with an ellipsis instead of
+	   wrapping, so each block is exactly one outline row tall. */
+	max-height: 1.6em;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
+}
+/* Hovering a condensed block lifts its dim (not its height) so a glance can
+   still read a line in full tone without expanding the whole section. */
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):hover {
+	opacity: 0.8;
+}
+/* A condensed LIST is a stack of one-line rows: each item clamps to a single
+   line with its own ellipsis, tightly spaced, the bullet kept. The outer block's
+   max-height cap above is lifted for lists (the items carry their own clamp), so
+   the little list shows several rows rather than just its first line. */
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):is(.el-ul, .el-ol) {
+	max-height: none;
+	white-space: normal;
+}
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-expanded):is(.el-ul, .el-ol) li {
+	line-height: 1.3;
+	margin-block: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+/* A condensed completed task reads doubly recessed — the crossed-off look layered
+   on the outline shrink, so finished work is the easiest thing to scroll past. */
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-expanded) .task-list-item[data-task="x"],
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-expanded) .task-list-item[data-task="X"] {
+	text-decoration: line-through;
+	text-decoration-color: var(--text-faint);
+	color: var(--text-faint);
+}
+/* An EXPANDED section returns to full reading: it carries no shrink rules (the
+   :not(.nkui-skim-expanded) guards exclude it), so it renders at the theme's own
+   size. Nothing more to declare — absence of the condense rules IS full size. */
+
+/* ── Condense intensity tiers (body.nkui-skim-tier-readable / -faint / -outline,
+   set by main.applyBodyClasses only in condense mode). Each tier layers on the
+   base condense look above — the single-line clamp, nowrap, ellipsis, and
+   font-ui-smaller stay for every tier; the tiers only adjust the condensed-content
+   OPACITY, the heading-block MARGINS, and (outline only) the heading FONT SIZE.
+   The extra tier class on body raises specificity over the base condense rule
+   (two body classes beat one), so each tier's opacity/margin wins. All rules stay
+   gated under body.nkui-skim-condense so nothing leaks outside condense mode; the
+   expand/chrome exclusions are inherited from the same :not(...) guards. */
+
+/* FAINT — the original ultra-recede: condensed content at the dimmest legible
+   tone, heading margins left at the theme default (a sparse, pure scroll-past
+   outline). This restates today's base look at tier specificity. */
+body.nkui-skim-condense.nkui-skim-tier-faint
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	opacity: 0.5;
+}
+
+/* READABLE — lift the dim so the little list reads clearly, and tighten the
+   heading blocks into a dense stack (headings keep their full font size, just
+   pulled closer together). The compact stack makes the outline scannable as a
+   table of contents rather than a spread-out page. */
+body.nkui-skim-condense.nkui-skim-tier-readable
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	opacity: 0.66;
+}
+body.nkui-skim-condense.nkui-skim-tier-readable
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> .nkui-skim-head {
+	margin-block: 0.45em 0.12em;
+}
+
+/* OUTLINE — everything readable does (lifted dim + tight heading margins) PLUS a
+   shrink of the headings toward a tight uniform outline: h1 down to ~1.2em, h2
+   ~1.05em, h3–h6 ~0.95em, with the same compact margins. The whole note then
+   reads as one even compact outline rather than big headings over tiny content.
+   The heading element itself (the inner h1…h6, NOT the .nkui-skim-head wrapper)
+   carries the font size, so the chevron and full-row hit target are untouched. */
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	opacity: 0.66;
+}
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> .nkui-skim-head {
+	margin-block: 0.3em 0.08em;
+}
+/* Shrink the condensed-section headings; the :not(.nkui-skim-expanded) guard
+   leaves a heading the user expanded back at full theme size. The heading may be
+   a DESCENDANT of the .nkui-skim-head wrapper (the .el-hN section shape) OR the
+   wrapper element ITSELF may be the heading (collectHeadings handles both), so
+   each rule targets the wrapper's inner hN AND the wrapper-as-hN. */
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> .nkui-skim-head:not(.nkui-skim-expanded) h1,
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> h1.nkui-skim-head:not(.nkui-skim-expanded) {
+	font-size: 1.2em;
+}
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> .nkui-skim-head:not(.nkui-skim-expanded) h2,
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> h2.nkui-skim-head:not(.nkui-skim-expanded) {
+	font-size: 1.05em;
+}
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> .nkui-skim-head:not(.nkui-skim-expanded) :is(h3, h4, h5, h6),
+body.nkui-skim-condense.nkui-skim-tier-outline
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> :is(h3, h4, h5, h6).nkui-skim-head:not(.nkui-skim-expanded) {
+	font-size: 0.95em;
+}
+
 /* ── Folding affordance — every decorated heading carries a leading chevron and
    becomes a click target (whole-row interaction). The chevron is a small solid
    triangle masked in currentColor; it rotates from pointing-down (open) to
@@ -3656,8 +3997,11 @@ body.nkui-skim .nkui-skim-head.is-folded .nkui-skim-chevron {
    max-height + opacity gives a soft close on the unroll clock rather than a
    hard pop; the post-processor toggles .nkui-skim-hidden on each owned section.
    overflow:hidden clips the collapsing block; pointer-events:none keeps a
-   half-collapsed block from catching clicks. */
-body.nkui-skim .markdown-preview-view .nkui-skim-hidden {
+   half-collapsed block from catching clicks. Gated OUT of condense mode — there
+   a leftover .nkui-skim-hidden (from a prior fold-mode render before the
+   mode-switch reset lands) must NOT collapse to zero; condense shows everything,
+   just shrunk. */
+body.nkui-skim:not(.nkui-skim-condense) .markdown-preview-view .nkui-skim-hidden {
 	max-height: 0 !important;
 	margin-block: 0 !important;
 	padding-block: 0 !important;

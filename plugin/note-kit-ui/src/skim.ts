@@ -9,7 +9,15 @@ import type NoteKitUiPlugin from "./main";
  * minimize/fold there would need a separate CM6 ViewPlugin (out of scope; the
  * setting copy says so).
  *
- * Three shapes, one `skimMode` setting:
+ * Shapes, one `skimMode` setting:
+ *  · condense — the PRIMARY skim. Every non-heading block (paragraphs,
+ *    blockquotes, lists, tables, completed `- [x]` items) shrinks to a dim
+ *    single-line outline row via the stylesheet (body.nkui-skim-condense); the
+ *    headings stay legible as scan anchors. This processor decorates each heading
+ *    with the same chevron + whole-row click affordance as the fold modes, but the
+ *    click EXPANDS the heading's owned block back to full reading size (clears the
+ *    condense on its sections) instead of hiding it. Condense by default, expand on
+ *    demand — the brief's "little list you scroll past".
  *  · minimize-completed — purely the body class nkui-skim-min-done (the
  *    stylesheet dims `- [x]` items the way crossed-off queue lines read); no
  *    per-section work, so this branch is a no-op here.
@@ -46,9 +54,17 @@ export class SkimProcessor {
 			heading.classList.remove("nkui-skim-heading");
 			const section = heading.closest<HTMLElement>(".nkui-skim-head");
 			if (section) {
-				section.classList.remove("nkui-skim-head", "is-folded");
+				section.classList.remove("nkui-skim-head", "is-folded", "is-expanded");
 				delete section.dataset.nkuiSkim;
 				delete section.dataset.nkuiSkimState;
+				// Clear any condense markers this heading's block left on its owned
+				// siblings, so a reload (or a mode switch) starts from clean DOM.
+				let node = section.nextElementSibling as HTMLElement | null;
+				while (node) {
+					if (node.classList.contains("nkui-skim-head")) break;
+					node.classList.remove("nkui-skim-hidden", "nkui-skim-expanded");
+					node = node.nextElementSibling as HTMLElement | null;
+				}
 			}
 		}
 		this.decorated.clear();
@@ -57,8 +73,9 @@ export class SkimProcessor {
 	process(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
 		const mode = this.plugin.settings.skimMode;
 		// minimize-completed is a body class only (the stylesheet does the dimming);
-		// off means nothing folds. Either way no per-section folding runs.
-		if (mode !== "fold-keywords" && mode !== "first-last") return;
+		// off means nothing runs. condense and the two fold modes decorate headings
+		// here — condense to expand-on-demand, the fold modes to hide-on-demand.
+		if (mode !== "condense" && mode !== "fold-keywords" && mode !== "first-last") return;
 
 		// Walk up to the preview sizer — the stable container that persists across
 		// section re-renders. Mirrors injectReviewedHeader's anchor choice.
@@ -102,12 +119,44 @@ export class SkimProcessor {
 		return headings;
 	}
 
-	/** Fold the sections of one fully-rendered preview sizer. Idempotent: a
+	/** Apply the active mode to one fully-rendered preview sizer. Idempotent: a
 	 * heading already wearing the skim toggle is re-evaluated, not re-wrapped, so
-	 * a re-render (theme change, scroll virtualization) settles to the same shape. */
+	 * a re-render (theme change, scroll virtualization) settles to the same shape.
+	 *
+	 * Two state machines on the SAME heading walk, picked by mode:
+	 *  · condense — every heading starts condensed (its block stays compact via the
+	 *    stylesheet); clicking a heading EXPANDS its block. nkuiSkimState "open"
+	 *    means expanded, the default (undefined / "folded") means condensed.
+	 *  · fold-keywords / first-last — every heading starts open EXCEPT those the
+	 *    mode folds; clicking a folded heading reveals its block. */
 	private applyFolds(sizer: HTMLElement, mode: string): void {
+		// Mode-switch hygiene: condense and the fold modes carry OPPOSITE-meaning
+		// markers — fold uses nkui-skim-hidden (+ "open"=visible), condense uses
+		// nkui-skim-expanded (+ "open"=expanded). Switching modes without clearing
+		// the prior mode's artifacts corrupts the new one (a leftover hidden block
+		// stays max-height:0; a fold-mode "open" reads as condense-expanded). When
+		// the mode differs from the last one applied to this sizer, strip every
+		// skim artifact so the new mode starts from clean DOM.
+		if (sizer.dataset.nkuiSkimMode !== mode) {
+			for (const child of Array.from(sizer.children) as HTMLElement[]) {
+				child.classList.remove("nkui-skim-hidden", "nkui-skim-expanded", "is-folded");
+				delete child.dataset.nkuiSkimState;
+			}
+			sizer.dataset.nkuiSkimMode = mode;
+		}
 		const headings = this.collectHeadings(sizer);
 		if (!headings.length) return;
+
+		if (mode === "condense") {
+			headings.forEach((h, i) => {
+				this.decorate(h.section, h.heading);
+				// Default condensed; a heading the user already expanded stays expanded
+				// across re-renders (the toggle owns the state thereafter).
+				const expanded = h.section.dataset.nkuiSkimState === "open";
+				this.setExpanded(headings, i, expanded);
+			});
+			return;
+		}
 
 		const keywords =
 			mode === "fold-keywords"
@@ -138,9 +187,10 @@ export class SkimProcessor {
 		});
 	}
 
-	/** Add the click-to-expand affordance to a heading section once. The whole
-	 * heading row is the hit target (whole-row interaction idiom); a leading
-	 * chevron marker shows fold state via CSS rotation. */
+	/** Add the click affordance to a heading section once. The whole heading row
+	 * is the hit target (whole-row interaction idiom); a leading chevron marker
+	 * shows the open/closed state via CSS rotation. The click toggles the block:
+	 * fold ⇄ unfold in the fold modes, condense ⇄ expand in condense mode. */
 	private decorate(section: HTMLElement, heading: HTMLElement): void {
 		if (section.dataset.nkuiSkim === "1") return;
 		section.dataset.nkuiSkim = "1";
@@ -159,20 +209,20 @@ export class SkimProcessor {
 			const sizer = section.closest(".markdown-preview-sizer");
 			if (!(sizer instanceof HTMLElement)) return;
 			// Recompute the heading list at click time so it tracks any re-render.
-			const folded = section.dataset.nkuiSkimState === "folded";
-			this.toggle(sizer, section, !folded);
+			const headings = this.collectHeadings(sizer);
+			const idx = headings.findIndex((h) => h.section === section);
+			if (idx < 0) return;
+			if (this.plugin.settings.skimMode === "condense") {
+				// "open" state means expanded; toggle to the other.
+				const expanded = section.dataset.nkuiSkimState === "open";
+				this.setExpanded(headings, idx, !expanded);
+			} else {
+				const folded = section.dataset.nkuiSkimState === "folded";
+				this.setFolded(sizer, headings, idx, !folded);
+			}
 		};
 		heading.addEventListener("click", handler);
 		this.decorated.set(heading, handler);
-	}
-
-	/** Toggle one heading by section reference: re-derive the list, find it,
-	 * fold/unfold its block. */
-	private toggle(sizer: HTMLElement, section: HTMLElement, fold: boolean): void {
-		const headings = this.collectHeadings(sizer);
-		const idx = headings.findIndex((h) => h.section === section);
-		if (idx < 0) return;
-		this.setFolded(sizer, headings, idx, fold);
 	}
 
 	/** Hide (or reveal) the sections that belong to heading `idx` — every sibling
@@ -215,6 +265,50 @@ export class SkimProcessor {
 				node.classList.remove("nkui-skim-hidden");
 			}
 			// else: content owned by a still-folded child — left hidden.
+			node = node.nextElementSibling as HTMLElement | null;
+		}
+	}
+
+	/** Condense mode's block toggle — the mirror of setFolded. Every non-heading
+	 * block is condensed by default (the stylesheet, body.nkui-skim-condense);
+	 * EXPANDING a heading marks its owned sections nkui-skim-expanded so the
+	 * stylesheet un-condenses them to full reading size, CONDENSING clears the
+	 * marker. The heading section carries is-folded while CONDENSED so the chevron
+	 * reads closed (points right) condensed and open (points down) expanded —
+	 * matching the fold modes' chevron language. State is recorded on the heading
+	 * section ("open" = expanded) so a re-render restores it.
+	 *
+	 * Nested blocks: expanding a parent does NOT un-condense a child heading whose
+	 * own block is still condensed — skipUntilLevel holds that child's level until
+	 * a sibling at or above it ends the child's block, exactly as setFolded keeps a
+	 * nested fold through a parent re-open. */
+	private setExpanded(
+		headings: { section: HTMLElement; heading: HTMLElement; level: number }[],
+		idx: number,
+		expand: boolean
+	): void {
+		const self = headings[idx];
+		self.section.dataset.nkuiSkimState = expand ? "open" : "folded";
+		// Condensed ⇒ chevron closed (is-folded); expanded ⇒ chevron open.
+		self.section.classList.toggle("is-folded", !expand);
+		let node = self.section.nextElementSibling as HTMLElement | null;
+		let skipUntilLevel: number | null = null;
+		while (node) {
+			const owns = headings.find((h) => h.section === node);
+			if (owns && owns.level <= self.level) break; // next section of same/higher rank
+			if (!expand) {
+				// Re-condensing: every owned non-heading block drops the expand marker.
+				node.classList.remove("nkui-skim-expanded");
+			} else if (owns) {
+				// A sub-heading row is itself never condensed (it stays a scan anchor);
+				// its OWN content stays condensed when the child is still condensed.
+				if (skipUntilLevel !== null && owns.level <= skipUntilLevel) skipUntilLevel = null;
+				node.classList.add("nkui-skim-expanded");
+				if (node.classList.contains("is-folded")) skipUntilLevel = owns.level;
+			} else if (skipUntilLevel === null) {
+				node.classList.add("nkui-skim-expanded");
+			}
+			// else: content owned by a still-condensed child — left condensed.
 			node = node.nextElementSibling as HTMLElement | null;
 		}
 	}

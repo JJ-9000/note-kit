@@ -318,7 +318,7 @@ export class NowView extends ItemView {
 		// Queue — you → AI checklist. Click an item's text to cross it off.
 		// Outbox drops (loose files beside the queue file) render as rows too.
 		if (machineFile instanceof TFile || drops.length) {
-			this.renderQueueBucket(c, "Queue/machine", "Queue", "var(--interactive-accent)", {
+			this.renderQueueBucket(c, "Queue/machine", "Queue", "var(--nkui-queue-color, var(--interactive-accent))", {
 				items: this.machineItems,
 				drops,
 				path: s.machineQueuePath,
@@ -607,7 +607,7 @@ export class NowView extends ItemView {
 		const id = "Queue/decide";
 		const b = parent.createDiv("nkui-now-group nkui-now-group-queue");
 		b.toggleClass("is-collapsed", this.isCollapsed(id, true));
-		this.bucketHead(b, id, "Decide", "var(--interactive-accent)", decisions.length, true);
+		this.bucketHead(b, id, "Decide", "var(--nkui-decide-color, var(--interactive-accent))", decisions.length, true);
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");

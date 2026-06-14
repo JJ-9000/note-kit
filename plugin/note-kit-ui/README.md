@@ -1,17 +1,26 @@
 # Note-Kit UI
 
-An optional Obsidian plugin that makes the note-kit's structure visible in the app — desktop and mobile. It replaces what would otherwise be four third-party plugins (Supercharged Links, FileName Styler / Front Matter Title, Draft Indicator) with one package that speaks the kit's exact vocabulary.
+An optional Obsidian plugin that makes the note-kit's structure visible in the app — desktop and mobile. It folds together what would otherwise be a stack of single-purpose community plugins — type-aware link styling, a draft indicator, a home dashboard, a reading declutter — into one package that speaks the kit's exact vocabulary.
 
 ## Features
 
 | | Feature | How |
 | - | ------- | --- |
-| **a** | Folder-prefix styling | Weights/fades explorer rows by their `00-`/`01-`/`02-`/`99-` prefix. |
-| **b** | Hide numeric prefix | Strips the structural prefix from displayed names (`00-Inbox` → `Inbox`). The on-disk filename keeps its prefix, so wikilinks still resolve. Date prefixes (`2026-…`) are deliberately never touched. |
-| **c** | Per-type styling | A coloured dot on each explorer row by `type`, and a coloured edge on the open note. Applied at render time — **no `cssclasses` written to any file**, so it needs no kit normalizer script. |
-| **d** | Unreviewed flags | A dot on each `reviewed: false` note, plus a live "N unreviewed" pill on the inbox folder row — the one thing no off-the-shelf plugin does. |
+| **a** | Per-type styling | A coloured dot on each explorer row by `type`, and a coloured edge — optionally a full tint of title, headings, and frontmatter — on the open note. Applied at render time — **no `cssclasses` written to any file**, so it needs no kit normalizer script. |
+| **b** | Theme palette | Derives the per-type colours from the active theme's own palette and re-derives on every theme change; off, a curated manual colour list applies. |
+| **c** | Graph colour match | Mirrors the type colours into the graph view's colour groups, so graph and bubble nodes carry the same colour as the explorer dots. |
+| **d** | Unreviewed draft flags | A dot on each `reviewed: false` note, plus a live "N unreviewed" pill on the inbox folder row — the one thing no off-the-shelf plugin does. |
+| **e** | List ordering | Floats chosen types to the top of their folder, sinks cold-storage folders small and dim, and sorts siblings heaviest-first by a `weight` field. |
+| **f** | For You front page | A dedicated view (the **sun** ribbon icon) that surfaces the kit's queues, inbox drafts, and active work without the file tree — see below. |
+| **g** | Clean queue views | Opens either kit queue file as a clean checklist instead of raw markdown — tick a decision, type in a task — with one tap back to the raw editor. |
+| **h** | CONFIG editor | A schema-driven editable grid of `.claude/CONFIG.md`'s tables. Opens read-only; a hold-to-unlock arms editing, and every save archives the prior CONFIG, refuses any change that would break the table shape, and prompts you to re-run sync_config. Opt-in — see below. |
+| **i** | Calm reading | In reading mode, collapses the properties block to a hover strip, hides edit-only tag buttons, and eases the reading measure; theme colours are kept as skim aids. |
+| **j** | Skim mode | A reading-view declutter: condense every non-heading block to a dim single-line outline (click a heading to restore its section), minimize completed `- [x]` items, or fold sections by keyword or to first-and-last only. |
+| **k** | Tag → graph | Clicking a tag — a frontmatter pill or an inline `#tag` — opens the graph view filtered to that tag (`tag:#…`) instead of the default tag search. |
+| **l** | Replaceable icons | Swaps Obsidian's outline control icons for minimal solid shapes, and takes a pasted SVG for any single control. |
+| **m** | Quiet chrome | Minimalist mode strips the app chrome down to the notes; lighter touches quieten the tab bar and explorer toolbar, hide folder arrows, fold children with their parent, dedupe tabs to one per document, enlarge the inbox/outbox rows, and round the kit's corners. |
 
-All four are individually toggleable. **Vault structure is read from the kit itself:** at load the plugin parses `.claude/CONFIG.md` (one-way, read-only) and derives the inbox/outbox folders, both queue paths, the frontmatter field names, the prefix tokens, and the type vocabulary — those rows show as read-only in **Settings → Note-Kit UI** ("derived from CONFIG"), so the plugin cannot drift from the kit. Presentation (colors, weights, sizes, toggles) stays the plugin's own. In a vault with no kit, the same fields fall back to editable manual settings.
+Every feature is individually toggleable in **Settings → Note-Kit UI**. **Vault structure is read from the kit itself:** at load the plugin parses `.claude/CONFIG.md` (one-way, read-only) and derives the inbox/outbox folders, both queue paths, the frontmatter field names, and the type vocabulary — those rows show as read-only in settings ("derived from CONFIG"), so the plugin cannot drift from the kit. Presentation (colors, weights, sizes, toggles) stays the plugin's own. In a vault with no kit, the same fields fall back to editable manual settings.
 
 Explorer decoration is applied inside the file tree's `MutationObserver` callback — a microtask that runs before the browser paints — so rows in a freshly-expanded folder appear already-styled rather than flashing their raw form and snapping into place.
 
@@ -24,6 +33,12 @@ A dedicated view (the **sun** ribbon icon; opens in a new tab via the Home actio
 - **Active** projects and areas, each with a relative-age column and a `draft` marker where one applies.
 
 It reads `metadataCache` and file stats for the lists and writes only the two queue files (ticking a checkbox or appending an item). Groups are foldable and the collapsed/expanded state persists.
+
+## CONFIG editor
+
+An opt-in view (the **sliders** ribbon icon and the *Open CONFIG editor* command, both added only when the feature is enabled in settings) that renders every table in the kit's `.claude/CONFIG.md` as a clean editable grid — one grid per `##` section. The shape is parsed, never assumed: a section that gains a column, or one the editor can't parse, still renders rather than being dropped.
+
+Because this writes the canonical CONFIG (outside the inbox), every save is guarded. The grid opens read-only behind a hold-to-unlock; a save archives the prior CONFIG before overwriting, refuses any edit that would change a table's shape, and — since the plugin can't run it headlessly — prompts you to re-run sync_config to propagate the change.
 
 ## Mobile
 

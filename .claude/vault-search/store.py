@@ -148,8 +148,9 @@ def content_hash(text: str) -> str:
 class Store:
     """Thread-safe wrapper around the sqlite-vec database."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, rebuild_on_schema_change: bool = True):
         self.db_path = str(db_path)
+        self._rebuild_on_schema_change = rebuild_on_schema_change
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = self._open()
@@ -177,7 +178,7 @@ class Store:
                 "SELECT value FROM meta WHERE key='schema_version'"
             ).fetchone() if self._table_exists("meta") else None
 
-            if existing and existing["value"] != SCHEMA_VERSION:
+            if existing and existing["value"] != SCHEMA_VERSION and self._rebuild_on_schema_change:
                 self._drop_all()
 
             self._conn.executescript(SCHEMA_SQL)

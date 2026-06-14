@@ -5,7 +5,7 @@ description: Executes the resolved user-queue, acts on the machine-queue checkli
 
 # note-kit-action-agent
 
-Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox — the filing-agent never touches it. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: infer past routine gaps, raise only a mission-critical decision to `<user-queue>` (CONFIG § Queue protocol), and continue the run either way.
+Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox: every drop there is this agent's to route. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: infer past routine gaps, raise only a mission-critical decision to `<user-queue>` (CONFIG § Queue protocol), and continue the run either way.
 
 Resolve any item, whatever its source, to an Actions shape and carry it out — archive-first on every destructive step (CONFIG § Versioning and archiving discipline); destructiveness alone is never a reason to refuse. An item matching no Actions row is still carried out as directed, not refused. A `[x]` mark, a queue line, or presence in `<outbox>` is itself the go-ahead: execute on cadence without further confirmation, required destructive ops included. Recover malformed or missing frontmatter and bare walls of text; infer informal phrasing, typos, and missing fields rather than bouncing them.
 
@@ -35,7 +35,7 @@ Carry out each `[x]` item in `<user-queue>`, routed as §3 routes a drop; an app
 
 Remove each resolved item and append its outcome to `<logs>/action-agent/action-agent.md`; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and do not retry this pass.
 
-**`review-flag` verification — this agent owns it.** A `review-flag` clears only on a real resolution: confirm the user's answer is present (the resolved `<user-queue>` item or the note's own updated state), carry out the action, then retag the item `review-complete` so it is not re-picked. The janitor flags staleness; the action-agent verifies and clears. Group approval is the filing-agent's, not this agent's.
+**`review-flag` verification — this agent owns it.** A `review-flag` clears only on a real resolution: confirm the user's answer is present (the resolved `<user-queue>` item or the note's own updated state), carry out the action, then retag the item `review-complete` so it is not re-picked. The janitor flags staleness; the action-agent verifies and clears. Group approval stays with the filing-agent.
 
 ## 3 — Act on the machine-queue and outbox drops
 
@@ -71,11 +71,11 @@ A skill that needed user input wrote its open questions to the `<user-queue>` an
 
 ## 5 — Output
 
-Append every completed action to the event log, `<logs>/action-agent/action-agent.md` — append-only, one pipe-line per action, no prose:
+Save every end-of-run record as a `type: log` in `<archive>/<logs>/<agent>` — append-only, one pipe-line per action, no prose. Never save a run record to `<inbox>`:
 
 `timestamp | action-agent | <action-slug> | <file-path> | <outcome>`
 
-A run that changes nothing appends nothing. A standing hold logs once when it starts and re-logs only on a state change, with one queue item per blocked cluster (CONFIG § Queue protocol, § Log files). Never write a log line, status note, summary, or pointer into either queue or any other `<inbox>` file. The only thing that returns to the `<user-queue>` is a failed or unresolved item, written as a normal queue entry per CONFIG § Queue protocol. A cleared queue is left empty, with no closing note.
+A run that changes nothing appends nothing. A standing hold logs once when it starts and re-logs only on a state change, with one queue item per blocked cluster (CONFIG § Queue protocol, § Log files). Never write a session, status note, summary, or pointer into a queue or any `<inbox>` file. The only thing that returns to the `<user-queue>` is a failed or unresolved item, written as a normal queue entry per CONFIG § Queue protocol. A cleared queue is left empty, with no closing note.
 
 ## Proposal shape
 

@@ -274,7 +274,10 @@ def init_daemon(config_path: Path) -> None:
         "daemon_init",
         extra={"ctx_config_path": str(config_path)},
     )
-    STATE.store = Store(STATE.config["index"]["path"])
+    STATE.store = Store(
+        STATE.config["index"]["path"],
+        rebuild_on_schema_change=STATE.config["index"].get("rebuild_on_schema_change", True),
+    )
     STATE.embedder = Embedder(
         model_name=STATE.config["embedding"]["model"],
         device=STATE.config["embedding"]["device"],

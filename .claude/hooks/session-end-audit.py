@@ -14,7 +14,9 @@ transcript):
 3. If the session edited vault content (outside the kit root) and no handoff
    ran, gate by volume: at or above HANDOFF_BLOCK_THRESHOLD distinct vault
    files, block the stop until note-kit-handoff runs; below it, remind only.
-   The check fails open — a transcript that cannot be read never blocks.
+   An unattended scheduled-task run is exempt — its record is its event log,
+   never a session (CONFIG § Helper-script automation). The check fails open —
+   a transcript that cannot be read never blocks.
 """
 import json
 import os
@@ -60,19 +62,42 @@ CRITICAL_PATH_PATTERNS = (
 HANDOFF_BLOCK_THRESHOLD = 3
 
 
-def _scan_transcript(transcript_path: str) -> tuple[list[str], bool]:
-    """One pass over the transcript: (edited file paths, handoff ran).
+def _is_scheduled_envelope(msg: dict) -> bool:
+    """True when a user message is Claude Code's scheduled-task launch envelope.
+
+    The scheduled-task runner injects a plain-text user message beginning with
+    `<scheduled-task name="..." file="...">` for every unattended run. This is the
+    canonical, name-independent marker of an automated run: it survives agent
+    renames and never depends on a hardcoded agent list. Match the envelope only
+    at the start of a text block — never a tool_result payload or a mid-message
+    quotation — so an interactive session that merely discusses scheduled tasks is
+    not mistaken for one.
+    """
+    content = msg.get("message", {}).get("content")
+    blocks = content if isinstance(content, list) else [content]
+    for b in blocks:
+        text = b if isinstance(b, str) else (b.get("text") if isinstance(b, dict) else None)
+        if isinstance(text, str) and text.lstrip().startswith("<scheduled-task"):
+            return True
+    return False
+
+
+def _scan_transcript(transcript_path: str) -> tuple[list[str], bool, bool]:
+    """One pass over the transcript: (edited file paths, handoff ran, scheduled).
 
     Edited paths are the file_path of every Edit/Write tool_use. Handoff is
-    detected by a Skill tool_use whose skill names a handoff.
+    detected by a Skill tool_use whose skill names a handoff. Scheduled is true
+    when the run carries Claude Code's `<scheduled-task>` launch envelope — an
+    unattended agent run, whose record is its event log, never a session.
     """
     if not transcript_path:
-        return [], False
+        return [], False, False
     p = Path(transcript_path)
     if not p.exists():
-        return [], False
+        return [], False, False
     edited: list[str] = []
     handoff_ran = False
+    scheduled = False
     try:
         with open(p, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -83,7 +108,12 @@ def _scan_transcript(transcript_path: str) -> tuple[list[str], bool]:
                     msg = json.loads(line)
                 except Exception:
                     continue
-                if msg.get("type") != "assistant":
+                mtype = msg.get("type")
+                if mtype == "user":
+                    if not scheduled and _is_scheduled_envelope(msg):
+                        scheduled = True
+                    continue
+                if mtype != "assistant":
                     continue
                 for content in msg.get("message", {}).get("content") or []:
                     if not isinstance(content, dict):
@@ -103,8 +133,8 @@ def _scan_transcript(transcript_path: str) -> tuple[list[str], bool]:
                     if isinstance(fp, str) and fp:
                         edited.append(fp.replace("\\", "/"))
     except Exception:
-        return edited, handoff_ran
-    return edited, handoff_ran
+        return edited, handoff_ran, scheduled
+    return edited, handoff_ran, scheduled
 
 
 def _vault_content_files(edited: list[str]) -> list[str]:
@@ -167,7 +197,7 @@ def main() -> None:
     if data.get("stop_hook_active"):
         return
 
-    edited, handoff_ran = _scan_transcript(data.get("transcript_path", ""))
+    edited, handoff_ran, scheduled = _scan_transcript(data.get("transcript_path", ""))
 
     notes: list[str] = []
 
@@ -177,7 +207,7 @@ def main() -> None:
 
     # Job 3 — handoff gate on vault-content edits.
     vault_files = _vault_content_files(edited)
-    if vault_files and not handoff_ran:
+    if vault_files and not handoff_ran and not scheduled:
         listing = ", ".join(vault_files[:10]) + (
             f" (+{len(vault_files) - 10} more)" if len(vault_files) > 10 else ""
         )

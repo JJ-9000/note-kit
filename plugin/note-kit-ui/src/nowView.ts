@@ -1137,7 +1137,16 @@ export class NowView extends ItemView {
 			this.applyTint(m, type);
 			m.setAttr("role", "button");
 			m.setAttr("tabindex", "0");
-			m.createSpan({ cls: "nkui-now-gatemember-name", text: this.displayName(f) });
+			// A non-markdown (asset) member carries a file icon and its full name
+			// (extension included) so it reads as a movable asset — the same cue
+			// the queue's loose-drop rows use — giving the user and the filing
+			// agent confidence to file it. Markdown members stay text-only.
+			const isAsset = f.extension !== "md";
+			if (isAsset) setIcon(m.createSpan("nkui-now-qdropicon"), "file");
+			m.createSpan({
+				cls: "nkui-now-gatemember-name",
+				text: isAsset ? f.name : this.displayName(f),
+			});
 			m.addEventListener("click", (ev) => this.openPath(f.path, ev.ctrlKey || ev.metaKey));
 			attachKeyActivate(m, () => this.openPath(f.path, false));
 			this.attachPreview(m, f, type);

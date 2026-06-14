@@ -600,7 +600,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 /* title formatting standard: bold primary line + quiet secondary line */
 .nkui-now-title {
 	font-size: 1.9em;
-	font-weight: 800;
+	font-weight: 700;
 	line-height: 1.1;
 	letter-spacing: -0.02em;
 	/* track the theme's heading colour, falling back to the theme accent (never plain
@@ -731,7 +731,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 }
 .nkui-now-group-title {
 	font-size: 1.3em;
-	font-weight: 800;
+	font-weight: 700;
 	text-transform: capitalize;
 	letter-spacing: -0.01em;
 	color: var(--text-normal);
@@ -2379,7 +2379,7 @@ body.nkui-type-tint .nkui-now-waitgate .nkui-now-reducedtitle {
 
 /* Cover emphasis — a folder's cover note reads as its folder's heading. */
 .nav-file-title[data-nkui-cover] .nav-file-title-content {
-	font-weight: 800;
+	font-weight: 700;
 	font-size: 1.2em;
 }
 
@@ -2549,7 +2549,7 @@ input.nkui-type-grid-swatch {
 }
 .nkui-queue-title {
 	font-size: 1.6em;
-	font-weight: 800;
+	font-weight: 700;
 	line-height: 1.1;
 	letter-spacing: -0.02em;
 	color: var(--h2-color, var(--text-accent, var(--interactive-accent)));
@@ -2581,7 +2581,7 @@ input.nkui-type-grid-swatch {
 }
 .nkui-config-section-title {
 	font-size: 1.15em;
-	font-weight: 800;
+	font-weight: 700;
 	letter-spacing: -0.01em;
 	color: var(--text-normal);
 	margin-bottom: var(--nkui-gap-s);

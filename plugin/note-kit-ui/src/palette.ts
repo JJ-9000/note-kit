@@ -222,5 +222,10 @@ export function toneVars(hexStr: string): Record<string, string> {
 		"--nkui-tm": tone(hexStr, 0.13),
 		"--nkui-tk": tone(hexStr, 0.09, 0.92),
 		"--nkui-tb": tone(hexStr, dark ? 0.18 : -0.18, 1.3),
+		// Readable-bright (§ GG): pushed harder up the lightness spectrum than
+		// --nkui-tb so an open-section title holds contrast against the 22% wash
+		// even on darker types (blue). Same hue, a touch less saturation so the
+		// high-lightness tone doesn't glare; capped by tone() at 0.82.
+		"--nkui-tbr": tone(hexStr, dark ? 0.34 : -0.3, 1.1),
 	};
 }

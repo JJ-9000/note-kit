@@ -645,9 +645,6 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   (open changes padding-BLOCK only), so nothing moves horizontally. */
 	transition: padding var(--nkui-grow) var(--nkui-ease);
 }
-/* § GG: the head count is bare text to the LEFT of the title — no pill box, no
-   flush negative margins. It sits at the head's normal padding start and reads
-   its colour from the section tint (see .nkui-now-count below). */
 /* Resting hover (collapsed head) — the SAME faint wash the file-explorer rows
    take on hover. A real-type section washes in its own section (type) colour at
    the explorer's 12% hover step; a neutral/queue/waiting head (whose section
@@ -738,27 +735,37 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	/* The open-step size change eases on the grow clock — no snap. */
 	transition: font-size var(--nkui-grow) var(--nkui-ease);
 }
-/* § GG: the head count is BARE TEXT to the left of the title — no bubble, no
-   box. It carries the section (type) tint through --nkui-section-color so a
-   populated count reads in its kind's colour; tabular digits keep a 1→2 digit
-   change from nudging the title. The open state (below) brightens and grows it. */
+/* § GG: the count is a square pill — type colour set inline, on-accent digit —
+   sized by state: SMALL while collapsed, growing to the open size when the
+   section is clicked open. Square comes from a definite height plus a min-width
+   that matches it for one digit and widens (tabular) from two; no JS squaring
+   needed (the height is explicit, so the box is definite). */
 .nkui-now-count {
 	flex: 0 0 auto;
+	box-sizing: border-box;
 	display: inline-flex;
-	align-items: baseline;
+	align-items: center;
 	justify-content: center;
-	color: var(--nkui-section-color, var(--text-muted));
-	font-size: var(--font-ui-small, 13px);
-	font-weight: 800;
+	height: 1.45em;
+	min-width: max(1.45em, calc(2ch + 0.4em));
+	padding: 0 0.4em;
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
+	background: var(--text-faint);
+	color: var(--text-on-accent, #fff);
+	font-size: var(--font-ui-smaller, 12px);
+	font-weight: 700;
 	font-variant-numeric: tabular-nums;
 	line-height: 1;
+	/* Collapsed→open size step eases on the grow clock. */
 	transition:
-		font-size var(--nkui-grow) var(--nkui-ease),
-		color var(--nkui-fade) var(--nkui-ease);
+		height var(--nkui-grow) var(--nkui-ease),
+		min-width var(--nkui-grow) var(--nkui-ease),
+		font-size var(--nkui-grow) var(--nkui-ease);
 }
 /* A colour-less section (Decide / Queue / Waiting fall back to the bare accent)
-   takes the muted neutral tone rather than the accent. */
+   takes the muted neutral pill rather than a type colour. */
 .nkui-now-count-neutral {
+	background: var(--background-modifier-border);
 	color: var(--text-muted);
 }
 /* § GG — the gated-children indicator at the head's right edge. Collapsed: a
@@ -821,11 +828,6 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 .nkui-now-group-empty .nkui-now-group-title {
 	font-size: 1em;
 	font-weight: 600;
-}
-/* § GG: a 0 count reads as "clear" — the number drops to the faint tone (the
-   head already dims to 0.5), never competing with a live count for attention. */
-.nkui-now-group-empty .nkui-now-count {
-	color: var(--text-faint);
 }
 /* The add-task box stays bright inside an empty Queue group. */
 .nkui-now-group-empty .nkui-now-qadd-live {
@@ -1578,10 +1580,9 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
        12%-type wash on a tinted head (the explorer's :hover step).
      · open             — the 22%-type wash (the explorer's .is-active step), title
        in the section colour.
-   The head still GROWS on open (taller band, bigger title — vertical only, no
-   horizontal shift; squareHeadPills re-measures the taller band into the pill's
-   min-width). The count pill keeps its solid type colour through every state, so
-   the coloured count reads the same resting and open — no white-on-solid band.
+   The head GROWS on open (taller band, bigger title and a larger count pill —
+   vertical only, no horizontal shift). The count pill keeps its solid type
+   colour through every state, small while collapsed and larger when open.
    Waiting stays out: its section colour falls back to the accent, which would
    shout; it keeps the neutral low-key treatment. ───────────────────────────── */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head {
@@ -1596,18 +1597,21 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 28%, var(--background-primary));
 }
-/* § GG: on open the TITLE grows and takes the type's BRIGHTER tint (--nkui-tb,
-   the emphasis tone) — a step past the resting section colour, the explorer's
-   "active row wears its kind's colour" pushed brighter for the open head. */
+/* § GG: on open the TITLE grows and takes the type's READABLE-BRIGHT tint
+   (--nkui-tbr) — a high-lightness tone that holds strong contrast against the
+   22% wash even on darker types (blue especially); --nkui-tb sat too close to
+   the wash to read when open. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-group-title {
 	font-size: 1.6em; /* the 1.45em open step, grown a further ~10% */
-	color: var(--nkui-tb, var(--nkui-section-color, var(--text-accent, var(--interactive-accent))));
+	color: var(--nkui-tbr, var(--nkui-tb, var(--nkui-section-color, var(--text-accent, var(--interactive-accent)))));
 }
-/* § GG: on open the count grows and brightens to the type's emphasis tone
-   (--nkui-tb), tracking the title — both read brighter and larger than at rest. */
+/* § GG: on open the count PILL grows to its larger size (it is small while
+   collapsed), tracking the title; the digit stays on-accent (white over the
+   type fill), which reads clearly without a colour change. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
-	font-size: calc(var(--font-ui-small, 13px) * 1.35);
-	color: var(--nkui-tb, var(--nkui-section-color, var(--text-accent)));
+	height: 1.9em;
+	min-width: max(1.9em, calc(2ch + 0.5em));
+	font-size: calc(var(--font-ui-smaller, 12px) * 1.2);
 }
 /* …and its CHILD rows carry a LIGHTER wash of the same colour at rest (folder →
    child tonal step: the header keeps its 10%, children sit at ~6%), so the open
@@ -3302,6 +3306,9 @@ body.nkui-rounded {
 	--nkui-radius-pill: 999px;
 	/* Dots become circles only in rounded mode (item 15). */
 	--nkui-dot-radius: 50%;
+}
+body.nkui-rounded .nkui-now-count {
+	padding-inline: 0.85em;
 }
 body.nkui-rounded .nkui-inbox-count {
 	padding: 0 0.8em;

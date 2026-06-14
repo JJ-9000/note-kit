@@ -875,19 +875,22 @@ export class NowView extends ItemView {
 		// Inner span wraps the digit so a CSS transform: scale() can animate the
 		// glyph on a count change without disturbing the surrounding layout.
 		cnt.createSpan({ cls: "nkui-now-count-digit", text: String(count) });
-		// The count is bare text now (§ GG retired the filled pill): a real type
-		// colour tints it through --nkui-section-color; a colour-less section
-		// (its colour falls back to the bare accent) takes the muted neutral tone.
-		if (!color) cnt.addClass("nkui-now-count-neutral");
+		// The count is a square pill (§ GG): a real type colour fills it inline; a
+		// colour-less section (Decide / Queue / Waiting) takes the muted neutral pill.
+		if (color) cnt.style.background = color;
+		else cnt.addClass("nkui-now-count-neutral");
 		gh.createSpan({ cls: "nkui-now-group-title", text: label });
-		// Gated indicator (§ GG): a set holding folded children carries a
-		// notification dot at the head's right edge while collapsed; on open the
-		// dot gives way in place to a quiet "+N gated" label, N being the sum of
-		// every gated child under this header. No gated children → no pip.
-		if (gatedCount > 0) {
+		// Notification pip (§ GG): a populated section that is NOT the settled
+		// Waiting group carries a dot at the head's right edge while collapsed —
+		// the file-explorer "this has something" mark. On open the dot gives way
+		// in place to a quiet "+N gated" label when the set actually holds folded
+		// children (N = their sum); a set with none simply drops the dot on open.
+		if (count > 0 && !bucket.hasClass("nkui-now-group-waiting")) {
 			const pip = gh.createSpan({ cls: "nkui-now-gatepip" });
 			pip.createSpan({ cls: "nkui-now-gatepip-dot" });
-			pip.createSpan({ cls: "nkui-now-gatepip-label", text: `+${gatedCount} gated` });
+			if (gatedCount > 0) {
+				pip.createSpan({ cls: "nkui-now-gatepip-label", text: `+${gatedCount} gated` });
+			}
 		}
 
 		const toggle = () => {

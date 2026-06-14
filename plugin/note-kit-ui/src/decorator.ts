@@ -744,9 +744,23 @@ export class ExplorerDecorator {
 			const isCover = !isQueue && (this.isCoverName(name, parentName) || rawType === "index");
 			this.setAttr(el, "data-nkui-cover", isCover ? "true" : null);
 
-			const draft =
-				s.enableReviewFlags && s.showRowBadge && fm ? this.isUnreviewed(fm, s) : false;
-			this.setAttr(el, "data-nkui-reviewed", draft ? "false" : null);
+			// Review state is tri-state: "false" on an unreviewed draft (needs you,
+			// gets the draft marker — gated on showRowBadge); "true" on an APPROVED
+			// draft still sitting in an inbox folder (reviewed, but the filing agent
+			// hasn't moved it yet) so the stylesheet condenses it like a sink; null
+			// once filed or for ordinary content.
+			let reviewedAttr: string | null = null;
+			if (s.enableReviewFlags && fm) {
+				if (this.isUnreviewed(fm, s)) {
+					reviewedAttr = s.showRowBadge ? "false" : null;
+				} else if (
+					this.isApproved(fm, s) &&
+					s.inboxFolders.some((f) => path === f || path.startsWith(`${f}/`))
+				) {
+					reviewedAttr = "true";
+				}
+			}
+			this.setAttr(el, "data-nkui-reviewed", reviewedAttr);
 
 			// (w) standard weight — frontmatter `weight` > 0 stamps the row and
 			// appends a small w<n> badge. The per-folder heat variable

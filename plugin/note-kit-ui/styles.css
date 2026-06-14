@@ -633,8 +633,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   and the mismatch left a hairline gap). The INLINE gutters route through
 	   tokens so mobile (safe-area edges) and rounded (pill-end clearance) can
 	   re-aim them — and the flush count pill's negative margin follows. */
-	--nkui-head-pad-l: 0.5em;
-	--nkui-head-pad-r: 0.5em;
+	/* § GG: roomier, even inline padding so the count, title, and dot don't
+	   crowd the band edges. The band still aligns with the rows below via the
+	   negative margin-inline; only the CONTENT insets further. */
+	--nkui-head-pad-l: 0.9em;
+	--nkui-head-pad-r: 0.9em;
 	padding: var(--nkui-gap-2xs, 4px) var(--nkui-head-pad-r) var(--nkui-gap-2xs, 4px) var(--nkui-head-pad-l);
 	margin-inline: -0.5em;
 	border-radius: var(--nkui-radius);
@@ -1796,6 +1799,18 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate) .nkui-now-ro
 	color: var(--nkui-tm, var(--text-muted));
 	opacity: 0.75;
 }
+/* § GG: a hovered For-You row (the Active list especially) lifts its title to
+   the brighter emphasis tone so the name — not just the row band — responds to
+   the pointer. A contained peer also returns to full opacity on hover. */
+.nkui-now-row:hover .nkui-now-rowtitle {
+	color: var(--text-normal);
+}
+body.nkui-type-tint .nkui-now-row:hover .nkui-now-rowtitle {
+	color: var(--nkui-tb, var(--text-normal));
+}
+body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate):hover .nkui-now-rowtitle {
+	opacity: 1;
+}
 
 /* ── Quiet separators / no notches (tabs + lists) ───────────────────────────── */
 .nkui-now-decision + .nkui-now-decision {
@@ -2394,6 +2409,14 @@ body.nkui-type-tint .nkui-now-waitgate .nkui-now-reducedtitle {
 .nav-folder-title[data-nkui-empty] {
 	opacity: 0.55;
 	font-size: 0.7em;
+}
+/* REVIEWED-WAITING — a draft that is reviewed: true but still sits in an inbox
+   folder (approved, awaiting the filing agent). It recedes like a sink so live
+   UNreviewed drafts (data-nkui-reviewed="false") stand out; the type colour
+   stays (opacity dims hue-true). Stamped tri-state by the decorator. */
+.nav-file-title[data-nkui-reviewed="true"] {
+	opacity: 0.5;
+	font-size: 0.82em;
 }
 /* UNCATEGORISED — the middle diminish: present, quieter than live work, louder
    than a sink. */

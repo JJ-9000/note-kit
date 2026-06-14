@@ -89,6 +89,10 @@ export interface NoteKitUiSettings {
 	/** Round the kit's corners — pills, badges, washes, buttons — to match
 	 * iOS/native menus (body class nkui-rounded). Off = the kit's sharp default. */
 	roundedCorners: boolean;
+	/** Use the bundled Inter face (the public San-Francisco alternative) as the
+	 * app-wide interface + text font, keeping the monospace for code (body class
+	 * nkui-font). Off = the app's normal font; a theme can still override. */
+	interfaceFont: boolean;
 	/** Hide the app chrome — tab bar, ribbons, nav buttons, version stamps,
 	 * explainer text — leaving the notes (body class nkui-minimal). The settings
 	 * path stays visible, so the mode is always exitable. */
@@ -218,6 +222,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// Sharp stays the kit default — rounded is the opt-in iOS look (the author
 	// tried it on, then settled back to sharp; current-settings sync 2026-06-12).
 	roundedCorners: false,
+	// On by default — the iPhone-style interface font is part of the kit look.
+	interfaceFont: true,
 	minimalistMode: false,
 	// 1.0 = real-time (default); the CSS token --nkui-speed-user divides durations.
 	animSpeed: 1.1,
@@ -333,6 +339,18 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(s.roundedCorners).onChange(async (v) => {
 					s.roundedCorners = v;
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Interface font (Inter)")
+			.setDesc(
+				"Use the bundled Inter typeface — the public San-Francisco alternative — as the interface and text font across the app, keeping your monospace for code. Off uses the app's normal font; a theme can still override."
+			)
+			.addToggle((t) =>
+				t.setValue(s.interfaceFont).onChange(async (v) => {
+					s.interfaceFont = v;
 					await save();
 				})
 			);

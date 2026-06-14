@@ -1,4 +1,4 @@
-import { MarkdownPostProcessorContext, MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { MarkdownPostProcessorContext, MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
 import { DEFAULT_SETTINGS, NoteKitUiSettings, NoteKitUiSettingTab, TypeStyle } from "./settings";
 import { buildDynamicCss } from "./css";
 import { ExplorerDecorator } from "./decorator";
@@ -77,6 +77,7 @@ export default class NoteKitUiPlugin extends Plugin {
 		this.styleEl = document.head.createEl("style");
 		this.styleEl.id = "nkui-dynamic";
 		this.applyDynamicCss();
+		this.injectFont();
 		this.applyBodyClasses();
 
 		this.decorator = new ExplorerDecorator(this);
@@ -301,6 +302,23 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-skim");
 	}
 
+	/** Declare the bundled Inter face (the public San-Francisco alternative) as
+	 * font-family 'Inter', pointing at the woff2 shipped in the plugin's fonts/
+	 * folder via a vault resource URL — no base64 bloat. The variable font covers
+	 * the whole 100–900 weight axis, so the iOS weight scale (400/500/600/700)
+	 * all resolves to real faces. Injected unconditionally; the nkui-font body
+	 * class is what actually routes the interface/text fonts to it. */
+	private injectFont(): void {
+		if (!this.manifest.dir) return;
+		const path = normalizePath(`${this.manifest.dir}/fonts/InterVariable.woff2`);
+		const url = this.app.vault.adapter.getResourcePath(path);
+		const el = document.head.createEl("style", { attr: { id: "nkui-font-face" } });
+		el.textContent =
+			`@font-face{font-family:'Inter';font-weight:100 900;font-style:normal;` +
+			`font-display:swap;src:url("${url}") format("woff2");}`;
+		this.register(() => el.remove());
+	}
+
 	private applyBodyClasses(): void {
 		document.body.toggleClass("nkui-calm-reading", this.settings.calmReading);
 		document.body.toggleClass("nkui-type-tint", this.settings.typeTint);
@@ -309,6 +327,9 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-large-mouths", this.settings.largeMouths);
 		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
 		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
+		// iPhone-style interface font (bundled Inter) — the @font-face is always
+		// injected; this class is what routes --font-interface/--font-text to it.
+		document.body.toggleClass("nkui-font", this.settings.interfaceFont);
 		// Skim: minimize-completed is a pure-CSS dim of `- [x]` items (body class);
 		// condense + the folding modes also wear nkui-skim so the chevron/heading
 		// affordance shows. condense additionally wears nkui-skim-condense, which

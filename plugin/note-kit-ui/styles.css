@@ -724,12 +724,13 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	min-height: 0;
 	overflow: hidden;
 }
-/* First rows stop hugging the header band — a small top inset under the head.
-   A margin on the first child (not list padding): a padded list would stay a
-   few px tall when the 0fr track collapses. The band-stacking stays seamless;
-   the TEXT gets the room. */
-.nkui-now-foldwrap > .nkui-now-list > :first-child {
-	margin-top: var(--nkui-gap-2xs);
+/* Even internal buffer on an OPEN dropdown — the content sits the same distance
+   from all four band edges instead of hugging them. Scoped to the open state so
+   the 0fr collapse stays clean (a padded list would hold a few px tall when the
+   track collapses). One spacing token, so the buffer is uniform on every edge;
+   the per-row hierarchy indents still nest inside it. */
+.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty) > .nkui-now-foldwrap > .nkui-now-list {
+	padding: var(--nkui-gap-s);
 }
 
 /* The Active/unread divider draws NO line and adds NO gap — colour and the
@@ -765,7 +766,12 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   width (a stadium), so a lone number never went round — dropped. */
 	min-width: 1.5em;
 	padding: 0 0.45em;
-	border-radius: 999px;
+	/* Radius follows the mode (as before): sharp default → 0 (square box = sharp
+	   square for 1 digit, sharp rect for 2+); rounded mode → --nkui-radius-pill
+	   (999px), which on the square floor reads as a CIRCLE and on a widened 2-digit
+	   box as a capsule (the iOS badge). The square floor is what makes 1 digit go
+	   round rather than stadium — the shape logic, kept; the rounding stays opt-in. */
+	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: var(--text-faint);
 	color: var(--text-on-accent, #fff);
 	font-size: var(--font-ui-smaller, 12px);

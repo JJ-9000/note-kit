@@ -15,10 +15,12 @@ An optional Obsidian plugin that makes the note-kit's structure visible in the a
 | **g** | Clean queue views | Opens either kit queue file as a clean checklist instead of raw markdown — tick a decision, type in a task — with one tap back to the raw editor. |
 | **h** | CONFIG editor | A schema-driven editable grid of `.claude/CONFIG.md`'s tables. Opens read-only; a hold-to-unlock arms editing, and every save archives the prior CONFIG, refuses any change that would break the table shape, and prompts you to re-run sync_config. Opt-in — see below. |
 | **i** | Calm reading | In reading mode, collapses the properties block to a hover strip, hides edit-only tag buttons, and eases the reading measure; theme colours are kept as skim aids. |
-| **j** | Skim mode | A reading-view declutter: condense every non-heading block to a dim single-line outline (click a heading to restore its section), minimize completed `- [x]` items, or fold sections by keyword or to first-and-last only. |
+| **j** | Skim mode | A reading-view declutter: condense every non-heading block to a dim single-line outline (click a heading to restore its section), minimize completed `- [x]` items, or fold sections by keyword or to first-and-last only. Condense carries three intensity tiers — readable, faint, and outline. |
 | **k** | Tag → graph | Clicking a tag — a frontmatter pill or an inline `#tag` — opens the graph view filtered to that tag (`tag:#…`) instead of the default tag search. |
 | **l** | Replaceable icons | Swaps Obsidian's outline control icons for minimal solid shapes, and takes a pasted SVG for any single control. |
 | **m** | Quiet chrome | Minimalist mode strips the app chrome down to the notes; lighter touches quieten the tab bar and explorer toolbar, hide folder arrows, fold children with their parent, dedupe tabs to one per document, enlarge the inbox/outbox rows, and round the kit's corners. |
+| **n** | Motion & holds | Subtle motion on the For-You and queue views — sections grow and shrink on fold, a press-and-hold fill on every approve / undo / unlock, a pulse when a queue item is checked. A speed multiplier tunes it, a hold-duration setting tunes the commit, and a single toggle turns all motion off. |
+| **o** | Dockable views | The For-You page and either queue open as a main-area tab or dock in a side panel (the *Open …* commands). The same surface renders identically wherever it sits — tab or sidebar — and once placed the plugin leaves the arrangement alone. |
 
 Every feature is individually toggleable in **Settings → Note-Kit UI**. **Vault structure is read from the kit itself:** at load the plugin parses `.claude/CONFIG.md` (one-way, read-only) and derives the inbox/outbox folders, both queue paths, the frontmatter field names, and the type vocabulary — those rows show as read-only in settings ("derived from CONFIG"), so the plugin cannot drift from the kit. Presentation (colors, weights, sizes, toggles) stays the plugin's own. In a vault with no kit, the same fields fall back to editable manual settings.
 
@@ -32,7 +34,9 @@ A dedicated view (the **sun** ribbon icon; opens in a new tab via the Home actio
 - inbox **drafts** (`reviewed: false`) grouped by `type`;
 - **Active** projects and areas, each with a relative-age column and a `draft` marker where one applies.
 
-It reads `metadataCache` and file stats for the lists and writes only the two queue files (ticking a checkbox or appending an item). Groups are foldable and the collapsed/expanded state persists.
+It reads `metadataCache` and file stats for the lists and writes only the two queue files (ticking a checkbox or appending an item). A checkbox tick or an approve commits on a short press-and-hold rather than a single click, so a stray tap is not a decision. Groups are foldable and the collapsed/expanded state persists.
+
+It can open automatically when the vault loads and stand in for a new empty tab (a Home button), and it can sit in a side panel as readily as a main tab. Its vertical placement is adjustable — the content sits a little above true centre by default.
 
 ## CONFIG editor
 

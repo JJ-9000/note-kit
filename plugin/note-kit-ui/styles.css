@@ -2949,13 +2949,20 @@ body.is-mobile .nkui-now::after {
    the tag-pill centring rules above. Font sizes stay untouched (the qaddinput
    lesson: shrinking text under 16px invites the iOS focus-zoom). */
 body.is-mobile .metadata-container {
-	--metadata-gap: 2px;
-	padding-block: var(--nkui-gap-2xs);
+	--metadata-gap: 1px;
+	padding-block: 2px;
 }
 body.is-mobile .metadata-property {
-	min-height: 30px; /* compact but still a comfortable tap target */
+	min-height: 26px; /* tighter — the block read too tall/crowded on the phone */
 	padding-block: 0;
 	align-items: center;
+}
+/* The boolean property checkboxes (the `reviewed` toggle especially) get a
+   comfortable tap target on mobile — the native control was too small to hit
+   reliably. Desktop keeps Obsidian's default size. */
+body.is-mobile .metadata-property-value input[type="checkbox"] {
+	width: 20px;
+	height: 20px;
 }
 body.is-mobile .metadata-property-key {
 	min-width: 0;

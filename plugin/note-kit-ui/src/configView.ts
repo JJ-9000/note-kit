@@ -97,7 +97,11 @@ export class ConfigView extends ItemView {
 		return "CONFIG";
 	}
 	getIcon(): string {
-		return "sliders-horizontal";
+		// layout-list (not sliders-horizontal) so the docked CONFIG tab icon is
+		// covered by the solid-icon mask set — sliders-horizontal has no Material
+		// mask, so it rendered un-replaced; layout-list reads as a table/list (fits
+		// the CONFIG-table editor) and IS masked.
+		return "layout-list";
 	}
 
 	async onOpen(): Promise<void> {

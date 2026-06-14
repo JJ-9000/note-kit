@@ -80,6 +80,9 @@ export class QueueView extends ItemView {
 		return base.replace(/\.md$/, "");
 	}
 	getIcon(): string {
+		// list-checks is the right glyph for a queue but has no Material mask yet, so
+		// the docked tab icon isn't solid-masked (queued follow-up: add the mask).
+		// (check-square IS masked but is not a valid Obsidian icon name → ghost.)
 		return "list-checks";
 	}
 

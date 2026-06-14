@@ -276,7 +276,7 @@ export default class NoteKitUiPlugin extends Plugin {
 			// The right dock opens to the For You page ONLY (the user's default):
 			// one For You there, the restore's re-piled extras detached. Replaces
 			// the old "open For You in the main area" startup behaviour.
-			if (this.settings.nowOpenOnStartup) this.ensureRightForYouOnly();
+			if (this.settings.nowOpenOnStartup) this.ensureRightForYou();
 		});
 	}
 
@@ -878,12 +878,13 @@ export default class NoteKitUiPlugin extends Plugin {
 		for (const leaf of [...sideNow, ...sideQueues]) leaf.detach();
 	}
 
-	/** The right dock opens to the For You page ONLY (the user's default): keep one
-	 * For You in the right sidebar, detach every other right-dock leaf a restored
-	 * workspace re-piled, and close any For You that landed outside the right dock.
-	 * Runs on layout-ready only — the user can still open more right-dock tabs in a
-	 * session; this just sets the opening state. */
-	private ensureRightForYouOnly(): void {
+	/** The right dock OPENS to a For You page by default, but no longer FORCES it:
+	 * dedupe multiple For You leaves to one (a restored workspace can re-pile) and
+	 * seed a default For You only when the right dock is otherwise empty. It never
+	 * detaches other content the user docked there (CONFIG, a queue, the file
+	 * explorer), so a chosen right-sidebar arrangement survives a restart — Pass-3
+	 * § S / § Y: stop forcing For You in the right panel. Runs on layout-ready. */
+	private ensureRightForYou(): void {
 		const ws = this.app.workspace;
 		const right = ws.rightSplit;
 		if (!right) return;
@@ -891,15 +892,23 @@ export default class NoteKitUiPlugin extends Plugin {
 			const t = l.view?.getViewType?.();
 			return t === NOW_VIEW_TYPE || t === NOW_SIDE_VIEW_TYPE;
 		};
-		// Close any For You that isn't in the right dock (a stray main/left one).
-		ws.iterateAllLeaves((l) => { if (isFY(l) && l.getRoot() !== right) l.detach(); });
-		// Right dock: keep one For You, detach the rest.
-		const rightLeaves: WorkspaceLeaf[] = [];
-		ws.iterateAllLeaves((l) => { if (l.getRoot() === right) rightLeaves.push(l); });
-		const fy = rightLeaves.find(isFY);
-		for (const l of rightLeaves) if (l !== fy) l.detach();
-		// None there → open one (kept inactive so it never steals focus on load).
-		if (!fy) { const rl = ws.getRightLeaf(false); if (rl) void rl.setViewState({ type: NOW_VIEW_TYPE, active: false }); }
+		// Dedupe For You to a single leaf, preferring one already in the right dock.
+		// ONLY For You leaves are touched — everything else stays where the user put it.
+		const fyLeaves: WorkspaceLeaf[] = [];
+		ws.iterateAllLeaves((l) => { if (isFY(l)) fyLeaves.push(l); });
+		const keep = fyLeaves.find((l) => l.getRoot() === right) ?? fyLeaves[0] ?? null;
+		for (const l of fyLeaves) if (l !== keep) l.detach();
+		// No For You anywhere AND the right dock is otherwise empty → seed one as the
+		// default content (inactive, never steals focus). If the user docked something
+		// else there, leave it be.
+		if (!keep) {
+			const rightLeaves: WorkspaceLeaf[] = [];
+			ws.iterateAllLeaves((l) => { if (l.getRoot() === right) rightLeaves.push(l); });
+			if (rightLeaves.length === 0) {
+				const rl = ws.getRightLeaf(false);
+				if (rl) void rl.setViewState({ type: NOW_VIEW_TYPE, active: false });
+			}
+		}
 	}
 
 	/** Open (or reveal) a queue file's clean view — the place-anywhere command

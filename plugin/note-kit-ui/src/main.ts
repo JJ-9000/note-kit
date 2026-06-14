@@ -187,7 +187,10 @@ export default class NoteKitUiPlugin extends Plugin {
 				// dedupe sweep is skipped this tick so the same leaf can't be
 				// replaced AND deduped at once. Genuine duplicates (a restored
 				// workspace) still get swept on the next ordinary event.
-				if (!this.maybeReplaceEmpty(leaf)) this.dedupeNowView();
+				if (!this.maybeReplaceEmpty(leaf)) {
+					this.dedupeNowView();
+					this.dedupeQueueViews();
+				}
 			})
 		);
 
@@ -265,8 +268,10 @@ export default class NoteKitUiPlugin extends Plugin {
 			// Honour "show in sidebar" OFF (detach the plugin's side leaves);
 			// otherwise leave the user's arrangement alone.
 			this.applySidebarNow();
-			// Collapse any duplicate For You tabs a restored workspace brought back.
+			// Collapse any duplicate For You / clean-queue tabs a restored
+			// workspace brought back (queue views are keyed per file).
 			this.dedupeNowView();
+			this.dedupeQueueViews();
 			// The right dock opens to the For You page ONLY (the user's default):
 			// one For You there, the restore's re-piled extras detached. Replaces
 			// the old "open For You in the main area" startup behaviour.
@@ -630,6 +635,30 @@ export default class NoteKitUiPlugin extends Plugin {
 		const keep = active && leaves.includes(active) ? active : leaves[0];
 		for (const l of leaves) if (l !== keep) l.detach();
 		this.app.workspace.revealLeaf(keep);
+	}
+
+	/** Keep ONE clean queue view per queue file in the main area — detach extras
+	 * a re-open or a restored workspace piled up. QUEUE_VIEW_TYPE leaves are not
+	 * "markdown" leaves, so dedupeTabsFor never sees them; this is their twin,
+	 * keyed per queue-file path (each queue file is its own document). */
+	private dedupeQueueViews(): void {
+		if (!this.settings.dedupeTabs) return;
+		const root = this.app.workspace.rootSplit;
+		const active = this.app.workspace.activeLeaf;
+		const byPath = new Map<string, WorkspaceLeaf[]>();
+		for (const leaf of this.app.workspace.getLeavesOfType(QUEUE_VIEW_TYPE)) {
+			if (leaf.getRoot() !== root) continue;
+			const p = (leaf.getViewState().state as { file?: string } | undefined)?.file;
+			if (!p) continue;
+			const arr = byPath.get(p);
+			if (arr) arr.push(leaf);
+			else byPath.set(p, [leaf]);
+		}
+		for (const leaves of byPath.values()) {
+			if (leaves.length <= 1) continue;
+			const keep = active && leaves.includes(active) ? active : leaves[0];
+			for (const l of leaves) if (l !== keep) l.detach();
+		}
 	}
 
 	async activateNowView(): Promise<void> {

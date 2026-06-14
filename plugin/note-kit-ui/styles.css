@@ -645,19 +645,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   (open changes padding-BLOCK only), so nothing moves horizontally. */
 	transition: padding var(--nkui-grow) var(--nkui-ease);
 }
-/* The count pill fills the head band's full height — flush with the highlight,
-   the number evenly margined inside its own box (negative block margin eats
-   the band padding; stretch covers taller titles). Squareness is measured, not
-   guessed: the band height is content-driven (indefinite), so CSS aspect-ratio
-   cannot transfer it into width — squareHeadPills (nowView) seats the measured
-   height as each pill's min-width instead. */
-.nkui-now-group-head .nkui-now-count {
-	align-self: stretch;
-	height: auto;
-	margin-block: calc(-1 * var(--nkui-gap-2xs, 4px));
-	margin-left: calc(-1 * var(--nkui-head-pad-l));
-	padding-inline: 0.6em;
-}
+/* § GG: the head count is bare text to the LEFT of the title — no pill box, no
+   flush negative margins. It sits at the head's normal padding start and reads
+   its colour from the section tint (see .nkui-now-count below). */
 /* Resting hover (collapsed head) — the SAME faint wash the file-explorer rows
    take on hover. A real-type section washes in its own section (type) colour at
    the explorer's 12% hover step; a neutral/queue/waiting head (whose section
@@ -669,20 +659,16 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-group:not(.nkui-now-group-queue):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 12%, var(--background-primary));
 }
-/* Gentle count-pill emphasis on a hovered (collapsed) section head (item 7,
-   desktop only). brightness — NOT transform/scale — so getBoundingClientRect
-   is unchanged and squareHeadPills' measurement can never be corrupted by a
-   hover state. Open heads carry their own wash treatment; this is the resting
-   collapsed pill lifting a hair under the pointer. */
-body:not(.is-mobile) .nkui-now-group-head .nkui-now-count {
-	transition: filter var(--nkui-fade) var(--nkui-ease),
-		min-width var(--nkui-grow) var(--nkui-ease),
-		min-height var(--nkui-grow) var(--nkui-ease),
-		font-size var(--nkui-grow) var(--nkui-ease),
-		margin var(--nkui-grow) var(--nkui-ease);
+/* § GG: a COLLAPSED populated type section carries a gentle resting wash (the
+   file-explorer "this row has something" tint) one step below the 12% hover —
+   a section with anything to act on never reads flat. Empty (count 0), queue,
+   and waiting heads stay clean; the open head's 22% wash (below) wins. The
+   matching :hover steps to 12% and outranks this by one class. */
+.nkui-now-group.is-collapsed:not(.nkui-now-group-empty):not(.nkui-now-group-queue):not(.nkui-now-group-waiting) > .nkui-now-group-head {
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 9%, var(--background-primary));
 }
-body:not(.is-mobile) .nkui-now-group-head:hover .nkui-now-count {
-	filter: brightness(1.1);
+.nkui-now-group.is-collapsed:not(.nkui-now-group-empty):not(.nkui-now-group-queue):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
+	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 12%, var(--background-primary));
 }
 /* While a hold is in progress, the section's draft candidates light up in their
    own type colour, so it's clear what the approval would file. */
@@ -752,42 +738,72 @@ body:not(.is-mobile) .nkui-now-group-head:hover .nkui-now-count {
 	/* The open-step size change eases on the grow clock — no snap. */
 	transition: font-size var(--nkui-grow) var(--nkui-ease);
 }
-/* count as a notification bubble; background colour is set inline to the type colour.
-   Fixed box (height + inline-flex centring + tabular digits) so a 1→2 digit count
-   never changes the bubble's height and the header doesn't jump on fold.
-   EVEN below 100: the minimum width seats two tabular digits, so every 1- and
-   2-digit pill in the column renders the same box (1.7em alone left 2-digit
-   pills wider than their 1-digit neighbours); from 3 digits the box widens
-   while the inline padding stays constant. */
+/* § GG: the head count is BARE TEXT to the left of the title — no bubble, no
+   box. It carries the section (type) tint through --nkui-section-color so a
+   populated count reads in its kind's colour; tabular digits keep a 1→2 digit
+   change from nudging the title. The open state (below) brightens and grows it. */
 .nkui-now-count {
 	flex: 0 0 auto;
-	box-sizing: border-box;
 	display: inline-flex;
-	align-items: center;
+	align-items: baseline;
 	justify-content: center;
-	min-width: max(1.7em, calc(2ch + 1em));
-	height: 1.7em;
-	padding: 0 0.5em;
-	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
-	background: var(--text-faint);
-	color: var(--text-on-accent, #fff);
-	font-size: var(--font-ui-smaller, 12px);
-	font-weight: 700;
+	color: var(--nkui-section-color, var(--text-muted));
+	font-size: var(--font-ui-small, 13px);
+	font-weight: 800;
 	font-variant-numeric: tabular-nums;
 	line-height: 1;
-	/* Grows WITH the open band on the same slow clock: squareHeadPills writes
-	   inline min-width/min-height — a transition still animates inline-style
-	   changes — and the digit's open font step + flush negative margins ride
-	   along. */
 	transition:
-		min-width var(--nkui-grow) var(--nkui-ease),
-		min-height var(--nkui-grow) var(--nkui-ease),
 		font-size var(--nkui-grow) var(--nkui-ease),
-		margin var(--nkui-grow) var(--nkui-ease);
+		color var(--nkui-fade) var(--nkui-ease);
 }
+/* A colour-less section (Decide / Queue / Waiting fall back to the bare accent)
+   takes the muted neutral tone rather than the accent. */
 .nkui-now-count-neutral {
-	background: var(--background-modifier-border);
 	color: var(--text-muted);
+}
+/* § GG — the gated-children indicator at the head's right edge. Collapsed: a
+   notification dot in the section tint. Open: the dot gives way to a quiet,
+   diminutive "+N gated" label in the same slot. Pushed right with margin-left
+   auto so it rides the far edge regardless of title length. */
+.nkui-now-gatepip {
+	flex: 0 0 auto;
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+}
+.nkui-now-gatepip-dot {
+	width: var(--nkui-dot-size);
+	height: var(--nkui-dot-size);
+	border-radius: var(--nkui-dot-radius);
+	background: var(--nkui-section-color, var(--interactive-accent));
+}
+.nkui-now-gatepip-label {
+	display: none;
+	font-size: var(--font-ui-smaller, 12px);
+	font-weight: 600;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+/* On open, swap the dot for the label in place. */
+.nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-now-gatepip-dot {
+	display: none;
+}
+.nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-now-gatepip-label {
+	display: inline;
+}
+/* The label's quick entrance — gated to animations-on, a short fade so the dot
+   reads as "replaced", not jump-cut. */
+body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-now-gatepip-label {
+	animation: nkui-gatepip-in var(--nkui-fade, 140ms) var(--nkui-ease);
+}
+@keyframes nkui-gatepip-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
 }
 /* An empty section — count 0, nothing here needs the user. It recedes: the head
    and the section's settled contents fade and the title drops to body weight —
@@ -805,6 +821,11 @@ body:not(.is-mobile) .nkui-now-group-head:hover .nkui-now-count {
 .nkui-now-group-empty .nkui-now-group-title {
 	font-size: 1em;
 	font-weight: 600;
+}
+/* § GG: a 0 count reads as "clear" — the number drops to the faint tone (the
+   head already dims to 0.5), never competing with a live count for attention. */
+.nkui-now-group-empty .nkui-now-count {
+	color: var(--text-faint);
 }
 /* The add-task box stays bright inside an empty Queue group. */
 .nkui-now-group-empty .nkui-now-qadd-live {
@@ -1569,31 +1590,24 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 22%, var(--background-primary));
 	padding-block: var(--nkui-gap-s);
 }
-/* The flush children keep eating the band's block padding at the new step
-   (squareHeadPills re-measures the taller band into the pill's min-width). */
-.nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
-	margin-block: calc(-1 * var(--nkui-gap-s));
-}
 /* Hover on an OPEN head steps the wash one stop stronger (28%), the explorer's
    hover-over-active step — no brightness filter (the band is a wash now, not a
    solid that a filter would lift). */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head:hover {
 	background: color-mix(in srgb, var(--nkui-section-color, var(--interactive-accent)) 28%, var(--background-primary));
 }
-/* The TITLE takes the section (type) colour on open — the explorer's "active row
-   wears its kind's colour" mechanism, applied to the head. */
+/* § GG: on open the TITLE grows and takes the type's BRIGHTER tint (--nkui-tb,
+   the emphasis tone) — a step past the resting section colour, the explorer's
+   "active row wears its kind's colour" pushed brighter for the open head. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-group-title {
 	font-size: 1.6em; /* the 1.45em open step, grown a further ~10% */
-	color: var(--nkui-section-color, var(--text-accent, var(--interactive-accent)));
+	color: var(--nkui-tb, var(--nkui-section-color, var(--text-accent, var(--interactive-accent))));
 }
-/* The count pill keeps its SOLID inline type colour on open (the digit stays in
-   on-accent ink, set by .nkui-now-count) — the coloured count reads the same
-   resting and open, like a steady explorer badge. It also grows a step with the
-   open band, on the same slow clock as the title. The hold-fill sweep (z:-1,
-   behind the pill) passes behind it; the pill stays an opaque coloured square,
-   which now matches the resting look instead of vanishing. */
+/* § GG: on open the count grows and brightens to the type's emphasis tone
+   (--nkui-tb), tracking the title — both read brighter and larger than at rest. */
 .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-waiting) > .nkui-now-group-head .nkui-now-count {
-	font-size: calc(var(--font-ui-smaller, 12px) * 1.15);
+	font-size: calc(var(--font-ui-small, 13px) * 1.35);
+	color: var(--nkui-tb, var(--nkui-section-color, var(--text-accent)));
 }
 /* …and its CHILD rows carry a LIGHTER wash of the same colour at rest (folder →
    child tonal step: the header keeps its 10%, children sit at ~6%), so the open
@@ -1901,7 +1915,7 @@ body:not(.nkui-anim) .nkui-now-foldwrap {
 	transition: none !important;
 }
 /* Animations off → the open-head grow snaps too (head padding, title size,
-   count pill sizes all ride --nkui-grow). */
+   and count size all ride --nkui-grow). */
 body:not(.nkui-anim) .nkui-now-group-head,
 body:not(.nkui-anim) .nkui-now-group-title,
 body:not(.nkui-anim) .nkui-now-count {
@@ -3289,9 +3303,6 @@ body.nkui-rounded {
 	/* Dots become circles only in rounded mode (item 15). */
 	--nkui-dot-radius: 50%;
 }
-body.nkui-rounded .nkui-now-count {
-	padding-inline: 0.85em;
-}
 body.nkui-rounded .nkui-inbox-count {
 	padding: 0 0.8em;
 }
@@ -3629,8 +3640,9 @@ body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-
    another. See the § DD/§ EE notes in the plan.
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* § W — count-pill inner digit. The OUTER .nkui-now-count box is measured by
-   squareHeadPills and must never carry a transform; the digit scales here. */
+/* §§ W/GG — the count's inner digit. The OUTER .nkui-now-count is bare text now
+   (no measured pill); the digit wrapper scales for the count-change pop so the
+   transform never disturbs the head layout. */
 .nkui-now-count-digit {
 	display: inline-flex;
 	align-items: center;

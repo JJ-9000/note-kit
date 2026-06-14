@@ -93,13 +93,6 @@ const BUCKET_CAP = 50;
  * sidebar twins, reset only by an app restart. */
 const expandedGates = new Set<string>();
 
-/** Last measured head-pill square side (px) — module scope, per plugin
- * session, shared by the main and sidebar twins. bucketHead seeds NEW pills'
- * inline min-width/min-height from it at BUILD time, so the very first paint
- * is already square instead of popping from the skinny CSS minimum; the
- * measured pass (squareHeadPills) then corrects if the band changed. */
-let lastPillSide = 0;
-
 /** A loose file (or folder) dropped in the outbox folder — queued work in file
  * form, surfaced as a Queue row. `open` is what a click opens: the file itself,
  * or a folder's first file. */
@@ -179,11 +172,11 @@ export class NowView extends ItemView {
 		this.render();
 		await this.reloadAndRender();
 		// FIRST open: the renders above can run before the view has laid out
-		// (band heights 0, pre-font metrics), so the head pills keep the skinny
-		// CSS minimum until something re-triggers onResize. Measure again now
-		// the initial load is in; a still-hidden view skips the assignment and
-		// the next onResize catches it, as ever.
-		this.squareHeadPills();
+		// (pane box 0, pre-font metrics), so the screen-centering shift measures
+		// nothing useful until something re-triggers onResize. Measure again now
+		// the initial load is in; a still-hidden pane (box 0) keeps its last
+		// value and the next onResize catches it, as ever.
+		this.measurePaneShift();
 	}
 
 	async onClose(): Promise<void> {
@@ -388,14 +381,13 @@ export class NowView extends ItemView {
 			);
 		}
 
-		this.squareHeadPills();
-		// The view's FIRST render runs before its bands have laid out (height 0
-		// or pre-font metrics), so the pass above measures nothing useful and
-		// the pills sit at the skinny CSS minimum until something re-triggers
-		// onResize. One second pass on the next frame measures the settled
-		// layout; a hidden view still skips the assignment (heights filter to
-		// none) and the next onResize picks it up, as today.
-		window.requestAnimationFrame(() => this.squareHeadPills());
+		this.measurePaneShift();
+		// The view's FIRST render runs before its bands have laid out (pane box 0
+		// or pre-font metrics), so the pass above measures nothing useful until
+		// something re-triggers onResize. One second pass on the next frame
+		// measures the settled layout; a hidden pane (box 0) keeps its last value
+		// and the next onResize picks it up, as today.
+		window.requestAnimationFrame(() => this.measurePaneShift());
 
 		// Column widths come from live boxes; a render that raced the injected
 		// stylesheet or webfont measured the fallback font and locked stale
@@ -413,50 +405,14 @@ export class NowView extends ItemView {
 		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
 	}
 
-	/** Square the section-head count pills, measured — not guessed in CSS. The
-	 * pill stretches to the head band's height, but that height is content-
-	 * driven, so CSS aspect-ratio can't transfer it into width (indefinite
-	 * cross size); a 2-digit pill rendered a tall rectangle. Every pill seats
-	 * the COLUMN's tallest band as its min square — one even size down the
-	 * page, so a diminished section's pill never shrinks below its peers
-	 * (tone and text do the talking; the box holds), and the bands equalize
-	 * (the head grows to its flush pill). Batched clear → measure → assign,
-	 * like equalizeMetaColumns. The mobile screen-centering shift
-	 * (applyScreenShift) measures in the same read phase, so the whole pass
-	 * stays one layout flush — no interleaved reflow. */
-	private squareHeadPills(): void {
-		const pills = Array.from(
-			this.contentEl.querySelectorAll<HTMLElement>(".nkui-now-group-head .nkui-now-count")
-		);
-		// Phase 1 — clear (writes only), so the measure reads natural boxes.
-		for (const p of pills) {
-			p.style.minWidth = "";
-			p.style.minHeight = "";
-		}
-		// Phase 2 — measure (reads only; a single layout flush): pill heights
-		// plus the pane's own box for the screen shift.
-		const heights = pills.map((p) => p.getBoundingClientRect().height).filter((h) => h > 0);
-		const pane = this.contentEl.getBoundingClientRect();
-		// Phase 3 — assign (writes only).
-		this.applyScreenShift(pane);
-		if (!heights.length) {
-			// Hidden view — the next onResize re-measures. Phase 1 stripped the
-			// build-time seeds, so put the cached square back rather than leaving
-			// the pills skinny for the reveal paint.
-			if (lastPillSide > 0) {
-				for (const p of pills) {
-					p.style.minWidth = `${lastPillSide}px`;
-					p.style.minHeight = `${lastPillSide}px`;
-				}
-			}
-			return;
-		}
-		const side = Math.max(...heights);
-		lastPillSide = side; // seed for the next render's first paint
-		for (const p of pills) {
-			p.style.minWidth = `${side}px`;
-			p.style.minHeight = `${side}px`;
-		}
+	/** Publish the mobile/desktop vertical-centering shift (applyScreenShift)
+	 * from the pane's measured box. (§ GG retired the squared count pill — the
+	 * head count is now bare text, so there is no pill box left to measure;
+	 * only the screen-shift measurement remains. Kept as one method so its call
+	 * sites, which fire exactly when the pane geometry settles, still drive the
+	 * centering; a hidden pane measures 0 and the next onResize re-runs.) */
+	private measurePaneShift(): void {
+		this.applyScreenShift(this.contentEl.getBoundingClientRect());
 	}
 
 	/** Screen-space centering (mobile): the For You pane doesn't fill the
@@ -505,6 +461,12 @@ export class NowView extends ItemView {
 		// cascading to its peers via group approval); a tap still folds/unfolds.
 		// Drafts only: an awaiting-filing gate is already approved and left alone.
 		const drafts = approvable ? entries.filter((e) => e.draft) : [];
+		// § GG: the sum of folded children behind every still-pending gate in
+		// this section — the "+N gated" the head's notification dot resolves to on
+		// open. An approved (awaiting-filing) gate is settled, so it doesn't count.
+		const gatedCount = entries
+			.filter((e) => e.isGate && !e.awaitingFiling)
+			.reduce((sum, e) => sum + (e.setCount ?? e.setFiles?.length ?? 0), 0);
 		const head = this.bucketHead(
 			b,
 			id,
@@ -512,7 +474,8 @@ export class NowView extends ItemView {
 			color,
 			needsUser,
 			defaultOpen,
-			drafts.length ? () => this.approveAll(drafts, b) : undefined
+			drafts.length ? () => this.approveAll(drafts, b) : undefined,
+			gatedCount
 		);
 		if (drafts.length) {
 			const noun = drafts.length === 1 ? "draft" : "drafts";
@@ -632,8 +595,9 @@ export class NowView extends ItemView {
 			this.equalizeMetaColumns(list);
 		}
 		// Also fires when a hidden leaf becomes visible — the render-time pass
-		// measures 0 on a background tab, so this is where its pills square up.
-		this.squareHeadPills();
+		// measures 0 on a background tab, so this is where the centering shift
+		// re-measures.
+		this.measurePaneShift();
 	}
 
 	/** Decide bucket — each open decision is one entry; the count is OPEN decisions.
@@ -877,7 +841,8 @@ export class NowView extends ItemView {
 		color: string | null,
 		count: number,
 		defaultOpen: boolean,
-		holdCommit?: () => void | Promise<void>
+		holdCommit?: () => void | Promise<void>,
+		gatedCount = 0
 	): HTMLElement {
 		// An empty section (count 0 — an all-approved drafts bucket, a queue with
 		// nothing open, only-resolved decisions) carries nothing the user must act
@@ -907,20 +872,23 @@ export class NowView extends ItemView {
 		gh.setAttr("role", "button");
 		gh.setAttr("tabindex", "0");
 		const cnt = gh.createSpan({ cls: "nkui-now-count" });
-		// Inner span wraps the digit so CSS transform: scale() can animate the
-		// glyph (count-change pop) while squareHeadPills measures the UNSCALED
-		// outer box — the outer pill must NEVER carry a transform (W2 wobble fix).
+		// Inner span wraps the digit so a CSS transform: scale() can animate the
+		// glyph on a count change without disturbing the surrounding layout.
 		cnt.createSpan({ cls: "nkui-now-count-digit", text: String(count) });
-		// Seed the square from the last measured side, so the FIRST paint is
-		// already square (no skinny-pill pop); squareHeadPills re-measures and
-		// corrects if the head band changed.
-		if (lastPillSide > 0) {
-			cnt.style.minWidth = `${lastPillSide}px`;
-			cnt.style.minHeight = `${lastPillSide}px`;
-		}
-		if (color) cnt.style.background = color;
-		else cnt.addClass("nkui-now-count-neutral");
+		// The count is bare text now (§ GG retired the filled pill): a real type
+		// colour tints it through --nkui-section-color; a colour-less section
+		// (its colour falls back to the bare accent) takes the muted neutral tone.
+		if (!color) cnt.addClass("nkui-now-count-neutral");
 		gh.createSpan({ cls: "nkui-now-group-title", text: label });
+		// Gated indicator (§ GG): a set holding folded children carries a
+		// notification dot at the head's right edge while collapsed; on open the
+		// dot gives way in place to a quiet "+N gated" label, N being the sum of
+		// every gated child under this header. No gated children → no pip.
+		if (gatedCount > 0) {
+			const pip = gh.createSpan({ cls: "nkui-now-gatepip" });
+			pip.createSpan({ cls: "nkui-now-gatepip-dot" });
+			pip.createSpan({ cls: "nkui-now-gatepip-label", text: `+${gatedCount} gated` });
+		}
 
 		const toggle = () => {
 			const collapsed = bucket.classList.toggle("is-collapsed");

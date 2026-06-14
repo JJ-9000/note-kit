@@ -3366,26 +3366,17 @@ body.nkui-rounded .nkui-now-group-head {
 	--nkui-head-pad-l: max(0.9em, var(--nkui-edge-l, 0px));
 	--nkui-head-pad-r: max(0.9em, var(--nkui-edge-r, 0px));
 }
-/* ── Rounded-mode right-crop fix (item 5, desktop) ────────────────────────────
-   The list rows / option rows / reduced rows out-dent -0.5em on BOTH sides to
-   bleed their sharp bands to the centred column's edges. In rounded mode the
-   RIGHT outdent pushes the band's rounded right corner past the column edge and
-   into the reserved scrollbar gutter (.nkui-now has scrollbar-gutter: stable
-   both-edges), where overflow-y: auto clips it — the right corner of an open
-   For-You dropdown reads chopped. On desktop, pull the RIGHT edge back inside
-   the column (zero the right outdent and repay it as right padding so text
-   keeps its position); the LEFT structural indents (0.5/1.55/2.8em) and the
-   left outdent are untouched. Mobile rounded floats bands off the glass with
-   its own margin-inline rule below. */
-body.nkui-rounded:not(.is-mobile) .nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
-	margin-right: 0;
-	padding-right: calc(var(--nkui-row-end) + 0.5em);
-}
-/* The group head outdents -0.5em the same way; pull its right edge in too so
-   its rounded end clears the gutter. The flush count pill is on the LEFT, so
-   the right pull never touches it. */
-body.nkui-rounded:not(.is-mobile) .nkui-now-group-head {
-	margin-right: 0;
+/* ── Rounded-mode edge clearance (desktop) ────────────────────────────────────
+   The list rows and the group head out-dent -0.5em to bleed their sharp bands to
+   the centred column's edges. In rounded mode that pushes a 16px corner past the
+   column edge into the reserved scrollbar gutter (.nkui-now has scrollbar-gutter:
+   stable both-edges), where overflow-y: auto chops it — the corner reads cut off.
+   Float the bands off BOTH inline edges instead (a positive margin — the iOS list
+   language, matching the mobile rounded rule below), so every corner sits inside
+   the content box and reads whole. The structural left text indents (0.5 / 1.55 /
+   2.8em padding) are untouched, so nothing shifts horizontally. */
+body.nkui-rounded:not(.is-mobile) .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .nkui-now-reducedrow, .nkui-now-needsread, .nkui-now-decision, .nkui-now-gatemember) {
+	margin-inline: var(--nkui-gap-s);
 }
 /* iOS breathing room — pills don't stack seamless the way sharp bands do: a
    row-step gap between list rows, a block-step between dropdown sections, so

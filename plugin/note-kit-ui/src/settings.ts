@@ -89,6 +89,11 @@ export interface NoteKitUiSettings {
 	/** Round the kit's corners — pills, badges, washes, buttons — to match
 	 * iOS/native menus (body class nkui-rounded). Off = the kit's sharp default. */
 	roundedCorners: boolean;
+	/** Explorer: draw open folders as nested, filled, type-tinted CONTAINER boxes
+	 * — each sub-folder a concentric box inside its parent (body class
+	 * nkui-nested-boxes; an iOS grouped-cards look). OFF by default: the explorer
+	 * keeps its flat highlight bands (the start-of-session look). */
+	nestedContainers: boolean;
 	/** Use the bundled Inter face (the public San-Francisco alternative) as the
 	 * app-wide interface + text font, keeping the monospace for code (body class
 	 * nkui-font). Off = the app's normal font; a theme can still override. */
@@ -222,6 +227,10 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// Sharp stays the kit default — rounded is the opt-in iOS look (the author
 	// tried it on, then settled back to sharp; current-settings sync 2026-06-12).
 	roundedCorners: false,
+	// Nested folder-container boxes are OFF by default — the explorer keeps its
+	// flat-band highlights (the previous, hardened look); the boxes are an opt-in
+	// look (added 2026-06-15, user-gated after the prototype).
+	nestedContainers: false,
 	// On by default — the iPhone-style interface font is part of the kit look.
 	interfaceFont: true,
 	minimalistMode: false,
@@ -382,6 +391,19 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Nested folder containers")
+			.setDesc(
+				"Draw open folders as nested, filled, type-tinted boxes — each sub-folder a concentric box inside its parent (an iOS grouped-cards look). Off (default) keeps the flat highlight bands."
+			)
+			.addToggle((t) =>
+				t.setValue(s.nestedContainers).onChange(async (v) => {
+					s.nestedContainers = v;
+					document.body.classList.toggle("nkui-nested-boxes", v);
+					await save();
+				})
+			);
+
+		new Setting(containerEl)
 			.setName("Vertical alignment")
 			.setDesc(
 				"Shift the For You page's centred position, as a percent-ish share of the screen height — negative sits the content higher, positive lower. 0 is true centre. Also governs inbox and queue view vertical placement."
@@ -409,7 +431,7 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					.setDynamicTooltip()
 					.onChange(async (v) => {
 						s.animSpeed = v;
-						document.body.style.setProperty("--nkui-speed-user", String(v));
+						document.documentElement.style.setProperty("--nkui-speed-user", String(v));
 						await save();
 					})
 			);
@@ -520,6 +542,10 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						s.skimMode = v as NoteKitUiSettings["skimMode"];
 						await save();
+						// Re-render open reading views so the skim post-processor marks
+						// headings (and draws chevrons) for the new mode — a body-class
+						// toggle alone leaves an open view unprocessed.
+						this.plugin.rerenderReadingViews();
 						this.display(); // show/hide the keyword field
 					})
 			);

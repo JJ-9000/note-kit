@@ -59,6 +59,11 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * preview = reading) — recorded when a markdown view is left, restored when
 	 * its file reopens, so the mode persists across close/reopen. */
 	private viewModes = new Map<string, string>();
+	/** The mode (source/live-preview vs reading) the user was most recently in.
+	 * A file with no per-file memory opens in this mode, so the editing mode the
+	 * user chose persists from one document to the next instead of snapping back
+	 * to Obsidian's global default each time a fresh note opens. */
+	private lastMode: string | null = null;
 	private lastActiveMd: MarkdownView | null = null;
 	/** Markdown views already carrying the clean-queue-view header action. */
 	private cleanViewActioned = new WeakSet<MarkdownView>();
@@ -180,7 +185,9 @@ export default class NoteKitUiPlugin extends Plugin {
 				// Leaving a markdown view records its mode, so reopening its file
 				// restores live-preview/reading the way the user left it.
 				if (this.lastActiveMd?.file) {
-					this.viewModes.set(this.lastActiveMd.file.path, this.lastActiveMd.getMode());
+					const m = this.lastActiveMd.getMode();
+					this.viewModes.set(this.lastActiveMd.file.path, m);
+					this.lastMode = m; // carry the mode to the next fresh document
 				}
 				this.lastActiveMd = this.app.workspace.getActiveViewOfType(MarkdownView);
 				// A single new-tab press is handled by exactly one pass: when
@@ -292,6 +299,7 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-anim");
 		document.body.removeClass("nkui-solid-icons");
 		document.body.removeClass("nkui-large-mouths");
+		document.body.removeClass("nkui-nested-boxes");
 		document.body.removeClass("nkui-rounded");
 		document.body.removeClass("nkui-minimal");
 		document.body.removeClass("nkui-skim-min-done");
@@ -325,6 +333,7 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.toggleClass("nkui-anim", this.settings.animations);
 		document.body.toggleClass("nkui-solid-icons", this.settings.solidIcons);
 		document.body.toggleClass("nkui-large-mouths", this.settings.largeMouths);
+		document.body.toggleClass("nkui-nested-boxes", this.settings.nestedContainers);
 		document.body.toggleClass("nkui-rounded", this.settings.roundedCorners);
 		document.body.toggleClass("nkui-minimal", this.settings.minimalistMode);
 		// iPhone-style interface font (bundled Inter) — the @font-face is always
@@ -361,9 +370,28 @@ export default class NoteKitUiPlugin extends Plugin {
 		);
 		// Re-apply the persisted animation-speed multiplier on load (§ Z slider
 		// writes it live; without this it stays at the stylesheet default until
-		// the slider is next moved).
-		document.body.style.setProperty("--nkui-speed-user", String(this.settings.animSpeed));
+		// the slider is next moved). Set on the document element (:root), not body:
+		// --nkui-speed is declared on :root as var(--nkui-speed-user,1), so it is
+		// computed at :root and inherited; overriding --nkui-speed-user on a
+		// descendant (body) never reaches that :root computation, leaving the
+		// multiplier inert everywhere but body.nkui-minimal (which re-declares it).
+		document.documentElement.style.setProperty("--nkui-speed-user", String(this.settings.animSpeed));
 		this.applyMinimalExit();
+	}
+
+	/** Re-render every open reading view so the skim post-processor runs again.
+	 * Changing the skim mode only toggles the body class; on an already-rendered
+	 * view the post-processor never re-fires, so headings keep no nkui-skim-head
+	 * marker and the condense rule dims them like content (no legible anchors, no
+	 * chevrons) — the "skim does nothing / looks broken" report. A rerender marks
+	 * the headings and draws the affordances before the condense styling reads. */
+	rerenderReadingViews(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.getMode() === "preview") {
+				view.previewMode?.rerender(true);
+			}
+		}
 	}
 
 	/** Mount (or remove) the minimalist-mode exit. Minimalist hides the mobile
@@ -455,11 +483,21 @@ export default class NoteKitUiPlugin extends Plugin {
 			return;
 		}
 		const v = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!v || v.file?.path !== file.path || this.cleanViewActioned.has(v)) return;
-		this.cleanViewActioned.add(v);
-		v.addAction("list-checks", "Reopen clean queue view", () => {
-			rawEscapes.delete(file.path);
-			void v.leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: file.path }, active: true });
+		if (v) this.addCleanViewAction(v, file.path);
+	}
+
+	/** Mount the "Reopen clean queue view" header action on a markdown view of a
+	 * queue file — the visible way back after "edit raw". Public so the queue
+	 * view's openRaw can call it directly: that path swaps the leaf's view type
+	 * WITHOUT changing the active file, so file-open does not re-fire and the
+	 * file-open mount above never runs — the raw editor would otherwise strand the
+	 * user with no return. Idempotent (the cleanViewActioned set). */
+	addCleanViewAction(view: MarkdownView, path: string): void {
+		if (view.file?.path !== path || this.cleanViewActioned.has(view)) return;
+		this.cleanViewActioned.add(view);
+		view.addAction("list-checks", "Reopen clean queue view", () => {
+			rawEscapes.delete(path);
+			void view.leaf.setViewState({ type: QUEUE_VIEW_TYPE, state: { file: path }, active: true });
 		});
 	}
 
@@ -467,9 +505,15 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * only when it differs, so an untouched open stays on the global default. */
 	private restoreViewMode(file: TFile | null): void {
 		if (!file) return;
-		const want = this.viewModes.get(file.path);
-		if (!want) return;
+		// Deferred a tick so active-leaf-change (which records the outgoing doc's
+		// mode into lastMode) has fired first: at file-open time the file-open vs
+		// active-leaf-change order is not guaranteed, so reading lastMode here would
+		// lag by one open and a fresh doc would miss the carried mode.
 		window.setTimeout(() => {
+			// Per-file memory wins; otherwise carry the mode the user was last in, so
+			// live preview (or reading) persists from one document to the next.
+			const want = this.viewModes.get(file.path) ?? this.lastMode;
+			if (!want) return;
 			const v = this.app.workspace.getActiveViewOfType(MarkdownView);
 			if (!v || v.file?.path !== file.path || v.getMode() === want) return;
 			const st = v.leaf.getViewState();
@@ -819,8 +863,6 @@ export default class NoteKitUiPlugin extends Plugin {
 		if (f.archiveLiteral && !s.sinkFolders.some((t) => t.toLowerCase() === f.archiveLiteral.toLowerCase())) {
 			s.sinkFolders = [f.archiveLiteral, ...s.sinkFolders.filter((t) => t.toLowerCase() !== "archive")];
 		}
-		// CONFIG § Numbering prefixes are still parsed (kitConfig) but no longer
-		// consumed — the legacy numeric-prefix styling was retired.
 		// A type CONFIG names but the colour list doesn't gets a row on every
 		// sync (load and the Re-sync button), so the kit vocabulary is always
 		// fully colourable: the shipped default where one exists, else a
@@ -978,6 +1020,16 @@ export default class NoteKitUiPlugin extends Plugin {
 		const color = this.typeStyles().find((t) => t.type === String(typeVal))?.color;
 		if (!color) return;
 		const container = leaf.view.containerEl;
+		// file-open also fires when switching to an ALREADY-OPEN tab, where the
+		// content is already in the DOM — there is no black gap to cover, so a
+		// colour wipe on every tab switch just reads as flashing. Only flash on a
+		// fresh render: the reading section / editor content not yet populated.
+		const readingBody = container.querySelector(".markdown-preview-section");
+		const editBody = container.querySelector(".cm-content");
+		const alreadyRendered =
+			(readingBody?.childElementCount ?? 0) > 0 ||
+			(editBody?.textContent?.length ?? 0) > 0;
+		if (alreadyRendered) return;
 		// Remove any lingering flash from a prior open (a very fast tab-switch).
 		container.querySelectorAll(".nkui-flash").forEach((el) => el.remove());
 		const flash = container.createDiv("nkui-flash");
@@ -1032,13 +1084,23 @@ export default class NoteKitUiPlugin extends Plugin {
 		cb.checked = reviewed;
 		lbl.createSpan({ cls: "nkui-reviewed-text", text: reviewed ? "reviewed" : "unreviewed" });
 		cb.addEventListener("change", () => {
-			void this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-				frontmatter[this.settings.reviewedField] = cb.checked;
-			});
-			// Update header state attribute and label text immediately.
-			header.setAttr("data-reviewed", cb.checked ? "true" : "false");
-			const text = lbl.querySelector(".nkui-reviewed-text");
-			if (text) text.textContent = cb.checked ? "reviewed" : "unreviewed";
+			const next = cb.checked;
+			// Update the visible header only after the write lands, and revert the box
+			// if it fails — otherwise a rejected or racing write leaves the header
+			// showing "reviewed" while the file on disk still says otherwise.
+			void this.app.fileManager
+				.processFrontMatter(file, (frontmatter) => {
+					frontmatter[this.settings.reviewedField] = next;
+				})
+				.then(() => {
+					header.setAttr("data-reviewed", next ? "true" : "false");
+					const text = lbl.querySelector(".nkui-reviewed-text");
+					if (text) text.textContent = next ? "reviewed" : "unreviewed";
+				})
+				.catch((e) => {
+					cb.checked = !next;
+					new Notice(`Note Kit UI: could not update ${this.settings.reviewedField} — ${String(e)}`);
+				});
 		});
 		// Prepend so it anchors to the top of the sizer regardless of note content.
 		sizer.prepend(header);

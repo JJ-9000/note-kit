@@ -19,7 +19,9 @@ body.nkui-font {
    snippet) overrides either to re-pair the colours. */
 body {
 	--nkui-decide-color: var(--interactive-accent);
-	--nkui-queue-color: var(--color-cyan, var(--color-blue, var(--interactive-accent)));
+	/* Secondary/queue accent — a soft slate-blue (cyan replaced; it read as neon
+	   and clashed with the purple-forward palette). Distinct from every type tone. */
+	--nkui-queue-color: #7c8cf8;
 }
 
 :root {
@@ -59,6 +61,10 @@ body {
 	--nkui-speed-user: 1;
 	--nkui-speed: var(--nkui-speed-user, 1);
 	--nkui-ease: ease; /* shared easing curve — one curve for the whole motion table */
+	/* Bold weight inside kit-typed notes. Themes hard-set strong/b to a heavy
+	   --bold-weight (often 700–800) that reads as too heavy on the washed surface;
+	   a semibold step down keeps emphasis legible without shouting. Tunable. */
+	--nkui-bold-weight: 600;
 	--nkui-hold: 303ms; /* press-and-hold commit fill (approve gate / approve all) */
 	--nkui-count: 1517ms; /* close-offer depleting window */
 	/* Base (×1) durations — the shipped feel. The live token each rule reads is
@@ -146,6 +152,19 @@ body:not(.is-mobile) .nav-files-container .nav-file-title,
 body:not(.is-mobile) .nav-files-container .nav-folder-title {
 	padding-top: max(var(--nkui-row-pad-y), var(--size-4-1, 4px));
 	padding-bottom: max(var(--nkui-row-pad-y), var(--size-4-1, 4px));
+}
+/* Even file-pane rhythm + the kit's mode rule: bands TOUCH in sharp (no gap,
+   seamless washes — the default), and FLOAT with one even gap in rounded (the iOS
+   card look) — "gaps on rounded, not on sharp". Pinning BOTH margins to 0 in sharp
+   also kills the folder→first-child double-gap (it crosses .nav-folder-children
+   and can't margin-collapse, so it read as ~2× the sibling gap). Every platform
+   (the edits extend to mobile); !important beats the companion theme's row margin. */
+.nav-files-container :is(.nav-file-title, .nav-folder-title) {
+	margin-top: 0 !important;
+	margin-bottom: 0 !important;
+}
+body.nkui-rounded .nav-files-container :is(.nav-file-title, .nav-folder-title) {
+	margin-bottom: var(--nkui-gap-2xs) !important;
 }
 
 /* ── (c) per-type dot on explorer rows ─────────────────────────────────────── */
@@ -310,6 +329,9 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-line {
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(strong, b),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-strong {
 	color: var(--nkui-tb, var(--nkui-tk)) !important;
+	/* Step bold down from the theme's heavy default (the "extra bold" complaint);
+	   !important to beat a theme that hard-sets strong's weight. */
+	font-weight: var(--nkui-bold-weight, 600) !important;
 }
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .markdown-rendered :is(em, i),
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .cm-em {
@@ -398,13 +420,16 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] .view-header {
 	background: color-mix(in srgb, var(--nkui-type-color) 4%, var(--background-primary));
 	border-bottom: none;
 }
-/* Tab tops sharp: route the tab shape through the shared radius token (themes
-   round them; sharp quads are the kit default). */
+/* Tab merges seamlessly into the file — a FLAT tab (no corner radius) sharing the
+   content's background, so the active tab reads as the top of its note rather than
+   a pill curving around the label. Forced to 0 even in rounded mode (the curve is
+   what made the tab read as a separate chip); active emphasis is the title's weight
+   and tint, not a shape. */
 .mod-root .workspace-tab-header,
 .mod-root .workspace-tab-header .workspace-tab-header-inner {
-	border-radius: var(--nkui-radius) !important;
-	--tab-radius: var(--nkui-radius);
-	--tab-curve: var(--nkui-radius);
+	border-radius: 0 !important;
+	--tab-radius: 0px;
+	--tab-curve: 0px;
 }
 /* With tinting on, the THEME's accent inside a typed note follows the note's
    type — links, link hovers, interactive accents — so no body accent is left
@@ -454,6 +479,15 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	background: var(--nkui-draft-color);
 	align-self: center;
 }
+/* Even trailing padding for the draft dot. With margin-left:auto it rides the
+   row's content-right edge (the row padding-right, 8px). In ROUNDED mode the band
+   is a full pill, so an 8px-in dot sits ON the rounded right cap (~half the row
+   height curves in) and reads as jammed too far right — the same defect the
+   gatepip dot had. Clear the cap so the dot nests in the FLAT region, concentric
+   in the end like a rung, matching the count pills' even trailing inset. */
+body.nkui-rounded .nav-file-title[data-nkui-reviewed="false"]::after {
+	margin-inline-end: var(--nkui-gap-s);
+}
 
 /* ── (d) live pill on the inbox folder row — total USER actions needed ──────────
    A filled pill (the one badge that earns it): the sum of what the user must act
@@ -472,8 +506,11 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 }
 .nkui-inbox-count {
 	position: absolute;
-	inset-block: 0;
-	right: 0;
+	/* Concentric nest: ONE inset token on all sides (top, bottom, AND right), so
+	   the pill sits in the row's right cap with an even gap like a rung on a
+	   target — square via aspect-ratio, the digit centred inside it. */
+	inset-block: var(--nkui-nest-inset);
+	right: var(--nkui-nest-inset);
 	height: auto;
 	aspect-ratio: 1 / 1;
 	/* inline-flex centring (not line-height/text-align) so the number sits dead
@@ -482,7 +519,7 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	align-items: center;
 	justify-content: center;
 	box-sizing: border-box;
-	padding: 0 6px;
+	padding-inline: var(--nkui-gap-2xs);
 	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: var(--nkui-draft-color);
 	color: var(--text-on-accent, #fff);
@@ -573,6 +610,37 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   text-to-border distance reads even down the column. Mobile re-aims it at
 	   the safe-area edge (full-bleed block, file end). */
 	--nkui-row-end: var(--nkui-gap-m);
+	/* ── Concentric-nesting + even-padding standard (Format-UI-Spacing) ─────────
+	   The scale above governs distance BETWEEN peers; these govern padding AROUND
+	   a nested child, so every element nests in its highlight like rungs on a
+	   target — one inset token on all four sides, never a split em pair. */
+	--nkui-nest-inset: var(--nkui-gap-2xs);   /* even inset of a chip inside a row */
+	--nkui-gap-hair: 2px;                      /* sanctioned sub-scale: dense strips/grids only */
+	--nkui-row-content-height: 1.5em;          /* the square-pill floor; trailing reserve derives from it */
+	--nkui-row-indent: calc(var(--nkui-dot-size) + var(--nkui-dot-gap) + var(--nkui-gap-s)); /* derived marker indent — dotted and dotless rows share one name column */
+	--nkui-band-outdent: calc(-1 * var(--nkui-gap-s)); /* a band's outdent provably cancels its inline padding */
+	--nkui-page-pad-inline: var(--nkui-gap-m); /* one centre-pane gutter, shared by For-You and the queue view */
+	/* Size ramp — element sizes (NOT the inset scale): tap targets, controls, swatches. */
+	--nkui-tap: 40px;
+	--nkui-control: 32px;
+	--nkui-control-sm: 20px;                   /* checkbox, colour swatch */
+	/* ── Nested-container depths (Note-Kit-UI-Nested-Containers-Plan) ───────────
+	   An open folder (later: an open For-You section) draws a filled tinted box
+	   that wraps its children; each deeper box nests one --nkui-nest-inset inside
+	   its parent, one wash STEP stronger, at a REDUCED (concentric) radius — the
+	   "rungs on a target" law. The decorator stamps --nkui-depth (0 at a root
+	   folder, +1 per nesting level) on each box, so the box's wash, radius, and
+	   inset all derive from depth with no per-level literal. The tint is the
+	   folder's own --nkui-folder-color (type-derived, never neutral). */
+	/* iOS-grouped restraint (research + [[Format-UI-Adjacent-Tinted-Surfaces-Share-One-Wash]]):
+	   dark-mode grouped surfaces step only ~6% per level and the kit's own elegant
+	   washes sit near 4–6%, NOT 10–22%. A faint type-temperature on the dark pane,
+	   capped so deep nesting never muds; the hue identifies the type, legible
+	   LIGHTENED text carries the read (never a same-hue label on a same-hue fill). */
+	--nkui-nest-wash-base: 6%;                 /* the outermost open box's type-wash strength */
+	--nkui-nest-wash-step: 3%;                 /* each deeper box steps the wash up this much */
+	--nkui-nest-wash-cap: 13%;                 /* hard ceiling so depth never compounds into mud */
+	--nkui-nest-radius-step: var(--nkui-nest-inset); /* inner radius = outer − inset, so corners nest as parallel arcs */
 }
 .nkui-now > * {
 	/* width:100% so every child fills the SAME column width (capped at the cap,
@@ -619,7 +687,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 /* title formatting standard: bold primary line + quiet secondary line */
 .nkui-now-title {
 	font-size: 1.9em;
-	font-weight: 700;
+	font-weight: 600;
 	line-height: 1.1;
 	letter-spacing: -0.02em;
 	/* track the theme's heading colour, falling back to the theme accent (never plain
@@ -655,10 +723,14 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	/* § GG: roomier, even inline padding so the count, title, and dot don't
 	   crowd the band edges. The band still aligns with the rows below via the
 	   negative margin-inline; only the CONTENT insets further. */
-	--nkui-head-pad-l: 0.9em;
-	--nkui-head-pad-r: 0.9em;
+	/* Header shares the rows' inline gutter (no roomier header gutter — emphasis is
+	   size/weight/tint); the trailing side uses the shared trailing column so the
+	   count pill lands on the row column, and the outdent is the one band token so
+	   it provably cancels the gutter. */
+	--nkui-head-pad-l: var(--nkui-gap-s);
+	--nkui-head-pad-r: var(--nkui-row-end);
 	padding: var(--nkui-gap-2xs, 4px) var(--nkui-head-pad-r) var(--nkui-gap-2xs, 4px) var(--nkui-head-pad-l);
-	margin-inline: -0.5em;
+	margin-inline: var(--nkui-band-outdent);
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
 	user-select: none;
@@ -751,7 +823,7 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 }
 .nkui-now-group-title {
 	font-size: 1.3em;
-	font-weight: 700;
+	font-weight: 600;
 	text-transform: capitalize;
 	letter-spacing: -0.01em;
 	color: var(--text-normal);
@@ -816,6 +888,11 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	border-radius: var(--nkui-dot-radius);
 	background: var(--nkui-section-color, var(--interactive-accent));
 }
+/* The gatepip dot's concentric placement in the rounded head cap is tracked as a
+   list item — the 0.4.134 pull-in (margin-inline-end: gap-s) over-corrected and
+   pushed the dot OUT of the curve, so it is reverted here. The right placement
+   centres the dot in the rounded end cap (concentric), handled with the
+   nested-containers concentric-curve work. */
 .nkui-now-gatepip-label {
 	display: none;
 	font-size: var(--font-ui-smaller, 12px);
@@ -1111,16 +1188,13 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	flex: 1 1 auto;
 	width: auto;
 }
-/* The "+" submit button — the reliable way to add a task on mobile — and the
-   mobile-only keyboard-done twin beside it. Bare icons: no border, box, or
-   background at any state (only the glyph brightens on hover), sized down so
-   they don't read as chunky buttons beside the slim input. */
+/* The "+" submit button — the reliable way to add a task on mobile. A bare
+   icon: no border, box, or background at any state (only the glyph brightens on
+   hover), sized down so it doesn't read as a chunky button beside the slim
+   input. */
 .nkui-now-qaddsubmit,
 .nkui-now-qaddsubmit:hover,
-.nkui-now-qaddsubmit:focus,
-.nkui-now-qadddone,
-.nkui-now-qadddone:hover,
-.nkui-now-qadddone:focus {
+.nkui-now-qaddsubmit:focus {
 	flex: 0 0 auto;
 	display: inline-flex;
 	align-items: center;
@@ -1134,16 +1208,13 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	box-shadow: none !important;
 	cursor: pointer;
 }
-.nkui-now-qaddsubmit,
-.nkui-now-qadddone {
+.nkui-now-qaddsubmit {
 	color: var(--text-faint);
 }
-.nkui-now-qaddsubmit:hover,
-.nkui-now-qadddone:hover {
+.nkui-now-qaddsubmit:hover {
 	color: var(--text-normal);
 }
-.nkui-now-qaddsubmit .svg-icon,
-.nkui-now-qadddone .svg-icon {
+.nkui-now-qaddsubmit .svg-icon {
 	width: 16px;
 	height: 16px;
 }
@@ -1335,11 +1406,27 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: center;
-	gap: var(--nkui-gap-2xs) var(--nkui-gap-m);
-	margin: 0;
+	/* Compress to a tight block: a tighter column gap fits more chips per row →
+	   fewer wrapped rows → a shorter frontmatter the reader scrolls past fast to
+	   reach the document, then back up to the review checkbox. A minimal row gap
+	   and a tight block margin keep the whole header dense (the ~3:1 ask). */
+	/* Hair gap on the cross axis (the sanctioned sub-scale token for a dense chip
+	   strip), gap-s between chips. The block margin sets the strip's tight rhythm
+	   — it was being silently zeroed by a later `margin: 0`, now split into block
+	   (the rhythm) and inline (0) so nothing clobbers it. */
+	gap: var(--nkui-gap-hair) var(--nkui-gap-s);
+	margin-block: var(--nkui-gap-2xs) var(--nkui-gap-s);
+	margin-inline: 0;
 	/* A chip at max-width 100% (tags, description) otherwise runs flush to the
 	   text column's edges. */
 	padding: 0 var(--nkui-gap-s);
+}
+/* The frontmatter BLOCK carries its own bottom margin (Obsidian's ~36px) on top
+   of the compacted strip's own margin, so the first header floated far below the
+   property strip. Bring the block's bottom margin to one scale step — the note
+   body now starts right under the strip. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-container {
+	margin-bottom: var(--nkui-gap-s);
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
 	flex: 0 0 auto;
@@ -1452,6 +1539,28 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	background: transparent !important;
 	box-shadow: none !important;
 }
+/* Larger reviewed checkbox — the review action is the most-used control on a
+   draft, so give it a bigger, easier target than the theme's default box. Scale
+   from the left so the "reviewed " label stays put; only the reviewed property. */
+.nkui-calm-reading
+	:is(.markdown-reading-view, .markdown-source-view)
+	.metadata-property[data-property-key="reviewed"]
+	.metadata-property-value
+	input[type="checkbox"] {
+	transform: scale(1.35);
+	transform-origin: left center;
+	margin-left: 0.15em;
+	margin-right: 0.5em;
+}
+/* The 1.35× scale grows the box past its layout edge to the RIGHT, but the
+   property and its value box clip overflow (Obsidian default) — so the scaled
+   checkbox lost a sliver off its right edge (worse on mobile, where the base box
+   is 20px → ~27px scaled). Let the reviewed control overflow its own boxes; it is
+   the last chip in the centred strip, so a few px past its edge clears nothing. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"],
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"] .metadata-property-value {
+	overflow: visible;
+}
 
 /* Keep the theme's heading / emphasis / code colours — they are skimming
    scaffolding, not noise. Only hide the edit-only × on tag pills while reading. */
@@ -1528,7 +1637,12 @@ body.is-mobile .nkui-now-qrow-strike .nkui-now-qtext.is-done {
 	display: flex;
 	align-items: flex-start;
 	gap: var(--nkui-gap-s);
-	padding: calc(0.08em + var(--nkui-gap-2xs)) calc(0.5em + var(--nkui-gap-s)) calc(0.08em + var(--nkui-gap-2xs)) 1.55em;
+	/* The leading checkbox hugs the highlight's left curve — one row inset (0.5em),
+	   like the inbox pill — instead of floating a 1.55em indent away while the band
+	   runs the full span to the un-indented edge (Fix 1a "highlight hugs content").
+	   Inset lives on the padding (never clobbered by the mode margin rules), so the
+	   hug holds in sharp, rounded, and mobile alike. */
+	padding: calc(0.08em + var(--nkui-gap-2xs)) calc(0.5em + var(--nkui-gap-s)) calc(0.08em + var(--nkui-gap-2xs)) 0.5em;
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 	/* Recessed but legible — a lower opacity here multiplies against the already
@@ -1738,6 +1852,76 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
 	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   Nested containers (Note-Kit-UI-Nested-Containers-Plan) — an OPEN folder draws
+   ONE filled tinted box around its title + children; each deeper box nests one
+   --nkui-nest-inset inside its parent, one wash STEP stronger, at a concentric
+   REDUCED radius ("rungs on a target"). The decorator stamps data-nkui-box,
+   --nkui-depth, and --nkui-folder-color on every .nav-folder wrapper; the
+   open/closed gate stays in CSS (:not(.is-collapsed)) so JS never touches the
+   collapse-height animation. Type-derived tint only — never a neutral grey.
+   ──────────────────────────────────────────────────────────────────────────── */
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-root) {
+	/* Box fill: the folder's own type colour (or its parent box's, inherited),
+	   a FAINT wash over the pane, stepped gently per depth and capped so a deep
+	   nest never compounds into mud (iOS steps ~6%/level; the kit's washes ~4–6%). */
+	background: color-mix(in srgb,
+		var(--nkui-folder-color) min(var(--nkui-nest-wash-cap), calc(var(--nkui-nest-wash-base) + var(--nkui-depth, 0) * var(--nkui-nest-wash-step))),
+		transparent);
+	/* Concentric radius: inner = outer − depth × step, floored at 0. Sharp mode
+	   (--nkui-radius 0) gives concentric squares; rounded steps 16→12→8…. */
+	border-radius: max(0px, calc(var(--nkui-radius) - var(--nkui-depth, 0) * var(--nkui-nest-radius-step)));
+	/* The children's row bands are full-bleed via Obsidian's inline-!important
+	   indent (CSS can't pull them in); the box clips them to its edge. Stream B
+	   replaces this stopgap with a JS-managed row indent. */
+	overflow: hidden;
+}
+/* Children nest one even --nkui-nest-inset inside the box on all four sides, so
+   the contents hug like rungs on a target. The title sits flush at the top (it
+   IS the top of the box); the inset wraps the children block beneath it. */
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-root) > .nav-folder-children {
+	/* Replace Obsidian's per-depth tree indent (margin-inline-start on the children
+	   container) with the box's own even inset — the nested boxes ARE the structure,
+	   so the only indent is one --nkui-nest-inset per level on all four sides. The
+	   container-level override applies; the inline-!important lock is on the ROW, not
+	   the container (Obsidian-File-Explorer-Indent-And-Bands-Use-Inline-Important). */
+	margin-inline-start: 0 !important;
+	padding: var(--nkui-nest-inset);
+}
+/* ONE dominant container: the open folder's OWN title drops its competing resting
+   wash + pill so it reads as the TOP of the box, not a second card stacked on it
+   (the prototype-1 failure). Active/hover states (their own !important rules)
+   still compose on top — emphasis over the group (decided A). */
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-root) > .nav-folder-title {
+	background: transparent;
+	border-radius: 0 !important;
+	margin: 0 !important;
+}
+/* LEGIBILITY ([[Format-UI-State-Shows-in-Colour-Not-an-Added-Bar]] + the kit's own
+   --nkui-tbr move for open section titles): a same-hue label on a same-hue wash
+   collapses luminance, so a boxed folder NAME and any boxed descendant FILE name
+   take a LIGHTENED tone (the type hue mixed halfway to the theme's bright text) —
+   the hue still says which type, the brightness holds the read (target ≥4.5:1 over
+   the faint wash). Folder name keys on --nkui-folder-color; file name keys on its
+   own --nkui-type-color so each row lightens its own hue, not the folder's. */
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-root) > .nav-folder-title .nav-folder-title-content {
+	color: color-mix(in srgb, var(--nkui-folder-color), var(--text-normal) 50%) !important;
+}
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-file-title[data-nkui-type] .nav-file-title-content {
+	color: color-mix(in srgb, var(--nkui-type-color), var(--text-normal) 45%);
+}
+/* CONSISTENCY: a boxed file sits one tree-level below its folder header, so Obsidian
+   indents it ~18px further than the header (measured 42 vs 24 from the box edge). But
+   the BOX already carries the grouping, so the extra per-row step is redundant and
+   reads as the "margins too wide / inconsistent" the user flagged. Pull the file's
+   content back ONE indent step (Obsidian's own children-margin, 18px fallback) so
+   every file aligns under its folder header inside the box — the box shows depth, the
+   text sits at one consistent inset. Content-only shift (no fight with the row's
+   inline-!important padding); the type dot rides ::before the content, so it tracks. */
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-file-title .nav-file-title-content {
+	margin-inline-start: calc(-1 * var(--nav-item-children-margin-start, 18px));
+}
+
 /* Reserve the scrollbar gutter in the file explorer so opening a folder — which adds
    rows and summons the vertical scrollbar — doesn't narrow the pane and shift the
    whole tree sideways. The gutter is always there, so the content never reflows. */
@@ -1902,6 +2086,12 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate):hover .nkui-
 	color: var(--text-normal) !important;
 	font-weight: var(--font-medium, 500) !important;
 }
+/* Positioning context + reserved right room for the now-absolute queue count, so
+   the filename ellipsises before the count instead of running under it. */
+.nav-file-title[data-nkui-queue] {
+	position: relative;
+	padding-right: calc(1.8em + var(--size-4-2, 8px));
+}
 /* Matching washes, sibling tones — both derive from the THEME's accent, the
    outbox a step cooler (mixed toward the theme's muted text) so the two mouths
    read as one family with a visible difference. Each queue file wears its
@@ -1921,10 +2111,23 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate):hover .nkui-
 }
 /* Plain number (no pill, theme-neutral) on a queue file — its open-item count. */
 .nkui-queue-count {
-	margin-left: auto;
-	flex: 0 0 auto;
-	align-self: center;
-	padding-left: 0.5em;
+	/* A bare number nests like the inbox pill: it sits in a square cap box the
+	   same size and place as the pill (even nest-inset on all sides), with the
+	   number CENTRED in that box — so it reads as a rung concentric in the cap,
+	   not text hugging the edge, and its box aligns with the pill's column. */
+	position: absolute;
+	right: var(--nkui-nest-inset);
+	inset-block: var(--nkui-nest-inset);
+	/* height:auto + padding-inline let a multi-digit count WIDEN the box past the
+	   square (mirrors .nkui-inbox-count) — without them aspect-ratio:1/1 locks the
+	   width to the small definite height and a 2–3 digit count clips. */
+	height: auto;
+	aspect-ratio: 1 / 1;
+	box-sizing: border-box;
+	padding-inline: var(--nkui-gap-2xs);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-semibold, 600);
@@ -2330,6 +2533,12 @@ body.is-mobile .nkui-cols > .nkui-col-meta > * + * {
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+	/* Indent the whole member BLOCK here (not on each member's padding), so a
+	   member then nests in its highlight like any other row — one inset between
+	   its name and the band's left curve — instead of the band running the full
+	   indent past the name to the un-indented edge (the "highlight hugs content"
+	   law). The member's -0.5em outdent lands inside this padding (not clipped). */
+	padding-left: calc(1.55em + 9px);
 }
 body.nkui-anim .nkui-now-gatemembers {
 	grid-template-rows: 0fr;
@@ -2355,13 +2564,12 @@ body.nkui-anim .nkui-now-gatemembers.is-open {
 	gap: var(--nkui-gap-s);
 	/* Left-justification (item 2): a gated child's NAME aligns with the top-level
 	   file-name column, never further right than the section header's title text.
-	   A top-level row's title starts at its 1.55em indent PLUS the dot (9px) and
-	   the dot↔title gap; a gatemember carries no dot, so its name needs that whole
-	   span as padding to land in the same name column — read as a continuation of
-	   the file list, indented from the header text rather than past it. The old
-	   2.8em pushed the name a notch deeper than that column (and right of the
-	   header text). Right/vertical are unchanged. */
-	padding: 0.06em 0.5em 0.06em calc(1.55em + 9px + var(--nkui-gap-s));
+	   The member-column indent now lives on the .nkui-now-gatemembers-inner block
+	   above; the member itself carries only the SHARED row inset (0.5em + the
+	   -0.5em outdent), so its highlight hugs the name — one inset between the name
+	   and the band's left curve, like every other row, instead of running the
+	   whole indent past it. */
+	padding: 0.06em 0.5em;
 	margin: 0 -0.5em;
 	font-size: var(--font-ui-small, 13px);
 	cursor: pointer;
@@ -2469,9 +2677,10 @@ body.nkui-type-tint .nav-file-title[data-nkui-type][data-nkui-weight] .nav-file-
 /* The w<n> badge — a tiny quiet mono stamp (the version marker's language):
    sharp, evenly padded, faint. */
 .nkui-weight-badge {
-	/* Shrinkable with an ellipsis — at a narrow row it trails off, never a
-	   hard cut; on mobile the short "wN" twin renders instead (below). */
-	flex: 0 1 auto;
+	/* Hold the full badge — it must never shrink to a cut-off "weight:…" that
+	   drops the number (the reported clipping). The short "wN" twin (below) keeps
+	   narrow/mobile rows tidy; on a normal row the full label shows in full. */
+	flex: 0 0 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -2565,6 +2774,12 @@ input.nkui-type-grid-swatch {
 /* ── Standalone queue view — a queue FILE rendered as the same clean rows the
    For You sections show. The body reuses the nkui-now-* row classes; only the
    header (name · count · raw toggle) is the view's own. ─────────────────────── */
+/* The queue page reads cramped at the For-You page's tighter inset — give it a
+   touch more breathing room top and sides (it carries both nkui-now + nkui-queue,
+   so this two-class rule wins over the shared .nkui-now padding). */
+.nkui-now.nkui-queue {
+	padding: 2em 1.6em 3em;
+}
 .nkui-queue-head {
 	display: flex;
 	align-items: flex-start;
@@ -2762,7 +2977,7 @@ body.nkui-solid-icons :is(
 	.lucide-search, .lucide-bookmark, .lucide-pencil, .lucide-square-pen,
 	.lucide-folder-plus, .lucide-arrow-up-narrow-wide, .lucide-chevrons-down-up,
 	.lucide-x, .lucide-settings, .lucide-sun,
-	.lucide-alert-triangle, .lucide-arrow-left, .lucide-arrow-right, .lucide-book-open, .lucide-calendar, .lucide-check-square, .lucide-chevron-down, .lucide-chevrons-up-down, .lucide-copy, .lucide-edit, .lucide-edit-3, .lucide-file, .lucide-file-search, .lucide-files, .lucide-folder-closed, .lucide-gallery-vertical, .lucide-git-fork, .lucide-layout-dashboard, .lucide-layout-list, .lucide-link, .lucide-more-vertical, .lucide-plus, .lucide-refresh-cw, .lucide-sort-asc, .lucide-tags, .lucide-terminal, .lucide-text
+	.lucide-alert-triangle, .lucide-arrow-left, .lucide-arrow-right, .lucide-book-open, .lucide-calendar, .lucide-check-square, .lucide-chevron-down, .lucide-chevrons-up-down, .lucide-copy, .lucide-edit, .lucide-edit-3, .lucide-file, .lucide-file-search, .lucide-files, .lucide-folder-closed, .lucide-gallery-vertical, .lucide-git-fork, .lucide-layout-dashboard, .lucide-layout-list, .lucide-link, .lucide-more-vertical, .lucide-plus, .lucide-refresh-cw, .lucide-sort-asc, .lucide-tags, .lucide-terminal, .lucide-text, .lucide-list-checks
 ) {
 	background-color: currentColor;
 	-webkit-mask-repeat: no-repeat;
@@ -2776,13 +2991,20 @@ body.nkui-solid-icons :is(
 	.lucide-search, .lucide-bookmark, .lucide-pencil, .lucide-square-pen,
 	.lucide-folder-plus, .lucide-arrow-up-narrow-wide, .lucide-chevrons-down-up,
 	.lucide-x, .lucide-settings, .lucide-sun,
-	.lucide-alert-triangle, .lucide-arrow-left, .lucide-arrow-right, .lucide-book-open, .lucide-calendar, .lucide-check-square, .lucide-chevron-down, .lucide-chevrons-up-down, .lucide-copy, .lucide-edit, .lucide-edit-3, .lucide-file, .lucide-file-search, .lucide-files, .lucide-folder-closed, .lucide-gallery-vertical, .lucide-git-fork, .lucide-layout-dashboard, .lucide-layout-list, .lucide-link, .lucide-more-vertical, .lucide-plus, .lucide-refresh-cw, .lucide-sort-asc, .lucide-tags, .lucide-terminal, .lucide-text
+	.lucide-alert-triangle, .lucide-arrow-left, .lucide-arrow-right, .lucide-book-open, .lucide-calendar, .lucide-check-square, .lucide-chevron-down, .lucide-chevrons-up-down, .lucide-copy, .lucide-edit, .lucide-edit-3, .lucide-file, .lucide-file-search, .lucide-files, .lucide-folder-closed, .lucide-gallery-vertical, .lucide-git-fork, .lucide-layout-dashboard, .lucide-layout-list, .lucide-link, .lucide-more-vertical, .lucide-plus, .lucide-refresh-cw, .lucide-sort-asc, .lucide-tags, .lucide-terminal, .lucide-text, .lucide-list-checks
 ) > * {
 	display: none;
 }
 body.nkui-solid-icons .lucide-search {
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z'/%3E%3C/svg%3E");
 	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z'/%3E%3C/svg%3E");
+}
+/* list-checks — the queue's "back to clean view" header action (and the queue
+   tab glyph). Masked to a Material Symbols Sharp checklist so it reads sharp +
+   filled like the rest of the kit's icon set, not the rounded outline Lucide. */
+body.nkui-solid-icons .lucide-list-checks {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M222-255 80-397l56-57 86 85 170-170 56 57-226 226ZM520-280v-80h360v80H520ZM222-575 80-717l56-57 86 85 170-170 56 57-226 226ZM520-600v-80h360v80H520Z'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M222-255 80-397l56-57 86 85 170-170 56 57-226 226ZM520-280v-80h360v80H520ZM222-575 80-717l56-57 86 85 170-170 56 57-226 226ZM520-600v-80h360v80H520Z'/%3E%3C/svg%3E");
 }
 body.nkui-solid-icons .lucide-bookmark {
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M200-120v-720h560v720L480-240 200-120Z'/%3E%3C/svg%3E");
@@ -2890,6 +3112,18 @@ body.is-mobile .nav-folder-title:has(> .nkui-inbox-count) {
 	padding-right: calc(2.6em + max(var(--size-4-2, 8px), env(safe-area-inset-right, 0px)));
 }
 
+/* iOS file-pane fade (the gradient "cropped to the non-plugin margin"). It is not
+   in the plugin or the companion theme — it is Obsidian's own mobile nav mask,
+   which the plugin's full-bleed rows make read as cropped. Neutralise the mask on
+   the mobile nav so the full-bleed pane carries no cropped gradient. SPECULATIVE:
+   verify on device; a harmless no-op if the mask is painted on another element. */
+body.is-mobile .nav-files-container,
+body.is-mobile .workspace-drawer-active-area,
+body.is-mobile .workspace-drawer-inner {
+	-webkit-mask-image: none !important;
+	mask-image: none !important;
+}
+
 /* ── Short tree centres vertically — the For You centred-until-tall move: the
    scroll container becomes a flex column and the root items wrapper takes
    auto block margins; they absorb the slack while the tree is short and
@@ -2929,6 +3163,15 @@ body.is-mobile .nkui-now {
 	/* The desktop scrollbar gutter is an inset here — iOS scrollbars overlay. */
 	scrollbar-gutter: auto;
 }
+/* A standalone QUEUE page keeps a page gutter on a phone — it is a checklist with
+   its own header, not the edge-to-edge For You feed, so it should not run flush to
+   the glass. The full-bleed rule above (padding-inline: 0) otherwise wins over the
+   desktop .nkui-now.nkui-queue inset; re-assert one shared page gutter for the
+   queue, beating it on class count. Scoped OFF the CONFIG editor (.nkui-config),
+   whose lock scrim is positioned against this box and must stay full-bleed. */
+body.is-mobile .workspace-leaf-content .view-content.nkui-now.nkui-queue:not(.nkui-config) {
+	padding-inline: var(--nkui-page-pad-inline) !important;
+}
 /* The unlock scrim is exempt: it must cover the FULL pane (a capped absolute
    box would drop right:0 and leave an edge strip of live queue tappable). */
 body.is-mobile .nkui-now > *:not(.nkui-queue-lock) {
@@ -2951,6 +3194,10 @@ body.is-mobile .nkui-now::after {
 body.is-mobile .metadata-container {
 	--metadata-gap: 1px;
 	padding-block: 2px;
+	/* Trim the frontmatter block's large default bottom margin so the note body
+	   starts right under the property strip on a phone (the gap-before-first-header
+	   fix; mobile may not run calm-reading, so set it here too). */
+	margin-bottom: var(--nkui-gap-s);
 }
 body.is-mobile .metadata-property {
 	min-height: 26px; /* tighter — the block read too tall/crowded on the phone */
@@ -3134,16 +3381,6 @@ body.is-mobile .nkui-queue-lock-btn.is-holding::before {
 	opacity: 0.45;
 }
 
-/* ── Keyboard-done button — shares the qaddsubmit bare-icon block above; only
-   present while the box is being typed in, so it never crowds the slim input
-   at rest. ──────────────────────────────────────────────────────────────────── */
-.nkui-now-qadddone {
-	display: none;
-}
-body.is-mobile .nkui-now-qadd:focus-within .nkui-now-qadddone {
-	display: inline-flex;
-}
-
 /* ════════════════════════════════════════════════════════════════════════════
    Full-bleed wave — edge-to-edge mobile · symmetric centring · whole-row holds ·
    rounded mode · minimalist mode · thin-pane labels
@@ -3160,6 +3397,11 @@ body.is-mobile .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .nkui-now-qrow
 	margin-inline: 0;
 	padding-right: var(--nkui-row-end);
 }
+/* Gated members hug their name on mobile too (the block indent on
+   .nkui-now-gatemembers-inner carries through): the band starts at the indented
+   name with one inset, identical to desktop — no full-bleed exception, so a row
+   never juts a band out to the glass edge or jumps style between the two
+   presentations ("all edits extend to mobile"). */
 /* The LEFT safe inset on rows rides a transparent border (the explorer trick):
    the band's background still paints to the glass edge while every text
    indent shifts in by the inset. Portrait phones resolve it to 0 — this is
@@ -3175,7 +3417,9 @@ body.is-mobile .nkui-now :is(.nkui-now-row, .nkui-now-qrow, .nkui-now-optrow, .n
    against the bezel — and the flush count pill's negative margin follows the
    token automatically. */
 body.is-mobile .nkui-now-group-head {
-	--nkui-head-pad-l: var(--nkui-edge-l);
+	/* Left gutter matches the rows (the count pill was reading ~2x too far in at
+	   the 16px edge token); the right keeps the safe-area floor. */
+	--nkui-head-pad-l: var(--nkui-gap-s);
 	--nkui-head-pad-r: var(--nkui-edge-r);
 }
 /* Rows nested INSIDE a decision card sit in the card's 1.55em text indent —
@@ -3369,7 +3613,11 @@ body.nkui-rounded {
 	--nkui-dot-radius: 50%;
 }
 body.nkui-rounded .nkui-inbox-count {
-	padding: 0 0.8em;
+	/* Rounded chip gutter only (one token); the trailing column (--nkui-row-end)
+	   and the even vertical nest (--nkui-nest-inset) come from the base rule and
+	   already hold in every mode — no per-mode right override, so a mode toggle
+	   never shifts the trailing column. */
+	padding-inline: var(--nkui-gap-s);
 }
 body.nkui-rounded .nkui-weight-badge {
 	padding-inline: 0.8em;
@@ -3388,8 +3636,8 @@ body.nkui-rounded .nkui-now-qaddinput {
    open and collapsed states, so unfolding still moves nothing horizontally.
    On mobile the safe-area edge gutters already exceed this floor. */
 body.nkui-rounded .nkui-now-group-head {
-	--nkui-head-pad-l: max(0.9em, var(--nkui-edge-l, 0px));
-	--nkui-head-pad-r: max(0.9em, var(--nkui-edge-r, 0px));
+	--nkui-head-pad-l: var(--nkui-gap-s);
+	--nkui-head-pad-r: var(--nkui-row-end);
 }
 /* ── Rounded-mode edge clearance (desktop) ────────────────────────────────────
    The list rows and the group head out-dent -0.5em to bleed their sharp bands to
@@ -3436,6 +3684,10 @@ body.nkui-rounded.is-mobile .nav-folder-title {
 body.nkui-rounded .nav-files-container .nav-file-title,
 body.nkui-rounded .nav-files-container .nav-folder-title {
 	border-radius: var(--nkui-radius-pill, var(--nkui-radius)) !important;
+	/* Rounded bands must not touch (the file-panel rows ran seamless like the sharp
+	   column language); a small block gap floats them apart so each highlight reads
+	   as its own pill with breathing room. */
+	margin-block: var(--nkui-gap-2xs);
 }
 /* Desktop: the full-bleed wave drops the container's right padding to 0 so sharp
    bands reach the scrollbar edge; a pill needs its rounded RIGHT end to clear
@@ -3668,15 +3920,24 @@ body.nkui-large-mouths .nav-folder-title:has(> .nkui-inbox-count) {
 	padding-right: calc(3em + max(var(--size-4-2, 8px), env(safe-area-inset-right, 0px)));
 }
 
+/* Document-tab labels read too heavy — step them down from the theme's bold
+   default to a medium weight (the "super-bold default font" complaint, tab half).
+   !important to beat a theme that hard-bolds the active tab title. */
+.mod-root .workspace-tab-header-inner-title {
+	font-weight: var(--font-medium, 500) !important;
+}
+
 /* ── Tab TITLE text tinted to type (body.nkui-type-tint) — the main-area tab
    headers already wash by type; the title and icon now carry the colour too:
    full type colour on the active tab, a muted mix on inactive ones. ─────────── */
 body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-title,
-body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-icon {
+body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-icon,
+body.nkui-type-tint .mod-root .workspace-tab-header[class*="nkui-type-"] .workspace-tab-header-inner-close-button {
 	color: color-mix(in srgb, var(--nkui-type-color) 55%, var(--text-muted));
 }
 body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-title,
-body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-icon {
+body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-icon,
+body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-"] .workspace-tab-header-inner-close-button {
 	color: var(--nkui-type-color);
 }
 
@@ -3875,19 +4136,59 @@ body.nkui-skim-min-done
 body.nkui-skim-condense
 	.markdown-preview-view
 	.markdown-preview-sizer
-	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
-	font-size: var(--font-ui-smaller, 12px);
-	line-height: 1.25;
-	/* Tighten to a tidy stack — the brief's "little list" spacing. */
-	margin-block: 1px;
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter):not(.el-ul):not(.el-ol):not(.el-h1):not(.el-h2):not(.el-h3):not(.el-h4):not(.el-h5):not(.el-h6) {
+	/* Prose blocks: 60% smaller and dim, showing up to THREE lines then truncating
+	   with an ellipsis — a readable preview to scan or scroll past, not an invisible
+	   single line. Lists and headings are handled separately (excluded above by
+	   .el-ul/.el-ol/.el-hN so a virtualised-in block is still treated right). */
+	font-size: 0.5em;
+	line-height: 1.3;
+	margin-block: var(--nkui-gap-2xs);
 	opacity: 0.5;
-	/* Single-line clamp: the whole block trails off with an ellipsis instead of
-	   wrapping, so each block is exactly one outline row tall. */
-	max-height: 1.6em;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
 	overflow: hidden;
-	white-space: nowrap;
-	text-overflow: ellipsis;
 	transition: opacity var(--nkui-fade) var(--nkui-ease);
+}
+/* Condensed-mode headings — keyed on the STRUCTURAL heading-section class (.el-hN),
+   not the nkui-skim-head decoration marker, so a heading that virtualises into view
+   after the decoration pass is still exempted (it was getting condensed to a clamped
+   10px line). Full text (un-clamped), a step smaller than reading size, and the
+   theme's large heading margin collapsed to one tight scale step so the outline is
+   dense (it was leaving ~45px above each heading). !important to beat the base
+   condense rule's high :not()-chain specificity. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > :is(.el-h1, .el-h2, .el-h3, .el-h4, .el-h5, .el-h6) {
+	max-height: none !important;
+	white-space: normal !important;
+	overflow: visible !important;
+	opacity: 1 !important;
+	display: block !important;
+	margin-block: var(--nkui-gap-2xs) !important;
+}
+/* The .el-hN wrapper's margin (above) sets the outline rhythm, but the INNER
+   h1…h6 carries the theme's own large heading margin, which escaped the wrapper
+   and left a ~45px gap before every header (the "skim spacing still too much"
+   report). Zero the inner element's block margin so only the wrapper's one step
+   governs — the outline reads dense. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > :is(.el-h1, .el-h2, .el-h3, .el-h4, .el-h5, .el-h6) :is(h1, h2, h3, h4, h5, h6) {
+	margin-block: 0 !important;
+}
+/* The first header (the H1 title) keeps full reading size; sub-headings step down. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > :is(.el-h2, .el-h3, .el-h4, .el-h5, .el-h6) {
+	font-size: 0.8em !important;
+}
+/* First section under the title: the lead block reads at FULL reading size, fully
+   legible — un-dimmed, un-clamped, normal leading — so the opening need-to-know is
+   completely readable; only the sections BELOW the lead condense (reversed
+   2026-06-14: the lead was 0.7em, now full size). Keyed on the CSS sibling of the
+   title H1, so it only bites at the top where the title is in view. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > .el-h1 + :is(.el-p, .el-blockquote, .el-ul, .el-ol) {
+	font-size: 1em !important;
+	opacity: 1 !important;
+	-webkit-line-clamp: unset !important;
+	display: block !important;
+	max-height: none !important;
 }
 /* Hovering a condensed block lifts its dim (not its height) so a glance can
    still read a line in full tone without expanding the whole section. */
@@ -3904,9 +4205,33 @@ body.nkui-skim-condense
 body.nkui-skim-condense
 	.markdown-preview-view
 	.markdown-preview-sizer
-	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):is(.el-ul, .el-ol) {
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter):is(.el-ul, .el-ol) {
+	/* Match the base rule's :not() chain (it was more specific and clamped the whole
+	   list to one line — only the first item showed). The list shows ALL items now;
+	   each li carries its own one-line ellipsis below. */
 	max-height: none;
 	white-space: normal;
+	/* Lists carry their own small size (excluded from the prose rule above); each
+	   item is one truncated line below. */
+	font-size: 0.5em;
+	/* Lists are excluded from the prose margin rule, so the BLOCK kept the theme's
+	   large list margin — leaving a big gap around every list in the outline. Bring
+	   it to the same one-step rhythm as the prose/heading blocks. */
+	margin-block: var(--nkui-gap-2xs);
+}
+/* …and the INNER ul/ol element carries the theme's own list margin, which escapes
+   the wrapper (the same way the inner headings did) — zero it so only the
+   wrapper's one step governs and the list sits tight in the outline. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > :is(.el-ul, .el-ol) :is(ul, ol) {
+	margin-block: 0 !important;
+}
+/* BLANKET — every condensed block (.el-*) is a wrapper whose own margin is set to
+   one 4px step above; its INNER element (p, ul, blockquote, pre, table, h…) carries
+   the theme's block margin, which escapes the wrapper and reads as a big, UNEVEN
+   gap. Zero the inner element's block margin for ALL block types at once, so every
+   gap between blocks is the wrapper's single even step — no per-type whack-a-mole. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > div[class*="el-"] > * {
+	margin-block: 0 !important;
 }
 body.nkui-skim-condense
 	.markdown-preview-view
@@ -3917,6 +4242,9 @@ body.nkui-skim-condense
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	/* Open items read clearly so a scanner sees what's still pending; checked items
+	   are dimmed + crossed out below. */
+	opacity: 0.8;
 }
 /* A condensed completed task reads doubly recessed — the crossed-off look layered
    on the outline shrink, so finished work is the easiest thing to scroll past. */
@@ -3931,6 +4259,23 @@ body.nkui-skim-condense
 	text-decoration: line-through;
 	text-decoration-color: var(--text-faint);
 	color: var(--text-faint);
+	/* Checked items recede below the open ones — but not so far the tick disappears:
+	   a touch more opacity than the old 0.4 so the (shrunk, green) ✓ still reads the
+	   done-ness at a glance (the "keep a little check mark on crossed-off lines" ask). */
+	opacity: 0.55;
+}
+/* The native checked box is 18px — it dwarfs the 9px outline line and dims away.
+   Shrink it to a LITTLE green ✓ sized to the condensed line, so a crossed-off item
+   still reads as done beside the strikethrough. */
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > div:not(.nkui-skim-expanded) .task-list-item[data-task="x"] :is(input[type="checkbox"], .task-list-item-checkbox),
+body.nkui-skim-condense .markdown-preview-view .markdown-preview-sizer > div:not(.nkui-skim-expanded) .task-list-item[data-task="X"] :is(input[type="checkbox"], .task-list-item-checkbox) {
+	/* fixed px — the input's own font-size is the body default, so an em here
+	   resolved against ~13px and barely shrank; pin a little box sized to the line. */
+	width: 12px !important;
+	height: 12px !important;
+	min-width: 0 !important;
+	accent-color: var(--color-green);
+	margin-inline-end: 0.35em;
 }
 /* An EXPANDED section returns to full reading: it carries no shrink rules (the
    :not(.nkui-skim-expanded) guards exclude it), so it renders at the theme's own
@@ -3952,19 +4297,18 @@ body.nkui-skim-condense
 body.nkui-skim-condense.nkui-skim-tier-faint
 	.markdown-preview-view
 	.markdown-preview-sizer
-	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter):not(.el-ul):not(.el-ol) {
 	opacity: 0.5;
 }
 
-/* READABLE — lift the dim so the little list reads clearly, and tighten the
-   heading blocks into a dense stack (headings keep their full font size, just
-   pulled closer together). The compact stack makes the outline scannable as a
-   table of contents rather than a spread-out page. */
+/* READABLE — barely tinted: the condensed content recedes to a faint outline you
+   skim past, with the headings carrying the page. Lighter than faint's 0.5 so the
+   body all but disappears while the heading stack stays the scannable anchor. */
 body.nkui-skim-condense.nkui-skim-tier-readable
 	.markdown-preview-view
 	.markdown-preview-sizer
-	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
-	opacity: 0.66;
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter):not(.el-ul):not(.el-ol) {
+	opacity: 0.4;
 }
 body.nkui-skim-condense.nkui-skim-tier-readable
 	.markdown-preview-view
@@ -3982,7 +4326,7 @@ body.nkui-skim-condense.nkui-skim-tier-readable
 body.nkui-skim-condense.nkui-skim-tier-outline
 	.markdown-preview-view
 	.markdown-preview-sizer
-	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter):not(.el-ul):not(.el-ol) {
 	opacity: 0.66;
 }
 body.nkui-skim-condense.nkui-skim-tier-outline
@@ -4035,13 +4379,35 @@ body.nkui-skim-condense.nkui-skim-tier-outline
 body.nkui-skim .markdown-preview-view .nkui-skim-heading {
 	cursor: pointer;
 }
+/* In skim mode the kit's chevron IS the fold affordance — hide Obsidian's own
+   heading collapse indicator on a decorated heading so the two don't read as a
+   doubled chevron. */
+body.nkui-skim .markdown-preview-view .nkui-skim-head .collapse-indicator,
+body.nkui-skim .markdown-preview-view .nkui-skim-head .heading-collapse-indicator {
+	display: none;
+}
+/* The kit chevron sizes from the marker tokens (one marker column with every
+   other dot/indicator), not a private em. */
 body.nkui-skim .nkui-skim-chevron {
 	display: inline-block;
-	width: 0.6em;
-	height: 0.6em;
-	margin-right: 0.4em;
+	width: var(--nkui-dot-size);
+	height: var(--nkui-dot-size);
+	/* Hang the chevron in the left gutter (outdent by its own footprint) so the
+	   heading TEXT lines up with the body paragraphs' left edge — without this it
+	   pushed every header ~14px right of the prose (the "strange indentation"). */
+	margin-left: calc(-1 * (var(--nkui-dot-size) + var(--nkui-dot-gap)));
+	margin-right: var(--nkui-dot-gap);
 	vertical-align: baseline;
 	background-color: currentColor;
+}
+/* A phone's reading view has almost no left gutter, so the outdent above hangs the
+   chevron (and the leading glyphs) off the left edge — "skim cutting off text on
+   the left". Keep the chevron in-flow on mobile (a small, clip-safe heading indent)
+   instead of hanging it past the edge. */
+body.is-mobile .nkui-skim .nkui-skim-chevron {
+	margin-left: 0;
+}
+body.nkui-skim .nkui-skim-chevron {
 	opacity: 0.55;
 	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-344 240-584l56-56 184 184 184-184 56 56-240 240Z'/%3E%3C/svg%3E");
 	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-344 240-584l56-56 184 184 184-184 56 56-240 240Z'/%3E%3C/svg%3E");

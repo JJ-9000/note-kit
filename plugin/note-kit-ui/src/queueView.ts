@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, setIcon, debounce, Platform } from "obsidian";
+import { ItemView, MarkdownView, WorkspaceLeaf, TFile, ViewStateResult, setIcon, Platform } from "obsidian";
 import {
 	Decision,
 	QueueItem,
@@ -9,8 +9,10 @@ import {
 	parseQueueItems,
 	plainText,
 	renderAddTaskBox,
+	renderDecisionCard,
 	renderMachineItemRow,
 } from "./nowView";
+import { applyScreenShift, makeDeferredRender } from "./kitShared";
 import * as queueWrites from "./queueWrites";
 import { CHECKBOX_RE } from "./queueWrites";
 import { attachHold, attachKeyActivate } from "./holds";
@@ -52,23 +54,7 @@ export class QueueView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		this.scheduleRender = debounce(
-			() => {
-				// Never wipe a field the user is typing in — same guard as NowView.
-				const ae = document.activeElement;
-				if (
-					ae instanceof HTMLElement &&
-					(ae.tagName === "TEXTAREA" || ae.tagName === "INPUT") &&
-					this.contentEl.contains(ae)
-				) {
-					this.scheduleRender();
-					return;
-				}
-				void this.reloadAndRender();
-			},
-			250,
-			false
-		);
+		this.scheduleRender = makeDeferredRender(this, () => void this.reloadAndRender());
 	}
 
 	getViewType(): string {
@@ -170,25 +156,8 @@ export class QueueView extends ItemView {
 		this.render();
 	}
 
-	/** Vertical placement bias — mirrors NowView.applyScreenShift so the queue
-	 * view honours settings.nowVerticalBias identically to For You (the .nkui-now
-	 * flex spacers read --nkui-screen-shift). Desktop emits the bias; mobile also
-	 * corrects for the pane sitting below the screen centre. Keeps every vertical
-	 * element on one setting across surfaces. */
-	private applyScreenShift(): void {
-		const bias = ((this.plugin.settings.nowVerticalBias ?? 0) / 100) * window.innerHeight;
-		if (!Platform.isMobile) {
-			this.contentEl.style.setProperty("--nkui-screen-shift", `${bias}px`);
-			return;
-		}
-		const pane = this.contentEl.getBoundingClientRect();
-		if (pane.height <= 0) return;
-		const shift = window.innerHeight / 2 - (pane.top + pane.height / 2);
-		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift + bias}px`);
-	}
-
 	onResize(): void {
-		this.applyScreenShift();
+		applyScreenShift(this.contentEl, this.plugin.settings);
 	}
 
 	// ── rendering ──────────────────────────────────────────────────────────────
@@ -201,7 +170,7 @@ export class QueueView extends ItemView {
 		// column (`.nkui-now > *`), the page padding, the stable scrollbar gutter.
 		c.addClass("nkui-now");
 		c.addClass("nkui-queue");
-		this.applyScreenShift();
+		applyScreenShift(this.contentEl, this.plugin.settings);
 		// A sidebar dock is narrow — the stylesheet keys compact spacing off this.
 		c.toggleClass("nkui-queue-side", this.isSideLeaf());
 
@@ -260,6 +229,14 @@ export class QueueView extends ItemView {
 			state: { file: f.path },
 			active: true,
 		});
+		// Swapping the view type for the SAME file does not re-fire file-open, so
+		// the file-open handler's clean-view header action never mounts — the raw
+		// editor would strand the user with no way back. Mount it directly here,
+		// deferred a tick so the markdown view has loaded its file first.
+		window.setTimeout(() => {
+			const v = this.leaf.view;
+			if (v instanceof MarkdownView) this.plugin.addCleanViewAction(v, f.path);
+		}, 0);
 	}
 
 	// ── machine queue — checklist rows + add box ───────────────────────────────
@@ -363,77 +340,22 @@ export class QueueView extends ItemView {
 	private renderDecisions(list: HTMLElement): void {
 		const open = this.decisions.filter(isOpenDecision);
 		const resolved = this.decisions.filter(isResolvedDecision);
-		for (const d of open) this.renderOpenDecision(list, d);
+		// The shared decision-card renderer (the For You Decide bucket uses it too).
+		// The queue view opens the raw markdown, leaves the title non-clickable,
+		// writes immediately (no fade), and offers no add-option box.
+		for (const d of open) {
+			renderDecisionCard(list, d, {
+				onOpen: () => void this.openRaw(),
+				readOnlyText: "Read-only — open the raw file to read",
+				titleOpens: false,
+				onPick: (text) => this.pickOption(text),
+				onPickFilled: (raw, filled) => this.pickOptionFilled(raw, filled),
+				onAcknowledge: () => this.acknowledge(d),
+			});
+		}
 		for (const d of resolved) this.renderResolvedDecision(list, d);
 		if (!open.length && !resolved.length) {
 			list.createDiv({ cls: "nkui-queue-empty", text: "Nothing to decide." });
-		}
-	}
-
-	/** One open decision — title, context, and its options as clickable picks
-	 * (writes [x], the same convention the For You Decide bucket uses). A
-	 * fill-in REPLACE-WITH-<WHAT> placeholder renders as a text input whose
-	 * value replaces the placeholder as the box checks. An option-less
-	 * (drifted) decision gets an open-to-read row plus Acknowledge. */
-	private renderOpenDecision(list: HTMLElement, d: Decision): void {
-		const card = list.createDiv("nkui-now-decision");
-		if (d.title) {
-			card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
-		}
-		if (d.context) card.createDiv({ cls: "nkui-now-decision-context", text: plainText(d.context) });
-
-		if (!d.options.length) {
-			const row = card.createDiv("nkui-now-needsread");
-			row.setAttr("role", "button");
-			row.setAttr("tabindex", "0");
-			setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
-			row.createSpan({ cls: "nkui-now-needsread-text", text: "Read-only — open the raw file to read" });
-			row.addEventListener("click", () => void this.openRaw());
-			attachKeyActivate(row, () => void this.openRaw());
-			if (d.title) {
-				const ack = row.createEl("button", { cls: "nkui-now-ackbtn", text: "Acknowledge" });
-				ack.setAttr("aria-label", "Acknowledge — cross this off; the agent clears it on its next pass");
-				ack.addEventListener("click", (ev) => {
-					ev.stopPropagation();
-					void this.acknowledge(d);
-				});
-			}
-			return;
-		}
-
-		for (const o of d.options.filter((x) => x.state !== "-")) {
-			const row = card.createDiv("nkui-now-optrow");
-			const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
-			const fm = o.text.match(/REPLACE-WITH-([A-Z0-9-]+)/);
-			if (fm) {
-				const [pre, post] = o.text.split(fm[0], 2);
-				if (pre.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
-				const fill = row.createEl("input", {
-					cls: "nkui-now-fillin",
-					attr: { type: "text", placeholder: fm[1].toLowerCase().replace(/-/g, " ") },
-				});
-				if (post && post.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
-				const submit = (): void => {
-					const v = fill.value.trim();
-					if (!v) {
-						cb.checked = false;
-						fill.focus();
-						return;
-					}
-					void this.pickOptionFilled(o.text, o.text.replace(fm[0], v));
-				};
-				cb.addEventListener("change", submit);
-				fill.addEventListener("keydown", (ev) => {
-					if (ev.key === "Enter" && fill.value.trim()) {
-						ev.preventDefault();
-						cb.checked = true;
-						submit();
-					}
-				});
-				continue;
-			}
-			cb.addEventListener("change", () => void this.pickOption(o.text));
-			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
 		}
 	}
 

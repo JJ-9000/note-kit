@@ -1,4 +1,5 @@
 import { App } from "obsidian";
+import { isSeparatorRow, isTableLine, splitCells } from "./configTables";
 
 /**
  * Kit facts derived from the vault's own `.claude/CONFIG.md` — the kit's single
@@ -21,11 +22,6 @@ export interface KitFacts {
 	/** resolved queue file paths, e.g. "Inbox/User-Queue.md" */
 	userQueuePath: string;
 	machineQueuePath: string;
-	/** numeric structural prefixes from § Numbering, e.g. ["00","01","02","99"].
-	 * The plain-name kit documents these as the LEGACY scheme; parsing them is
-	 * harmless on plain installs (no name starts with a token, so they style
-	 * nothing) and keeps legacy installs styled. May be empty. */
-	prefixes: string[];
 	/** the type vocabulary from § Types, in table-row order */
 	types: string[];
 	/** § Folders literals in table-row order — CONFIG row order IS the explorer
@@ -67,12 +63,6 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 
 	const resolve = (v: string) => v.replace(/<([\w-]+)>/g, (_s, k: string) => tokens.get(k) ?? `<${k}>`);
 
-	// § Numbering markers: | `00-` | top | …
-	const prefixes: string[] = [];
-	for (const m of text.matchAll(/^\|\s*`(\d{2,})-`\s*\|/gm)) {
-		if (!prefixes.includes(m[1])) prefixes.push(m[1]);
-	}
-
 	// The kit's tables are found by their own COLUMN SIGNATURE, never by a baked
 	// heading literal — the clown-vault rule: a vault that renames `## Types` to
 	// `## Note Types` (or § Folders to § Roots) still derives, because the table's
@@ -81,32 +71,21 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 	// table whose header satisfies the predicate; cells are read by COLUMN NAME, so
 	// neither a reordered column nor an added one shifts the value read. Row order
 	// (the display order) is preserved exactly as the table is written.
+	// Cell splitting and table/separator detection are the canonical primitives
+	// from configTables (which mirrors the Python config_shape.py) — shared so the
+	// two TS parsers can never drift. findTable stays here (it has no configTables
+	// twin), built on those primitives.
 	const tableLines = text.split("\n");
-	const tableCells = (line: string): string[] => {
-		let inner = line.trim();
-		if (inner.startsWith("|")) inner = inner.slice(1);
-		if (inner.endsWith("|")) inner = inner.slice(0, -1);
-		return inner.split("|").map((c) => c.trim());
-	};
-	const isSepRow = (line: string): boolean => {
-		const cs = tableCells(line);
-		return cs.length > 0 && cs.every((c) => /^:?-+:?$/.test(c));
-	};
-	const isTableLine = (line: string): boolean => {
-		const s = line.trim();
-		if (!s.includes("|")) return false;
-		return s.startsWith("|") || s.endsWith("|") || (s.match(/\|/g)?.length ?? 0) >= 2;
-	};
 	const findTable = (
 		headerMatches: (header: string[]) => boolean
 	): { header: string[]; rows: string[][] } | null => {
 		for (let i = 0; i < tableLines.length - 1; i++) {
-			if (!isTableLine(tableLines[i]) || !isSepRow(tableLines[i + 1])) continue;
-			const header = tableCells(tableLines[i]).map((c) => c.replace(/`/g, "").trim());
+			if (!isTableLine(tableLines[i]) || !isSeparatorRow(tableLines[i + 1])) continue;
+			const header = splitCells(tableLines[i]).map((c) => c.replace(/`/g, "").trim());
 			if (!headerMatches(header)) continue;
 			const rows: string[][] = [];
 			for (let j = i + 2; j < tableLines.length && tableLines[j].trim() && isTableLine(tableLines[j]); j++) {
-				rows.push(tableCells(tableLines[j]));
+				rows.push(splitCells(tableLines[j]));
 			}
 			return { header, rows };
 		}
@@ -151,7 +130,6 @@ export async function readKitFacts(app: App): Promise<KitFacts | null> {
 		sessionsLiteral: tokens.get("sessions") ?? "",
 		userQueuePath: resolve(uq),
 		machineQueuePath: resolve(mq),
-		prefixes,
 		types,
 		rootOrder,
 		subfolderOrder,

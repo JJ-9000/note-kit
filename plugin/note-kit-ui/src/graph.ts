@@ -12,7 +12,13 @@ export async function syncGraphColors(app: App, styles: TypeStyle[]): Promise<vo
 	const path = `${app.vault.configDir}/graph.json`;
 	let data: Record<string, unknown> = {};
 	try {
-		data = JSON.parse(await app.vault.adapter.read(path)) as Record<string, unknown>;
+		const parsed = JSON.parse(await app.vault.adapter.read(path)) as unknown;
+		// Guard against a graph.json that parses but is not an object (a corrupted
+		// `[]` or bare value): assigning colorGroups onto a non-record would persist
+		// a structurally broken file. Keep the fresh {} in that case.
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			data = parsed as Record<string, unknown>;
+		}
 	} catch {
 		// no graph.json yet (graph never opened) — write a fresh one; the graph
 		// view merges its own defaults around it.
@@ -20,7 +26,7 @@ export async function syncGraphColors(app: App, styles: TypeStyle[]): Promise<vo
 	const colorGroups = styles
 		.filter((t) => /^#[0-9a-fA-F]{6}$/.test(t.color))
 		.map((t) => ({
-			query: `["type":${t.type}]`,
+			query: `["type":"${t.type}"]`,
 			color: { a: 1, rgb: parseInt(t.color.slice(1), 16) },
 		}));
 	data.colorGroups = colorGroups;

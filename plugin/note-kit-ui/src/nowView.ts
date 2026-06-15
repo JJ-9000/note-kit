@@ -1,6 +1,7 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, setIcon, debounce, Platform } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, TFolder, setIcon, Platform, Notice } from "obsidian";
 import { typeClass } from "./settings";
 import { toneVars } from "./palette";
+import { applyScreenShift, isApproved, isUnreviewed, makeDeferredRender, pickGateName } from "./kitShared";
 import { attachHold, attachKeyActivate } from "./holds";
 import * as queueWrites from "./queueWrites";
 import { CHECKBOX_RE, HEADING_RE, SKIP_MARK_RE, EXEC_MARK_RE } from "./queueWrites";
@@ -131,21 +132,7 @@ export class NowView extends ItemView {
 		super(leaf);
 		this.plugin = plugin;
 		this.side = side;
-		this.scheduleRender = debounce(() => {
-			// Never wipe a field the user is typing in (add a task, edit one, pick an
-			// option): a background vault change must not blow away in-progress text.
-			// Defer until the field loses focus, then catch up.
-			const ae = document.activeElement;
-			if (
-				ae instanceof HTMLElement &&
-				(ae.tagName === "TEXTAREA" || ae.tagName === "INPUT") &&
-				this.contentEl.contains(ae)
-			) {
-				this.scheduleRender();
-				return;
-			}
-			void this.reloadAndRender();
-		}, 250, false);
+		this.scheduleRender = makeDeferredRender(this, () => void this.reloadAndRender());
 	}
 
 	getViewType(): string {
@@ -412,32 +399,7 @@ export class NowView extends ItemView {
 	 * sites, which fire exactly when the pane geometry settles, still drive the
 	 * centering; a hidden pane measures 0 and the next onResize re-runs.) */
 	private measurePaneShift(): void {
-		this.applyScreenShift(this.contentEl.getBoundingClientRect());
-	}
-
-	/** Screen-space centering (mobile): the For You pane doesn't fill the
-	 * screen — the navbar and headers eat into it — so content centered to the
-	 * PANE sits visibly low on the phone. Publish how far the pane's center
-	 * sits from the SCREEN's center as --nkui-screen-shift on contentEl:
-	 * 2 × (screen center − pane center) px, positive when the pane's center is
-	 * above the screen's and the content must move DOWN. The stylesheet turns
-	 * the var into spacer min-heights.
-	 *
-	 * The user's vertical-placement bias (settings.nowVerticalBias, a
-	 * percent-ish share of the screen height; negative = higher) adds straight
-	 * into the shift target. Desktop has no navbar offset to correct but still
-	 * emits the BIAS as the same var, so the spacers honour the setting
-	 * everywhere; a hidden pane (height 0) keeps its last value and the next
-	 * onResize re-measures. */
-	private applyScreenShift(pane: DOMRect): void {
-		const bias = ((this.plugin.settings.nowVerticalBias ?? 0) / 100) * window.innerHeight;
-		if (!Platform.isMobile) {
-			this.contentEl.style.setProperty("--nkui-screen-shift", `${bias}px`);
-			return;
-		}
-		if (pane.height <= 0) return;
-		const shift = window.innerHeight / 2 - (pane.top + pane.height / 2);
-		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift + bias}px`);
+		applyScreenShift(this.contentEl, this.plugin.settings, this.contentEl.getBoundingClientRect());
 	}
 
 	private renderBucket(
@@ -611,7 +573,22 @@ export class NowView extends ItemView {
 
 		const wrap = b.createDiv("nkui-now-foldwrap");
 		const list = wrap.createDiv("nkui-now-list");
-		for (const d of decisions) this.renderDecision(list, d);
+		const path = this.plugin.settings.userQueuePath;
+		// The shared decision-card renderer (queueView uses it too). For You opens
+		// the queue at the decision's heading, makes the title a click target, and
+		// softens the card on a write (fade); it also carries the add-option box.
+		for (const d of decisions) {
+			renderDecisionCard(list, d, {
+				onOpen: () => this.openPath(path, false, d.title ? `#${d.title}` : undefined),
+				readOnlyText: "Read-only — open to read",
+				titleOpens: true,
+				onPick: (text) => this.pickOption(path, text),
+				onPickFilled: (raw, filled) => this.pickOptionFilled(path, raw, filled),
+				onAcknowledge: () => this.acknowledge(path, d),
+				onAddOption: (text) => this.addOption(path, d, text),
+				fade: true,
+			});
+		}
 		// The stylesheet scales the unroll duration by the row count.
 		wrap.style.setProperty("--nkui-rows", String(list.childElementCount));
 	}
@@ -638,109 +615,6 @@ export class NowView extends ItemView {
 			},
 			onOpen: (newLeaf) => this.openPath(path, newLeaf, d.title ? `#${d.title}` : undefined),
 			ariaLabel: "Approved — the agent executes and clears this on its next pass. Uncheck to re-open.",
-		});
-	}
-
-	private renderDecision(list: HTMLElement, d: Decision): void {
-		const path = this.plugin.settings.userQueuePath;
-		const card = list.createDiv("nkui-now-decision");
-		// Open the queue at this decision's heading, so a long queue lands you on
-		// the item itself rather than the top of the file.
-		const openQueue = () => this.openPath(path, false, d.title ? `#${d.title}` : undefined);
-		if (d.title) {
-			const title = card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
-			title.addEventListener("click", openQueue);
-		}
-		if (d.context) card.createDiv({ cls: "nkui-now-decision-context", text: plainText(d.context) });
-
-		// Drifted item — a heading with prose but no option checkboxes
-		// (Format-User-Queue § No checkbox, no item). Nothing to pick, so render a
-		// "needs reading" row that opens the queue at the heading; visible drift
-		// beats an invisible drop.
-		if (!d.options.length) {
-			const row = card.createDiv("nkui-now-needsread");
-			row.setAttr("role", "button");
-			row.setAttr("tabindex", "0");
-			setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
-			row.createSpan({ cls: "nkui-now-needsread-text", text: "Read-only — open to read" });
-			row.addEventListener("click", openQueue);
-			attachKeyActivate(row, openQueue);
-			// A non-choice notification has nothing to pick — the default action is to
-			// acknowledge it: a checked line is written under its heading so it
-			// resolves like a picked decision (dims, then the action-agent clears it
-			// next pass). Needs a heading to locate the write target.
-			if (d.title) {
-				const ack = row.createEl("button", { cls: "nkui-now-ackbtn", text: "Acknowledge" });
-				ack.setAttr("aria-label", "Acknowledge — cross this off; the agent clears it on its next pass");
-				ack.addEventListener("click", (ev) => {
-					ev.stopPropagation();
-					void this.fadeThen(card, () => this.acknowledge(path, d));
-				});
-			}
-			return;
-		}
-
-		const selectable = d.options.filter((o) => o.state !== "-");
-		const single = selectable.length <= 1;
-		for (const o of selectable) {
-			// Pick-ONE: checking an option approves it ([x]); the decision then
-			// resolves and clears on the next render. The others are left as-is —
-			// the action-agent clears the whole block when it acts.
-			const row = card.createDiv("nkui-now-optrow");
-			const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
-			// Fill-in option (Format-User-Queue): a REPLACE-WITH-<WHAT> placeholder
-			// renders as a text input. The typed value replaces the placeholder in
-			// the queue file as the box checks; checking with it empty focuses the
-			// input instead — the action-agent demotes an unedited placeholder, so
-			// a bare checkbox here would only bounce.
-			const fm = o.text.match(/REPLACE-WITH-([A-Z0-9-]+)/);
-			if (fm) {
-				const [pre, post] = o.text.split(fm[0], 2);
-				if (pre.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
-				const fill = row.createEl("input", {
-					cls: "nkui-now-fillin",
-					attr: { type: "text", placeholder: fm[1].toLowerCase().replace(/-/g, " ") },
-				});
-				if (post && post.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
-				const submit = () => {
-					const v = fill.value.trim();
-					if (!v) {
-						cb.checked = false;
-						fill.focus();
-						return;
-					}
-					void this.fadeThen(card, () =>
-					this.pickOptionFilled(path, o.text, o.text.replace(fm[0], v))
-				);
-				};
-				cb.addEventListener("change", submit);
-				fill.addEventListener("keydown", (ev) => {
-					if (ev.key === "Enter" && fill.value.trim()) {
-						ev.preventDefault();
-						cb.checked = true;
-						submit();
-					}
-				});
-				continue;
-			}
-			cb.addEventListener("change", () =>
-				void this.fadeThen(card, () => this.pickOption(path, o.text))
-			);
-			row.createSpan({ cls: "nkui-now-opttext", text: plainText(o.text) });
-		}
-
-		// Add-option input — a machine-queue-style way to propose another option.
-		const add = card.createDiv("nkui-now-qadd");
-		const input = add.createEl("input", {
-			cls: "nkui-now-qaddinput",
-			attr: { type: "text", placeholder: single ? "Add an option…" : "Add another option…" },
-		});
-		input.addEventListener("keydown", (ev) => {
-			if (ev.key === "Enter" && input.value.trim()) {
-				ev.preventDefault();
-				void this.addOption(path, d, input.value.trim());
-				input.value = "";
-			}
 		});
 	}
 
@@ -939,10 +813,20 @@ export class NowView extends ItemView {
 	 * the next section up under the cursor. */
 	private async approveAll(drafts: Entry[], bucket: HTMLElement | null): Promise<void> {
 		const field = this.plugin.settings.reviewedField;
+		let failed = 0;
 		for (const e of drafts) {
-			await this.app.fileManager.processFrontMatter(e.file, (fm) => {
-				fm[field] = true;
-			});
+			try {
+				await this.app.fileManager.processFrontMatter(e.file, (fm) => {
+					fm[field] = true;
+				});
+			} catch {
+				// The file was moved or removed by a concurrent agent since collect();
+				// skip it and keep approving the rest rather than aborting half-done.
+				failed++;
+			}
+		}
+		if (failed) {
+			new Notice(`Note Kit UI: ${failed} draft${failed > 1 ? "s" : ""} could not be approved (moved or removed); the rest were.`);
 		}
 		await this.settle(bucket);
 		await this.reloadAndRender();
@@ -1027,14 +911,24 @@ export class NowView extends ItemView {
 	 * before the repaint moves it. */
 	private async unapproveSet(e: Entry, row?: HTMLElement): Promise<void> {
 		const field = this.plugin.settings.reviewedField;
+		let failed = 0;
 		for (const f of [e.file, ...(e.setFiles ?? [])]) {
-			await this.app.fileManager.processFrontMatter(f, (fm) => {
-				if (fm[field] === true || fm[field] === "true") fm[field] = false;
-				if (Array.isArray(fm.tags)) {
-					const kept = fm.tags.filter((t: unknown) => t !== "auto-reviewed");
-					if (kept.length !== fm.tags.length) fm.tags = kept;
-				}
-			});
+			try {
+				await this.app.fileManager.processFrontMatter(f, (fm) => {
+					if (fm[field] === true || fm[field] === "true") fm[field] = false;
+					if (Array.isArray(fm.tags)) {
+						const kept = fm.tags.filter((t: unknown) => t !== "auto-reviewed");
+						if (kept.length !== fm.tags.length) fm.tags = kept;
+					}
+				});
+			} catch {
+				// A member moved or removed by a concurrent agent since collect();
+				// skip it and keep clearing the rest rather than aborting half-done.
+				failed++;
+			}
+		}
+		if (failed) {
+			new Notice(`Note Kit UI: ${failed} item${failed > 1 ? "s" : ""} in this set could not be undone (moved or removed); the rest were.`);
 		}
 		await this.settle(row);
 		await this.reloadAndRender();
@@ -1362,14 +1256,6 @@ export class NowView extends ItemView {
 	}
 
 	/** Approve one option of a decision — writes [x] to its line, resolving the decision. */
-	/** Soften the card before the write re-renders it into its resolved row, so
-	 * the pick reads as a transition rather than a snap. */
-	private async fadeThen(card: HTMLElement, write: () => Promise<void>): Promise<void> {
-		card.addClass("is-resolving");
-		await new Promise((r) => setTimeout(r, 78));
-		await write();
-	}
-
 	private async pickOption(path: string, text: string): Promise<void> {
 		await this.setItemChecked(path, text, true);
 		await this.reloadAndRender();
@@ -1582,8 +1468,8 @@ export class NowView extends ItemView {
 
 			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
 			const type = fm?.[s.typeField] != null ? String(fm[s.typeField]) : null;
-			const draft = fm ? this.isUnreviewed(fm) : false;
-			const approved = fm ? this.isApproved(fm) : false;
+			const draft = fm ? isUnreviewed(fm, s.reviewedField) : false;
+			const approved = fm ? isApproved(fm, s.reviewedField) : false;
 			const inbox = s.inboxFolders.find((p) => under(f.path, p));
 			const inQueue = s.nowQueueFolders.some((p) => under(f.path, p));
 			const entry: Entry = { file: f, type, draft, queued: inQueue };
@@ -1617,7 +1503,11 @@ export class NowView extends ItemView {
 		for (const [cpath, members] of containers.entries()) {
 			const cname = cpath.split("/").pop() ?? cpath;
 			const roots = members.filter((m) => m.depth === 2);
-			const gate = pickGate(roots.map((m) => m.entry), cname);
+			// pickGateName works over name strings (the decorator's only handle); map
+			// the root entries to file names, resolve, then map the winning name back
+			// to its Entry.
+			const gateName = pickGateName(roots.map((m) => m.entry.file.name), cname);
+			const gate = gateName ? roots.find((m) => m.entry.file.name === gateName)?.entry ?? null : null;
 			const gateMember = gate ? members.find((m) => m.entry === gate) : undefined;
 			const count = members.length;
 
@@ -1724,18 +1614,6 @@ export class NowView extends ItemView {
 		return { needs, active, waiting };
 	}
 
-	private isUnreviewed(fm: Record<string, unknown>): boolean {
-		const v = fm[this.plugin.settings.reviewedField];
-		return v === false || v === "false";
-	}
-
-	/** Explicitly stamped reviewed: true — distinct from merely not-a-draft
-	 * (a file with no reviewed field is neither). */
-	private isApproved(fm: Record<string, unknown>): boolean {
-		const v = fm[this.plugin.settings.reviewedField];
-		return v === true || v === "true";
-	}
-
 	private colorFor(type: string): string | null {
 		const t = this.plugin.typeStyles().find((x) => x.type === type);
 		return t?.color || null;
@@ -1753,26 +1631,6 @@ export class NowView extends ItemView {
 /** True if `path` is the folder `root` or sits anywhere beneath it. */
 function under(path: string, root: string): boolean {
 	return path === root || path.startsWith(root + "/");
-}
-
-/**
- * Resolve a working set's gate among its root members. A lone root file over
- * supporting subfolders IS the gate — "a folder with one human facing file"
- * (CONFIG § Group approval). Among several roots, naming decides: a single
- * 00-prefixed cover/manifest, else a single folder-note (basename equal to the
- * container, the plain scheme's cover convention), else a single date-named
- * file (a handoff set's gate is its session log, not a 00- cover). Two
- * candidates of the same rank resolve to none — no guessing. The ranks mirror
- * decorator.ts's pickGateName, its name-only twin.
- */
-function pickGate(roots: Entry[], containerName: string): Entry | null {
-	const one = (xs: Entry[]) => (xs.length === 1 ? xs[0] : null);
-	return (
-		one(roots) ??
-		one(roots.filter((e) => /^00[-_ ]/.test(e.file.name))) ??
-		one(roots.filter((e) => e.file.basename === containerName)) ??
-		one(roots.filter((e) => /^\d{4}-\d{2}-\d{2}/.test(e.file.name)))
-	);
 }
 
 /** First file inside a folder, depth-first by name — what a folder drop row opens. */
@@ -1962,9 +1820,6 @@ export function renderAddTaskBox(parent: HTMLElement, onAdd: (text: string) => v
 			submit();
 		}
 	});
-	// (The mobile "done" checkmark was removed per user request — redundant now
-	// that the + button blurs the input on submit on mobile, which dismisses the
-	// soft keyboard. The .nkui-now-qadddone CSS is now dead — sweep in § DD.)
 	return input;
 }
 
@@ -2024,6 +1879,145 @@ export function isOpenDecision(d: Decision): boolean {
 	const approved = d.options.some((o) => o.state === "x" || o.state === "X");
 	const selectable = d.options.some((o) => o.state === " ");
 	return selectable && !approved;
+}
+
+/** What the shared decision card needs from its host surface — the For You
+ * Decide bucket and the standalone queue view differ only in these. */
+export interface DecisionCardOpts {
+	/** Open the decision's source — For You opens the queue at the heading, the
+	 * queue view opens its raw markdown. Wired to the read-only row, and to the
+	 * title when `titleOpens`. */
+	onOpen: () => void;
+	/** Read-only row text for an option-less (drifted) decision. */
+	readOnlyText: string;
+	/** Make the title a click target that opens the source (For You). */
+	titleOpens: boolean;
+	/** Pick an option — writes [x]. */
+	onPick: (text: string) => void | Promise<void>;
+	/** Pick a fill-in option — the raw option line and the placeholder-filled line. */
+	onPickFilled: (rawText: string, filledText: string) => void | Promise<void>;
+	/** Acknowledge a non-choice (drifted) notification. */
+	onAcknowledge: () => void | Promise<void>;
+	/** Append a proposed option; omit to hide the add-option box (queue view). */
+	onAddOption?: (text: string) => void;
+	/** Soften the card before a write re-renders it into its resolved row, so the
+	 * pick reads as a transition rather than a snap (For You only). */
+	fade?: boolean;
+}
+
+/** The one decision card — title, context, option rows (with REPLACE-WITH
+ * fill-in parsing/submit), the drifted "needs reading" row with Acknowledge, and
+ * the optional add-option box. Shared by the For You Decide bucket and the
+ * standalone queue view; their differences ride DecisionCardOpts.
+ * Exported for the standalone queue view. */
+export function renderDecisionCard(list: HTMLElement, d: Decision, o: DecisionCardOpts): void {
+	const card = list.createDiv("nkui-now-decision");
+	// A write either rides the card-fade beat (For You) or fires immediately
+	// (the queue view) — the only behavioural fork between the two surfaces.
+	const commit = (write: () => void | Promise<void>): void => {
+		if (!o.fade) {
+			void write();
+			return;
+		}
+		card.addClass("is-resolving");
+		window.setTimeout(() => void write(), 78);
+	};
+
+	if (d.title) {
+		const title = card.createDiv({ cls: "nkui-now-decision-title", text: plainText(d.title) });
+		if (o.titleOpens) title.addEventListener("click", o.onOpen);
+	}
+	if (d.context) card.createDiv({ cls: "nkui-now-decision-context", text: plainText(d.context) });
+
+	// Drifted item — a heading with prose but no option checkboxes
+	// (Format-User-Queue § No checkbox, no item). Nothing to pick, so render a
+	// "needs reading" row that opens the source; visible drift beats an
+	// invisible drop.
+	if (!d.options.length) {
+		const row = card.createDiv("nkui-now-needsread");
+		row.setAttr("role", "button");
+		row.setAttr("tabindex", "0");
+		setIcon(row.createSpan("nkui-now-needsread-icon"), "book-open");
+		row.createSpan({ cls: "nkui-now-needsread-text", text: o.readOnlyText });
+		row.addEventListener("click", o.onOpen);
+		attachKeyActivate(row, o.onOpen);
+		// A non-choice notification has nothing to pick — the default action is to
+		// acknowledge it: a checked line is written under its heading so it resolves
+		// like a picked decision. Needs a heading to locate the write target.
+		if (d.title) {
+			const ack = row.createEl("button", { cls: "nkui-now-ackbtn", text: "Acknowledge" });
+			ack.setAttr("aria-label", "Acknowledge — cross this off; the agent clears it on its next pass");
+			ack.addEventListener("click", (ev) => {
+				ev.stopPropagation();
+				commit(o.onAcknowledge);
+			});
+		}
+		return;
+	}
+
+	const selectable = d.options.filter((opt) => opt.state !== "-");
+	const single = selectable.length <= 1;
+	for (const opt of selectable) {
+		// Pick-ONE: checking an option approves it ([x]); the decision then resolves
+		// and clears on the next render. The others are left as-is — the
+		// action-agent clears the whole block when it acts.
+		const row = card.createDiv("nkui-now-optrow");
+		const cb = row.createEl("input", { cls: "nkui-now-qcheck", attr: { type: "checkbox" } });
+		// Fill-in option (Format-User-Queue): a REPLACE-WITH-<WHAT> placeholder
+		// renders as a text input. The typed value replaces the placeholder in the
+		// queue file as the box checks; checking it empty focuses the input instead
+		// — the action-agent demotes an unedited placeholder, so a bare checkbox
+		// here would only bounce.
+		const fm = opt.text.match(/REPLACE-WITH-([A-Z0-9-]+)/);
+		if (fm) {
+			const [pre, post] = opt.text.split(fm[0], 2);
+			if (pre.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
+			const fill = row.createEl("input", {
+				cls: "nkui-now-fillin",
+				attr: { type: "text", placeholder: fm[1].toLowerCase().replace(/-/g, " ") },
+			});
+			if (post && post.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
+			const submit = (): void => {
+				const v = fill.value.trim();
+				if (!v) {
+					cb.checked = false;
+					fill.focus();
+					return;
+				}
+				commit(() => o.onPickFilled(opt.text, opt.text.replace(fm[0], () => v)));
+			};
+			cb.addEventListener("change", submit);
+			fill.addEventListener("keydown", (ev) => {
+				if (ev.key === "Enter" && fill.value.trim()) {
+					ev.preventDefault();
+					cb.checked = true;
+					submit();
+				}
+			});
+			continue;
+		}
+		cb.addEventListener("change", () => commit(() => o.onPick(opt.text)));
+		row.createSpan({ cls: "nkui-now-opttext", text: plainText(opt.text) });
+	}
+
+	// Add-option input — a machine-queue-style way to propose another option.
+	// appendOption locates its write target by heading, so a heading-less
+	// (null-title) decision can't take a new option safely — omit the box; the
+	// queue view omits it entirely (no onAddOption).
+	if (!o.onAddOption || !d.title) return;
+	const onAdd = o.onAddOption;
+	const add = card.createDiv("nkui-now-qadd");
+	const input = add.createEl("input", {
+		cls: "nkui-now-qaddinput",
+		attr: { type: "text", placeholder: single ? "Add an option…" : "Add another option…" },
+	});
+	input.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter" && input.value.trim()) {
+			ev.preventDefault();
+			onAdd(input.value.trim());
+			input.value = "";
+		}
+	});
 }
 
 /** Strip light inline markdown (bold/italic/code markers) for plain display.

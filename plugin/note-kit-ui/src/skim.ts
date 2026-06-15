@@ -44,6 +44,11 @@ export class SkimProcessor {
 	 * classes) on unload — otherwise an open reading view pins the old instance. */
 	private decorated = new Map<HTMLElement, (ev: MouseEvent) => void>();
 
+	/** The delegated block-click handler bound to each preview sizer (condense
+	 * mode), tracked so stop() can detach it on unload — a leftover listener would
+	 * reference the torn-down plugin. */
+	private blockClickHandlers = new Map<HTMLElement, (ev: MouseEvent) => void>();
+
 	/** Remove every decoration this processor added: detach each heading's click
 	 * listener, drop the chevron span, and clear the skim classes/attrs so a
 	 * reload starts clean. Called from main.ts onunload, mirroring decorator.stop(). */
@@ -52,6 +57,7 @@ export class SkimProcessor {
 			heading.removeEventListener("click", handler);
 			heading.querySelector(".nkui-skim-chevron")?.remove();
 			heading.classList.remove("nkui-skim-heading");
+			delete heading.dataset.nkuiSkimBound;
 			const section = heading.closest<HTMLElement>(".nkui-skim-head");
 			if (section) {
 				section.classList.remove("nkui-skim-head", "is-folded", "is-expanded");
@@ -68,6 +74,11 @@ export class SkimProcessor {
 			}
 		}
 		this.decorated.clear();
+		for (const [sizer, handler] of this.blockClickHandlers) {
+			sizer.removeEventListener("click", handler);
+			delete sizer.dataset.nkuiSkimBlockClick;
+		}
+		this.blockClickHandlers.clear();
 	}
 
 	process(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
@@ -155,6 +166,17 @@ export class SkimProcessor {
 				const expanded = h.section.dataset.nkuiSkimState === "open";
 				this.setExpanded(headings, i, expanded);
 			});
+			// The skimmed TEXT itself is a click target too (not only its heading):
+			// one delegated listener on the stable sizer toggles the owning section,
+			// so a condensed block expands on click and the affordance survives the
+			// reading view virtualising blocks in and out (no per-block listener to
+			// go stale). Added once per sizer.
+			this.ensureBlockClickExpand(sizer);
+			// NOTE: lead-paragraph preservation removed — Obsidian virtualizes the
+			// reading view, so "the first rendered block" is whatever sits at the
+			// current scroll position, not the document's true lead; marking it left a
+			// random mid-doc block full-size when scrolled. A robust lead-exempt needs
+			// the section's line position (ctx.getSectionInfo), deferred.
 			return;
 		}
 
@@ -192,17 +214,25 @@ export class SkimProcessor {
 	 * shows the open/closed state via CSS rotation. The click toggles the block:
 	 * fold ⇄ unfold in the fold modes, condense ⇄ expand in condense mode. */
 	private decorate(section: HTMLElement, heading: HTMLElement): void {
-		if (section.dataset.nkuiSkim === "1") return;
+		// Section markers persist on the wrapper div across re-renders; the chevron
+		// and click listener live on the heading ELEMENT, which a re-render rebuilds.
+		// So mark the section, then ensure the chevron + listener on the CURRENT
+		// heading — guarding the whole method on the section flag would drop both
+		// after a rebuild (dimming survives via the body class, but the affordance
+		// vanishes: chevron wiped, listener bound to a detached element).
 		section.dataset.nkuiSkim = "1";
 		section.classList.add("nkui-skim-head");
 		heading.classList.add("nkui-skim-heading");
 		// A marker span, styled by CSS (a small triangle that rotates on fold).
-		if (!heading.querySelector(".nkui-skim-chevron")) {
+		if (!heading.querySelector(":scope > .nkui-skim-chevron")) {
 			const chevron = createSpan({ cls: "nkui-skim-chevron" });
 			heading.prepend(chevron);
 		}
-		// Track the exact handler so stop() (onunload) can detach it; without this
-		// an open reading view keeps the listener and pins the old plugin instance.
+		// Attach the click listener once per heading element. Keying the guard on the
+		// heading (not the section) re-binds a freshly-rebuilt heading after a
+		// re-render. Track the exact handler so stop() (onunload) can detach it.
+		if (heading.dataset.nkuiSkimBound === "1") return;
+		heading.dataset.nkuiSkimBound = "1";
 		const handler = (ev: MouseEvent): void => {
 			ev.preventDefault();
 			ev.stopPropagation();
@@ -223,6 +253,51 @@ export class SkimProcessor {
 		};
 		heading.addEventListener("click", handler);
 		this.decorated.set(heading, handler);
+	}
+
+	/** One delegated click handler on the stable preview sizer: clicking a
+	 * CONDENSED block (the skimmed text — headings keep their own listener) toggles
+	 * its owning heading's section between condensed and expanded. Added once per
+	 * sizer; lives on the sizer (not the transient blocks) so it survives the
+	 * reading view virtualising blocks in and out. */
+	private ensureBlockClickExpand(sizer: HTMLElement): void {
+		if (sizer.dataset.nkuiSkimBlockClick === "1") return;
+		sizer.dataset.nkuiSkimBlockClick = "1";
+		const handler = (ev: MouseEvent): void => {
+			if (this.plugin.settings.skimMode !== "condense") return;
+			const target = ev.target as HTMLElement | null;
+			if (!target) return;
+			// Leave links and interactive controls be (but NOT headings: when a
+			// heading's own listener is intact it fires + stops propagation, so this
+			// never runs for it; when it has gone stale on a re-render, this is the
+			// only path that still toggles it).
+			if (target.closest("a, .internal-link, .external-link, .tag, button, input, textarea")) {
+				return;
+			}
+			// The clicked top-level block — the direct child of the sizer.
+			let block: HTMLElement | null = target;
+			while (block && block.parentElement !== sizer) {
+				block = block.parentElement as HTMLElement | null;
+			}
+			if (!block) return;
+			// Resolve the owning heading via the STRUCTURAL heading detection
+			// (collectHeadings reads the .el-hN / inner h1-6), NOT the nkui-skim-head
+			// decoration class — that decoration is lost when the reading view
+			// virtualises a section's DOM, but the structural heading is always there.
+			const headings = this.collectHeadings(sizer);
+			const headingSections = new Set(headings.map((h) => h.section));
+			let owner: HTMLElement | null = block;
+			while (owner && !headingSections.has(owner)) {
+				owner = owner.previousElementSibling as HTMLElement | null;
+			}
+			if (!owner) return;
+			const idx = headings.findIndex((h) => h.section === owner);
+			if (idx < 0) return;
+			const expanded = owner.dataset.nkuiSkimState === "open";
+			this.setExpanded(headings, idx, !expanded);
+		};
+		sizer.addEventListener("click", handler);
+		this.blockClickHandlers.set(sizer, handler);
 	}
 
 	/** Hide (or reveal) the sections that belong to heading `idx` — every sibling

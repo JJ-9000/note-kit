@@ -78,8 +78,9 @@ export interface ParsedConfig {
 const SEP_CELL_RE = /^:?-+:?$/;
 
 /** A line that reads as part of a pipe table: starts or ends with a pipe, or
- * carries at least two pipes (clearly tabular). Mirrors _is_table_line. */
-function isTableLine(line: string): boolean {
+ * carries at least two pipes (clearly tabular). Mirrors _is_table_line. Shared
+ * with kitConfig's CONFIG-facts parse. */
+export function isTableLine(line: string): boolean {
 	const s = line.trim();
 	if (!s.includes("|")) return false;
 	return s.startsWith("|") || s.endsWith("|") || (s.match(/\|/g)?.length ?? 0) >= 2;
@@ -95,8 +96,8 @@ export function splitCells(line: string): string[] {
 }
 
 /** A row that is ALL separator cells (`---`, `:--:`, …). Mirrors
- * _is_separator_row. */
-function isSeparatorRow(line: string): boolean {
+ * _is_separator_row. Shared with kitConfig's CONFIG-facts parse. */
+export function isSeparatorRow(line: string): boolean {
 	const cells = splitCells(line);
 	return cells.length > 0 && cells.every((c) => SEP_CELL_RE.test(c || ""));
 }

@@ -1,4 +1,5 @@
 import { TFile, TFolder, Vault, debounce, type Debouncer } from "obsidian";
+import { isApproved, isUnreviewed, pickGateName } from "./kitShared";
 import type NoteKitUiPlugin from "./main";
 
 /**
@@ -74,10 +75,10 @@ export class ExplorerDecorator {
 	 * data-path swap, so the stale-mark hygiene only needs to run when the
 	 * stored path differs; same path means nothing can be stale. */
 	private lastDecoratedPath = new WeakMap<HTMLElement, string>();
-	/** folderPath → borrowed colour. topChildTypeColor sorts + reads metadata
-	 * per call — the heaviest per-row cost in decorate — so each pass pays it
-	 * once per unique folder; vault/metadata events invalidate. */
-	private folderColorCache = new Map<string, string | null>();
+	/** folderPath → {primary, cover} borrowed colours. computeFolderTypeColors
+	 * sorts + reads metadata per call — the heaviest per-row cost in decorate —
+	 * so each pass pays it once per unique folder; vault/metadata events invalidate. */
+	private folderColorCache = new Map<string, { primary: string | null; cover: string | null }>();
 	/** Explorer views whose getSortedFolderItems is wrapped → what restores it
 	 * (the saved own-property value, or "delete the wrapper" when the method
 	 * lived on the prototype). Patched per view INSTANCE, never the prototype,
@@ -96,17 +97,30 @@ export class ExplorerDecorator {
 	 * the native folder-expand animation; cleared on stop so it can't fire into a
 	 * dead plugin's explorer). */
 	private expandRedrawTimer: number | undefined;
+	/** Max-wait guard for redraw(): redraw's debounce is resetTimer:true, so a
+	 * sustained create/delete/resolved burst (bulk filing/sync, sub-150ms gaps)
+	 * would push the trailing deadline forever and starve the full pass.
+	 * redrawBounded() forces a flush once the burst passes the window. 0 = idle. */
+	private redrawBurstStart = 0;
 
 	constructor(plugin: NoteKitUiPlugin) {
 		this.plugin = plugin;
-		this.redraw = debounce(() => this.decorateAll(), 150, false);
+		// resetTimer TRUE so a burst of resolved/rename/create/delete events (the
+		// metadataCache 'resolved' wave during indexing especially) coalesces to ONE
+		// trailing full pass instead of a re-stamp + forced reflow per 150ms window —
+		// the repeated late re-stamp that reads as the explorer "snapping".
+		this.redraw = debounce(() => this.decorateAll(), 150, true);
 		this.countsRefresh = debounce(() => void this.updateCounts(), 600, false);
 		// resetTimer: TRUE — each scroll event pushes the deadline back, so the
 		// pass runs once on settle; with false this is a 10Hz throttle that runs
 		// the full pass DURING the fling, the exact churn the counts-only fix
-		// removed.
-		this.scrollRedraw = debounce(() => this.decorateRendered(), 100, true);
-		this.sortRefresh = debounce(() => this.resortExplorer(), 250, true);
+		// removed. flush=false: a settled scroll re-stamps recycled rows but must
+		// NOT force the offsetHeight reflow (that is only for a style/rounded change).
+		this.scrollRedraw = debounce(() => this.decorateRendered(false), 100, true);
+		// 600ms (resetTimer) so transient frontmatter values while the user TYPES a
+		// type/weight edit (weight: 1 → 12 passes through valid ranks) settle before
+		// one re-sort fires — the explorer no longer shuffles rows mid-keystroke.
+		this.sortRefresh = debounce(() => this.resortExplorer(), 600, true);
 	}
 
 	start(): void {
@@ -133,24 +147,27 @@ export class ExplorerDecorator {
 				}
 			})
 		);
-		this.plugin.registerEvent(app.metadataCache.on("resolved", this.redraw));
+		// resolved/create/delete/rename are the BURST sources (indexing, bulk
+		// filing/sync) — route them through the max-wait so a sustained burst can't
+		// starve the full pass (see redrawBounded).
+		this.plugin.registerEvent(app.metadataCache.on("resolved", () => this.redrawBounded()));
 		this.plugin.registerEvent(
 			app.vault.on("rename", (file) => {
 				this.folderColorCache.clear();
 				this.decorateByPath(file.path);
-				this.redraw();
+				this.redrawBounded();
 			})
 		);
 		this.plugin.registerEvent(
 			app.vault.on("create", () => {
 				this.folderColorCache.clear();
-				this.redraw();
+				this.redrawBounded();
 			})
 		);
 		this.plugin.registerEvent(
 			app.vault.on("delete", () => {
 				this.folderColorCache.clear();
-				this.redraw();
+				this.redrawBounded();
 			})
 		);
 		// A queue's actionable state changes by CONTENT (a box toggled, a task
@@ -354,11 +371,16 @@ export class ExplorerDecorator {
 				this.expandRedrawTimer = undefined;
 				this.redraw();
 			}, 360);
+			// Counts refresh via the deferred redraw above (decorateAll → updateCounts)
+			// AFTER the native expand animation — do NOT also fire countsRefresh now:
+			// adding/removing a badge span mid-transition changes a row's height and
+			// perturbs the heights Obsidian is animating (the expand "chop").
+		} else {
+			// Counts only — the targeted work above already decorated every touched
+			// row. A full decorateAll per mutation batch made scrolling the
+			// virtualized explorer (which churns childList constantly) drop frames.
+			this.countsRefresh();
 		}
-		// Counts only — the targeted work above already decorated every touched
-		// row. A full decorateAll per mutation batch made scrolling the
-		// virtualized explorer (which churns childList constantly) drop frames.
-		this.countsRefresh();
 	}
 
 	/** Synchronous, targeted decoration of one row by its data-path. */
@@ -379,7 +401,26 @@ export class ExplorerDecorator {
 
 	// ── decoration ─────────────────────────────────────────────────────────────
 
+	/** redraw() with a max-wait. redraw's debounce coalesces a burst (resetTimer)
+	 * so an indexing/resolved storm doesn't re-stamp + reflow per 150ms, but
+	 * Obsidian's debounce has no max-wait — a sustained create/delete/resolved
+	 * burst with sub-150ms gaps would push the deadline forever and never flush.
+	 * Force a full pass once the burst has run past ~600ms so the explorer can't
+	 * stay stale for a whole bulk filing/sync operation. Date.now() is fine in the
+	 * plugin runtime (this is not the workflow sandbox). */
+	private redrawBounded(): void {
+		const now = Date.now();
+		if (!this.redrawBurstStart) this.redrawBurstStart = now;
+		if (now - this.redrawBurstStart >= 600) {
+			this.redraw.cancel();
+			this.decorateAll(); // resets redrawBurstStart at its top
+			return;
+		}
+		this.redraw();
+	}
+
 	private decorateAll(): void {
+		this.redrawBurstStart = 0; // a full pass ran — close the burst window
 		this.decorateRendered();
 		void this.updateCounts();
 	}
@@ -389,7 +430,7 @@ export class ExplorerDecorator {
 	 * the scroll-settle pass (scrollRedraw) uses it to re-stamp recycled rows
 	 * without re-reading the queue files. The per-folder style pass (weight
 	 * heat) refreshes too: it is style-only, no node ever moves for it. */
-	private decorateRendered(): void {
+	private decorateRendered(flush = true): void {
 		const s = this.plugin.settings;
 		for (const c of this.containers()) {
 			const titles = c.querySelectorAll<HTMLElement>(".nav-file-title, .nav-folder-title");
@@ -405,10 +446,11 @@ export class ExplorerDecorator {
 			);
 			// Item 1 — force a style-flush after re-stamping all attributes so the
 			// browser repaints the new border-radius immediately (e.g. when rounded
-			// mode toggles).  Reading offsetHeight is a minimal forced reflow; it
-			// costs one layout pass per container but runs only after a full
-			// decoration pass, never in the hot scroll/mutation path.
-			void c.offsetHeight; // eslint-disable-line @typescript-eslint/no-unused-expressions
+			// mode toggles). Reading offsetHeight is a minimal forced reflow. Gated
+			// to flush=true (the decorateAll / settings-refresh path) — the
+			// scroll-settle pass calls decorateRendered(false), so a routine settled
+			// scroll no longer forces a synchronous layout on the virtualized list.
+			if (flush) void c.offsetHeight; // eslint-disable-line @typescript-eslint/no-unused-expressions
 		}
 	}
 
@@ -604,6 +646,60 @@ export class ExplorerDecorator {
 			if (fcolor) el.style.setProperty("--nkui-folder-color", fcolor);
 			else el.style.removeProperty("--nkui-folder-color");
 
+			// Nested-container box (Note-Kit-UI-Nested-Containers-Plan): stamp the
+			// WRAPPER .nav-folder so the stylesheet can draw a filled tinted box
+			// around the folder's title + children when it is OPEN. The box is an
+			// OPT-IN look — the stylesheet only paints it under body.nkui-nested-boxes
+			// (settings.nestedContainers, OFF by default); these marks are inert and
+			// cheap when the feature is off, so flipping the toggle is instant. The
+			// open/closed gate stays in CSS (:not(.is-collapsed)) so JS never touches
+			// the collapse-height animation (a prior regression source). --nkui-depth
+			// (0 at a root folder, +1 per nesting level) drives the per-depth wash +
+			// concentric radius.
+			//
+			// GATED on s.nestedContainers (the opt-in toggle, OFF by default): when the
+			// feature is off the box paints nothing (CSS keys on body.nkui-nested-boxes),
+			// so skip the per-row ancestor walk + boxFolderColor on every pass and just
+			// clear any stamp left from when it was on. saveSettings() re-decorates on
+			// toggle, so the stamps update the instant it flips. The wrapper has NO
+			// recycled-row strip, so the ON branch runs every pass to overwrite/clear.
+			// SKIP sink and role (inbox/outbox) folders — they keep their own recede /
+			// mouth wash, never a competing box. Box only when a tint resolves — own
+			// boxColor OR an already-boxed ancestor to inherit from — so a colourless
+			// subtree never restructures its indent without a box to justify it.
+			if (wrapper && s.nestedContainers) {
+				let depth = 0;
+				let ancestorBoxed = false;
+				let anc = wrapper.parentElement?.closest<HTMLElement>(".nav-folder") ?? null;
+				while (anc && !anc.classList.contains("mod-root")) {
+					depth++;
+					if (anc.hasAttribute("data-nkui-box")) ancestorBoxed = true;
+					anc = anc.parentElement?.closest<HTMLElement>(".nav-folder") ?? null;
+				}
+				// Box tint: a typed folder uses its own type colour; a plain folder
+				// uses ONLY a strict content colour (never the cover/index fallback),
+				// so a cover-led hub inherits its parent box's tint instead of a
+				// neutral index tone (the model: type-derived, never neutral). This
+				// INTENTIONALLY differs from the title's lenient fcolor set above
+				// (title = lenient, box = strict) — don't collapse the two writes.
+				const boxColor = ftype ? fcolor : this.boxFolderColor(path);
+				if (!isSink && !role && (boxColor || ancestorBoxed)) {
+					wrapper.style.setProperty("--nkui-depth", String(depth));
+					this.setAttr(wrapper, "data-nkui-box", "");
+					if (boxColor) wrapper.style.setProperty("--nkui-folder-color", boxColor);
+					else wrapper.style.removeProperty("--nkui-folder-color");
+				} else {
+					this.setAttr(wrapper, "data-nkui-box", null);
+					wrapper.style.removeProperty("--nkui-depth");
+					wrapper.style.removeProperty("--nkui-folder-color");
+				}
+			} else if (wrapper && wrapper.hasAttribute("data-nkui-box")) {
+				// Feature off but a stale stamp remains (just toggled off) — clear it.
+				this.setAttr(wrapper, "data-nkui-box", null);
+				wrapper.style.removeProperty("--nkui-depth");
+				wrapper.style.removeProperty("--nkui-folder-color");
+			}
+
 			// (f) session host — a folder matching the kit's session subfolder. The
 			// literal comes from CONFIG (§ Subfolders `<sessions>`, via facts) so a
 			// renamed sessions folder is tracked, not a hard-coded name; the bare
@@ -751,10 +847,10 @@ export class ExplorerDecorator {
 			// once filed or for ordinary content.
 			let reviewedAttr: string | null = null;
 			if (s.enableReviewFlags && fm) {
-				if (this.isUnreviewed(fm, s)) {
+				if (isUnreviewed(fm, s.reviewedField)) {
 					reviewedAttr = s.showRowBadge ? "false" : null;
 				} else if (
-					this.isApproved(fm, s) &&
+					isApproved(fm, s.reviewedField) &&
 					s.inboxFolders.some((f) => path === f || path.startsWith(`${f}/`))
 				) {
 					reviewedAttr = "true";
@@ -832,7 +928,7 @@ export class ExplorerDecorator {
 			if (!(af instanceof TFile) || af.extension !== "md") return;
 			const segs = af.path.slice(folderPath.length + 1).split("/");
 			const fm = this.plugin.app.metadataCache.getFileCache(af)?.frontmatter;
-			const draft = fm ? this.isUnreviewed(fm, s) : false;
+			const draft = fm ? isUnreviewed(fm, s.reviewedField) : false;
 			if (segs.length === 1) {
 				if (draft) looseDrafts++;
 				return;
@@ -840,7 +936,7 @@ export class ExplorerDecorator {
 			const container = segs[0];
 			if (segs.length === 2) {
 				const arr = roots.get(container) ?? [];
-				arr.push({ name: segs[1], approved: fm ? this.isApproved(fm, s) : false });
+				arr.push({ name: segs[1], approved: fm ? isApproved(fm, s.reviewedField) : false });
 				roots.set(container, arr);
 			}
 			if (draft) draftsByContainer.set(container, (draftsByContainer.get(container) ?? 0) + 1);
@@ -857,9 +953,9 @@ export class ExplorerDecorator {
 	}
 
 	/**
-	 * Colour an open plain folder borrows: the type colour of its TOP-MOST
-	 * NON-INDEX typed direct child file, by visible order — the same rank the
-	 * sort patch applies (queues, floated types, covers, then native order;
+	 * Colour an open plain folder borrows for its TITLE: the type colour of its
+	 * TOP-MOST NON-INDEX typed direct child file, by visible order — the same rank
+	 * the sort patch applies (queues, floated types, covers, then native order;
 	 * plain name order when ordering is off). The folder reads its kind from the
 	 * content that leads it; only when no other typed child carries a colour does
 	 * it fall back to the cover/index note's own type. Both cover conventions are
@@ -867,16 +963,36 @@ export class ExplorerDecorator {
 	 * carries a colour.
 	 */
 	private topChildTypeColor(folderPath: string): string | null {
-		const cached = this.folderColorCache.get(folderPath);
-		if (cached !== undefined) return cached;
-		const color = this.computeTopChildTypeColor(folderPath);
-		this.folderColorCache.set(folderPath, color);
-		return color;
+		const { primary, cover } = this.folderTypeColors(folderPath);
+		return primary ?? cover;
 	}
 
-	private computeTopChildTypeColor(folderPath: string): string | null {
+	/**
+	 * Colour an open plain folder borrows for its container BOX (the nested-folder
+	 * highlight): the STRICT top-child content colour only — never the cover/index
+	 * fallback. A hub folder led solely by its index note returns null here, so the
+	 * box inherits its PARENT box's colour through CSS custom-property inheritance
+	 * rather than painting a neutral index tone (the model: type-derived, never
+	 * neutral). The TITLE still uses topChildTypeColor's lenient fallback.
+	 */
+	private boxFolderColor(folderPath: string): string | null {
+		return this.folderTypeColors(folderPath).primary;
+	}
+
+	/** {primary, cover} colours a folder borrows, cached per pass. primary = the
+	 * top-most NON-index typed child's colour by visible order; cover = the
+	 * cover/index note's own type colour (the fallback). */
+	private folderTypeColors(folderPath: string): { primary: string | null; cover: string | null } {
+		const cached = this.folderColorCache.get(folderPath);
+		if (cached !== undefined) return cached;
+		const res = this.computeFolderTypeColors(folderPath);
+		this.folderColorCache.set(folderPath, res);
+		return res;
+	}
+
+	private computeFolderTypeColors(folderPath: string): { primary: string | null; cover: string | null } {
 		const folder = this.plugin.app.vault.getAbstractFileByPath(folderPath);
-		if (!(folder instanceof TFolder)) return null;
+		if (!(folder instanceof TFolder)) return { primary: null, cover: null };
 		const files = folder.children
 			.filter((c): c is TFile => c instanceof TFile && c.extension === "md")
 			.sort((a, b) => a.name.localeCompare(b.name));
@@ -887,19 +1003,19 @@ export class ExplorerDecorator {
 						this.fileRank(b.path, b.basename, folder.name)
 				)
 			: files;
-		let coverFallback: string | null = null;
+		let cover: string | null = null;
 		for (const f of ordered) {
 			const t = this.typeOfPath(f.path);
 			if (!t) continue;
 			const color = this.plugin.typeStyles().find((x) => x.type === t)?.color;
 			if (!color) continue;
 			if (t === "index" || this.isCoverName(f.basename, folder.name)) {
-				coverFallback ??= color;
+				cover ??= color;
 				continue;
 			}
-			return color;
+			return { primary: color, cover };
 		}
-		return coverFallback;
+		return { primary: null, cover };
 	}
 
 	// ── ordering ─────────────────────────────────────────────────────────────
@@ -1167,16 +1283,6 @@ export class ExplorerDecorator {
 		}
 	}
 
-	private isUnreviewed(fm: Record<string, unknown>, s = this.plugin.settings): boolean {
-		const v = fm[s.reviewedField];
-		return v === false || v === "false";
-	}
-
-	private isApproved(fm: Record<string, unknown>, s = this.plugin.settings): boolean {
-		const v = fm[s.reviewedField];
-		return v === true || v === "true";
-	}
-
 	// ── teardown ─────────────────────────────────────────────────────────────
 
 	private clearAll(): void {
@@ -1210,6 +1316,11 @@ export class ExplorerDecorator {
 			c.querySelectorAll<HTMLElement>(".nav-folder[data-nkui-sink]").forEach((el) =>
 				el.removeAttribute("data-nkui-sink")
 			);
+			c.querySelectorAll<HTMLElement>(".nav-folder[data-nkui-box]").forEach((el) => {
+				el.removeAttribute("data-nkui-box");
+				el.style.removeProperty("--nkui-depth");
+				el.style.removeProperty("--nkui-folder-color");
+			});
 			c.querySelectorAll<HTMLElement>(".nav-folder-title[data-nkui-folder-type]").forEach((el) => {
 				el.removeAttribute("data-nkui-folder-type");
 				el.style.removeProperty("--nkui-folder-color");
@@ -1224,24 +1335,6 @@ export class ExplorerDecorator {
 		if (value === null) el.removeAttribute(name);
 		else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
 	}
-}
-
-/**
- * Resolve a working set's gate by the names of its root-level members — the
- * name-only twin of nowView's pickGate (the decorator only has names + approval
- * to work with). A lone root file IS the gate; among several, a single
- * 00-prefixed cover wins, else a single folder-note (basename equal to the
- * container, the plain scheme's cover convention), else a single date-named
- * file. Ambiguity resolves to none — no guessing.
- */
-function pickGateName(names: string[], containerName: string): string | null {
-	const one = (xs: string[]): string | null => (xs.length === 1 ? xs[0] : null);
-	return (
-		one(names) ??
-		one(names.filter((n) => /^00[-_ ]/.test(n))) ??
-		one(names.filter((n) => n.replace(/\.md$/i, "") === containerName)) ??
-		one(names.filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n)))
-	);
 }
 
 /** CSS.escape is unavailable in some mobile webviews; fall back to a minimal escape. */

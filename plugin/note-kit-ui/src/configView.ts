@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, setIcon, debounce, Platform } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, setIcon } from "obsidian";
 import { attachHold } from "./holds";
 import {
 	CellEdit,
@@ -9,6 +9,7 @@ import {
 	serializeConfig,
 	validateShape,
 } from "./configTables";
+import { applyScreenShift, makeDeferredRender } from "./kitShared";
 import type NoteKitUiPlugin from "./main";
 
 export const CONFIG_VIEW_TYPE = "note-kit-config";
@@ -71,23 +72,7 @@ export class ConfigView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: NoteKitUiPlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		this.scheduleRender = debounce(
-			() => {
-				// Never wipe a field the user is mid-edit in — same guard as QueueView.
-				const ae = document.activeElement;
-				if (
-					ae instanceof HTMLElement &&
-					(ae.tagName === "TEXTAREA" || ae.tagName === "INPUT") &&
-					this.contentEl.contains(ae)
-				) {
-					this.scheduleRender();
-					return;
-				}
-				void this.reloadAndRender();
-			},
-			250,
-			false
-		);
+		this.scheduleRender = makeDeferredRender(this, () => void this.reloadAndRender());
 	}
 
 	getViewType(): string {
@@ -143,22 +128,8 @@ export class ConfigView extends ItemView {
 		this.render();
 	}
 
-	/** Vertical placement bias — identical to QueueView/NowView so the pane
-	 * honours settings.nowVerticalBias across every kit surface. */
-	private applyScreenShift(): void {
-		const bias = ((this.plugin.settings.nowVerticalBias ?? 0) / 100) * window.innerHeight;
-		if (!Platform.isMobile) {
-			this.contentEl.style.setProperty("--nkui-screen-shift", `${bias}px`);
-			return;
-		}
-		const pane = this.contentEl.getBoundingClientRect();
-		if (pane.height <= 0) return;
-		const shift = window.innerHeight / 2 - (pane.top + pane.height / 2);
-		this.contentEl.style.setProperty("--nkui-screen-shift", `${2 * shift + bias}px`);
-	}
-
 	onResize(): void {
-		this.applyScreenShift();
+		applyScreenShift(this.contentEl, this.plugin.settings);
 	}
 
 	// ── rendering ───────────────────────────────────────────────────────────────
@@ -172,7 +143,7 @@ export class ConfigView extends ItemView {
 		c.addClass("nkui-now");
 		c.addClass("nkui-queue");
 		c.addClass("nkui-config");
-		this.applyScreenShift();
+		applyScreenShift(this.contentEl, this.plugin.settings);
 		c.toggleClass("nkui-queue-side", this.plugin.inSidebar(this.leaf));
 		// CONFIG carries the theme accent like the queues do — the page wash + head
 		// colour key off this var.
@@ -420,9 +391,17 @@ export class ConfigView extends ItemView {
 
 		// 4 — archive the prior CONFIG first (copy → verify), timestamp passed in.
 		const ts = this.archiveTimestamp();
-		const archivePath = this.archivePathFor(ts);
+		let archivePath = this.archivePathFor(ts);
 		try {
 			await this.ensureArchiveDir(archivePath);
+			// Two saves within the same whole-second would resolve to the same path;
+			// bump a suffix so a same-second snapshot never overwrites the prior one
+			// (the archive is never destroyed).
+			let n = 2;
+			while (await this.app.vault.adapter.exists(archivePath)) {
+				archivePath = this.archivePathFor(`${ts}-${n}`);
+				n++;
+			}
 			await this.app.vault.adapter.copy(CONFIG_PATH, archivePath);
 			const archived = await this.app.vault.adapter.exists(archivePath);
 			if (!archived) throw new Error("archive copy not found after copy");

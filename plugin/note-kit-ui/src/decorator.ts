@@ -574,6 +574,23 @@ export class ExplorerDecorator {
 	private decorate(el: HTMLElement, s = this.plugin.settings): void {
 		const path = el.getAttribute("data-path");
 		if (!path) return;
+		// The band's left edge tracks Obsidian's OWN per-row indent by reflecting its
+		// inline padding-inline-start into --nkui-row-indent below — a one-directional
+		// read, never a write to a property the host owns. (An earlier JS-flatten that
+		// OVERRODE the host's margin/padding raced its re-render and snapped on click;
+		// it was deleted — see [[Overriding-the-Hosts-Layout-Races-Its-Re-Render]].)
+		const indent = el.style.paddingInlineStart;
+		if (indent) el.style.setProperty("--nkui-row-indent", indent);
+		else el.style.removeProperty("--nkui-row-indent");
+		// Inject the wash band as the row's first child, once. The explorer recycles
+		// rows, so guard on an existing band; the band is path-independent (it paints
+		// var(--nkui-row-wash), which the stylesheet sets per state), so a recycled row
+		// keeps its band and only the wash variable changes. position:absolute +
+		// z-index:0 + pointer-events:none (stylesheet) keep it behind the content and
+		// click-through.
+		if (!el.querySelector(":scope > .nkui-row-band")) {
+			el.createDiv({ cls: "nkui-row-band", prepend: true });
+		}
 		// Stale marks exist only when the element was recycled onto a NEW path —
 		// same path since the last pass means the hygiene strips below can be
 		// skipped (2-3 selector queries + ~8 attribute removals per row per pass
@@ -1304,6 +1321,8 @@ export class ExplorerDecorator {
 				el.removeAttribute("data-nkui-session-host");
 				el.removeAttribute("data-nkui-session-child");
 				el.style.removeProperty("--nkui-weight-heat");
+				el.style.removeProperty("--nkui-row-indent");
+				el.querySelector(":scope > .nkui-row-band")?.remove();
 				const content = el.querySelector<HTMLElement>(
 					".nav-folder-title-content, .nav-file-title-content"
 				);

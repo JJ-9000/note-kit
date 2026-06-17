@@ -159,6 +159,25 @@ export default class NoteKitUiPlugin extends Plugin {
 			},
 		});
 
+		// Skim toggle — flip reading-view skim off <-> the last active mode in one
+		// keystroke. saveSettings() re-derives every nkui-skim body class from
+		// skimMode; rerenderReadingViews() re-fires the post-processor so headings
+		// regain their chevron/anchor affordance (mirrors the settings dropdown).
+		this.addCommand({
+			id: "toggle-skim",
+			name: "Toggle skim (reading view)",
+			icon: "list-collapse",
+			callback: () => {
+				if (this.settings.skimMode === "off") {
+					this.settings.skimMode = this.settings.lastSkimMode;
+				} else {
+					this.settings.lastSkimMode = this.settings.skimMode;
+					this.settings.skimMode = "off";
+				}
+				void this.saveSettings().then(() => this.rerenderReadingViews());
+			},
+		});
+
 		// Reviewed header — a fixed header row surfacing the `reviewed` frontmatter
 		// property at the top of every note in reading view (§ Y item 9). Runs in the
 		// post-processor so it composes with Obsidian's own rendering without touching

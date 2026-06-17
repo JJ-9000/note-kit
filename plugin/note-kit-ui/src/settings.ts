@@ -119,6 +119,9 @@ export interface NoteKitUiSettings {
 	 *  · "fold-keywords"     — sections whose header matches skimFoldKeywords start folded.
 	 *  · "first-last"        — fold every section except the first and last header. */
 	skimMode: "off" | "condense" | "minimize-completed" | "fold-keywords" | "first-last";
+	/** The last non-off skim mode chosen, so the "Toggle skim" command can restore
+	 * it when turning skim back on (toggle off <-> last active mode). */
+	lastSkimMode: "condense" | "minimize-completed" | "fold-keywords" | "first-last";
 	/** Comma-separated header keywords that start folded under skimMode
 	 * "fold-keywords" (case-insensitive substring match on the header text). */
 	skimFoldKeywords: string;
@@ -239,6 +242,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 
 	// Skim off by default — it's an opt-in reading treatment, not a baseline look.
 	skimMode: "off",
+	// The mode Toggle skim restores; seeded to condense (the primary skim).
+	lastSkimMode: "condense",
 	// A sensible starter set of "boilerplate" headers worth folding away.
 	skimFoldKeywords: "appendix, references, notes, changelog, metadata",
 	// Readable is the kit default — the lifted dim + dense heading stack reads as a
@@ -529,7 +534,7 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Skim mode")
 			.setDesc(
-				"Declutter long notes in READING VIEW (live preview is unaffected). Condense shrinks every non-heading block — paragraphs, lists, completed `- [x]` items — to a dim single-line outline you scroll right past, keeping the headings legible as anchors; click a heading to restore its section to full size. Minimize completed dims only `- [x]` checked items. Fold by keyword starts matching-header sections folded — click a header to expand. First/last folds every section except each note's first and last header."
+				"Declutter long notes in READING VIEW (live preview is unaffected — on mobile, switch the note to reading view, since notes open in live preview by default). Condense shrinks every non-heading block — paragraphs, lists, completed `- [x]` items — to a dim single-line outline you scroll right past, keeping the headings legible as anchors; click a heading to restore its section to full size. Minimize completed dims only `- [x]` checked items. Fold by keyword starts matching-header sections folded — click a header to expand. First/last folds every section except each note's first and last header."
 			)
 			.addDropdown((d) =>
 				d
@@ -541,6 +546,7 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					.setValue(s.skimMode)
 					.onChange(async (v) => {
 						s.skimMode = v as NoteKitUiSettings["skimMode"];
+						if (s.skimMode !== "off") s.lastSkimMode = s.skimMode;
 						await save();
 						// Re-render open reading views so the skim post-processor marks
 						// headings (and draws chevrons) for the new mode — a body-class

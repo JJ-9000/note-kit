@@ -33,6 +33,11 @@ body {
 	   in a snippet by setting this once. Circles (type/draft dots) stay 50% — they
 	   are markers, not boxes. */
 	--nkui-radius: 0px;
+	/* ONE explorer corner — every nested-box fill AND every highlight band uses
+	   this single radius (never the per-depth step that decayed to a square at
+	   depth, never the 999px full-pill). 0 (sharp) by default; rounded mode sets a
+	   soft value that stays a rounded rect on the shortest row, never a pill. */
+	--nkui-box-radius: 0px;
 	/* Pill tier — single-line chips (count pills, badges, hold buttons) may round
 	   fully while multi-line surfaces stay capped. Deliberately UNSET here: every
 	   border-radius: var(--nkui-radius-pill, var(--nkui-radius)) falls through to
@@ -174,6 +179,12 @@ body.nkui-rounded .nav-files-container :is(.nav-file-title, .nav-folder-title) {
 	flex: 0 0 auto;
 	width: var(--nkui-dot-size);
 	height: var(--nkui-dot-size);
+	/* Even horizontal padding AROUND the dot: its gap to the band's left edge
+	   matches its gap to the label on the right. The band already insets the
+	   content by --nkui-nest-inset (4px), so adding the difference here makes the
+	   left gap == right gap == --nkui-dot-gap (6px) — the dot reads evenly spaced,
+	   not flush toward the left edge. (Vertical is centred via align-self.) */
+	margin-left: calc(var(--nkui-dot-gap) - var(--nkui-nest-inset));
 	margin-right: var(--nkui-dot-gap);
 	/* Type dot — sharp quad by default, circle in rounded mode, via the shared
 	   dot-shape token (item 15). */
@@ -452,6 +463,16 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] ::selection {
 	background: color-mix(in srgb, var(--nkui-type-color) 30%, transparent);
 }
+/* The leaf's scrollbar follows the type too — the standard scrollbar-color tints
+   the thumb to the mid tone over a transparent track; the webkit pseudo is the
+   fallback for the Chromium/iOS engine Obsidian renders in, desktop + mobile. An
+   untyped leaf has no --nkui-tm, so the var is invalid and the bar keeps default. */
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
+	scrollbar-color: var(--nkui-tm) transparent;
+}
+body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] ::-webkit-scrollbar-thumb {
+	background: var(--nkui-tm);
+}
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
    its type, BRIGHTER than the files inside (the folder is the heading of its kind,
@@ -506,6 +527,9 @@ body.nkui-rounded .nav-file-title[data-nkui-reviewed="false"]::after {
 }
 .nkui-inbox-count {
 	position: absolute;
+	/* Above the band (the band is z-index:0); kept absolute (NOT in the relative
+	   content-lift group above) so it anchors to the row's far-right cap. */
+	z-index: 1;
 	/* Concentric nest: ONE inset token on all sides (top, bottom, AND right), so
 	   the pill sits in the row's right cap with an even gap like a rung on a
 	   target — square via aspect-ratio, the digit centred inside it. */
@@ -615,15 +639,29 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   a nested child, so every element nests in its highlight like rungs on a
 	   target — one inset token on all four sides, never a split em pair. */
 	--nkui-nest-inset: var(--nkui-gap-2xs);   /* even inset of a chip inside a row */
+	/* ── Explorer highlight band — wash scale ───────────────────────────────────────
+	   The .nkui-row-band element (injected by the explorer decorator only; For-You
+	   rows paint their own background and share only the --nkui-box-radius corner,
+	   NOT this band) insets --nkui-nest-inset (4px) on all four sides of the row. The
+	   wash scale gives one tint strength per interaction state, used as
+	   color-mix(... <state-color> <step>, base): rest=resting folder/role tone,
+	   hover, active, ring=focus-border. The neutral untyped wash and the typed type
+	   washes both read these, so retuning a step moves every band highlight in step.
+	   (Multi-select keeps its own 18% literal — no scale step is defined for it.) */
+	--nkui-wash-rest: 6%;
+	--nkui-wash-hover: 12%;
+	--nkui-wash-active: 22%;
+	--nkui-wash-ring: 55%;
 	--nkui-gap-hair: 2px;                      /* sanctioned sub-scale: dense strips/grids only */
 	--nkui-row-content-height: 1.5em;          /* the square-pill floor; trailing reserve derives from it */
-	--nkui-row-indent: calc(var(--nkui-dot-size) + var(--nkui-dot-gap) + var(--nkui-gap-s)); /* derived marker indent — dotted and dotless rows share one name column */
+	--nkui-row-indent: 0px;                     /* per-row depth indent: the decorator stamps Obsidian's own inline padding-inline-start here so the band can inset per depth; 0 base so an unstamped/root row never inherits a phantom indent */
 	--nkui-band-outdent: calc(-1 * var(--nkui-gap-s)); /* a band's outdent provably cancels its inline padding */
 	--nkui-page-pad-inline: var(--nkui-gap-m); /* one centre-pane gutter, shared by For-You and the queue view */
 	/* Size ramp — element sizes (NOT the inset scale): tap targets, controls, swatches. */
 	--nkui-tap: 40px;
 	--nkui-control: 32px;
 	--nkui-control-sm: 20px;                   /* checkbox, colour swatch */
+	--nkui-checkbox-scale: 1.35;               /* native-checkbox enlarge factor: scale about centre, never width/height (which offsets the tick) */
 	/* ── Nested-container depths (Note-Kit-UI-Nested-Containers-Plan) ───────────
 	   An open folder (later: an open For-You section) draws a filled tinted box
 	   that wraps its children; each deeper box nests one --nkui-nest-inset inside
@@ -637,10 +675,9 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   washes sit near 4–6%, NOT 10–22%. A faint type-temperature on the dark pane,
 	   capped so deep nesting never muds; the hue identifies the type, legible
 	   LIGHTENED text carries the read (never a same-hue label on a same-hue fill). */
-	--nkui-nest-wash-base: 6%;                 /* the outermost open box's type-wash strength */
-	--nkui-nest-wash-step: 3%;                 /* each deeper box steps the wash up this much */
-	--nkui-nest-wash-cap: 13%;                 /* hard ceiling so depth never compounds into mud */
-	--nkui-nest-radius-step: var(--nkui-nest-inset); /* inner radius = outer − inset, so corners nest as parallel arcs */
+	--nkui-nest-wash-base: 4%;                 /* the outermost/parent box: faint, recedes toward the pane */
+	--nkui-nest-wash-step: 6%;                 /* each deeper box brightens this much (OPAQUE, never stacks) */
+	--nkui-nest-wash-cap: 22%;                 /* the innermost focused box: near-full tint, capped (one opaque layer, not a pile-up) */
 }
 .nkui-now > * {
 	/* width:100% so every child fills the SAME column width (capped at the cap,
@@ -968,7 +1005,7 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	   outdent eaten back by the matching negative margin. */
 	padding: var(--nkui-row-pad-y) 0.5em;
 	margin: 0 -0.5em;
-	border-radius: var(--nkui-radius);
+	border-radius: var(--nkui-box-radius);
 	cursor: pointer;
 }
 .nkui-now-row:hover {
@@ -1125,8 +1162,9 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	margin: 0 -0.5em;
 	border-radius: var(--nkui-radius);
 }
-/* An open task: its text on top, a quiet "edit?" affordance beneath (like the
-   crossed-off fate note), stacked so a long task wraps without smushing. */
+/* An open task: its text on top (single-line, ellipsized — see .nkui-now-qtext),
+   a quiet "edit?" affordance beneath (like the crossed-off fate note), stacked in
+   a column so the affordance sits under the text rather than beside it. */
 .nkui-now-qmain {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -1169,6 +1207,13 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	min-width: 0;
 	cursor: pointer;
 	color: var(--text-normal);
+	/* Truncate, don't wrap — a thin queue pane crops on the right with an ellipsis
+	   (open text and its struck .is-done twin alike); the trailing column matches
+	   every other list-item end gutter (decided 2026-06-16). */
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding-right: var(--nkui-row-end);
 }
 .nkui-now-qtext.is-done {
 	text-decoration: line-through;
@@ -1296,7 +1341,7 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 .nkui-now-fillin {
 	flex: 1 1 auto;
 	box-sizing: border-box;
-	min-width: 8em;
+	min-width: 0; /* narrow pane: let the input shrink/wrap rather than overflow (an input can't ellipsize) */
 	min-height: 1.8em; /* comfortable box, never a skinny field */
 	font-size: var(--font-ui-small);
 	padding: 0.25em 0.5em;
@@ -1320,6 +1365,7 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 
 .nkui-now-optrow {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: flex-start;
 	gap: var(--nkui-gap-s);
 	padding: 0.18em calc(0.5em + var(--nkui-gap-s)) 0.18em 0.5em;
@@ -1420,6 +1466,13 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	/* A chip at max-width 100% (tags, description) otherwise runs flush to the
 	   text column's edges. */
 	padding: 0 var(--nkui-gap-s);
+	/* The strip carries a faint wash of the note's OWN type colour so it reads as
+	   belonging to the note, not a neutral system box. --nkui-type-color resolves
+	   on the typed leaf this strip sits inside; an untyped note (no var) falls
+	   through to a plain --background-secondary, unchanged. */
+	background: color-mix(in srgb, var(--nkui-type-color, transparent) 7%, var(--background-secondary));
+	border-radius: var(--nkui-radius);
+	padding-block: var(--nkui-gap-2xs);
 }
 /* The frontmatter BLOCK carries its own bottom margin (Obsidian's ~36px) on top
    of the compacted strip's own margin, so the first header floated far below the
@@ -1443,7 +1496,7 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
    its content and pushes the Properties row wider than the screen, scrolling off
    to the right on mobile. */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="description"] {
-	order: 6 !important;
+	order: 7 !important;
 	flex-basis: 100% !important;
 	width: 100% !important;
 	max-width: 100% !important;
@@ -1479,14 +1532,22 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
    inline line reads as noise ("weight: 3" reads on its own). */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="weight"] .metadata-property-value::before {
 	content: "weight: ";
-	color: var(--text-faint);
+	/* Label joins the tint (a faint type ink), neutral faint when untyped. */
+	color: var(--nkui-tk, var(--text-faint));
+}
+/* Keep the label and its number on one line — the general value rule sets
+   overflow-wrap: anywhere, which otherwise lets "weight: N" break at the space. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="weight"] .metadata-property-value {
+	white-space: nowrap;
+	overflow-wrap: normal;
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="type"] { order: 1 !important; }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="date"] { order: 2 !important; }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="status"] { order: 3 !important; }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"] { order: 4 !important; }
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="weight"] { order: 5 !important; }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="tags"] {
-	order: 5 !important;
+	order: 6 !important;
 	flex-basis: 100% !important;
 	justify-content: center;
 }
@@ -1547,16 +1608,17 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	.metadata-property[data-property-key="reviewed"]
 	.metadata-property-value
 	input[type="checkbox"] {
-	transform: scale(1.35);
-	transform-origin: left center;
+	transform: scale(var(--nkui-checkbox-scale));
+	transform-origin: center;
 	margin-left: 0.15em;
 	margin-right: 0.5em;
 }
-/* The 1.35× scale grows the box past its layout edge to the RIGHT, but the
-   property and its value box clip overflow (Obsidian default) — so the scaled
-   checkbox lost a sliver off its right edge (worse on mobile, where the base box
-   is 20px → ~27px scaled). Let the reviewed control overflow its own boxes; it is
-   the last chip in the centred strip, so a few px past its edge clears nothing. */
+/* The --nkui-checkbox-scale grows the box past its layout edge to the RIGHT, but
+   the property and its value box clip overflow (Obsidian default) — so the scaled
+   checkbox lost a sliver off its right edge (mobile too, since it now scales the
+   native ~13–16px box rather than a forced 20px). Let the reviewed control overflow
+   its own boxes; it is the last chip in the centred strip, so a few px past its
+   edge clears nothing. */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"],
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property[data-property-key="reviewed"] .metadata-property-value {
 	overflow: visible;
@@ -1774,9 +1836,13 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 	background: color-mix(in srgb, var(--nkui-row-color, var(--nkui-section-color, var(--interactive-accent))) 12%, var(--background-primary));
 }
 
-/* Square highlights — dropdown headers, For You rows, and the explorer selection
-   follow the shared radius token (sharp by default), so a highlight reads as a
-   crisp band, not a pill. !important outranks the theme's own row radius. */
+/* Row highlights — dropdown headers, For You rows, and the explorer selection —
+   follow the ONE row-highlight corner token (--nkui-box-radius: 0 sharp, 12px
+   rounded), so every highlight across the whole UI reads with the same curve, not
+   a per-surface radius. This is the single rule that unifies the corner; keep it
+   the only !important row-radius so it outranks the theme's own row radius AND
+   every per-variant var(--nkui-radius) below. (--nkui-radius stays the general
+   chrome curve for inputs, cards, and dropdown frames — never the row band.) */
 .nkui-now-group-head,
 .nkui-now-row,
 .nkui-now-qrow,
@@ -1785,7 +1851,83 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 .nkui-now-needsread,
 .nav-file-title,
 .nav-folder-title {
-	border-radius: var(--nkui-radius) !important;
+	border-radius: var(--nkui-box-radius) !important;
+}
+
+/* ── Highlight band element ─────────────────────────────────────────────────────
+   Obsidian draws each explorer row's wash full-bleed: an inline negative
+   margin-inline-start pulls the row's border-box to a constant pane edge while a
+   positive inline padding-inline-start indents the text. Painting the wash on the
+   row's own background therefore bleeds it to the pane edge — the "highlight off
+   to the left, not nested" report. Instead the decorator mirrors that inline
+   padding into --nkui-row-indent and injects a .nkui-row-band as the row's first
+   child; every wash rule sets --nkui-row-wash (inherited by the band) instead of
+   `background`, and the band paints it inset by the indent — so the highlight
+   starts at the indented content and nests concentrically per depth (the
+   Format-UI-Spacing "highlight hugs content" + "concentric nesting" laws). CSS
+   alone can't do this: border+background-clip flattens the rounded corner and a
+   stylesheet row margin is beaten by Obsidian's inline !important indent
+   ([[Obsidian-File-Explorer-Indent-and-Bands-Use-Inline-Important]]). */
+.nav-files-container :is(.nav-file-title, .nav-folder-title) {
+	position: relative; /* the band's containing block — Obsidian sets this natively; pinned for robustness */
+}
+.nkui-row-band {
+	position: absolute;
+	/* ONE frame for EVERY highlight (boxed, role, root, all depths, both modes): an
+	   EVEN 4px (--nkui-nest-inset) gutter on ALL FOUR sides + one radius. The left
+	   edge tracks the per-row content indent (--nkui-row-indent) MINUS the nest inset,
+	   so the dot/label clear the band's left edge by the same 4px they clear the top,
+	   bottom, and right — the content sits inside the pill with even padding all
+	   round, never flush against an edge. The relative per-depth nesting is preserved
+	   (every band shifts left by the same 4px, so deeper bands still step in). */
+	inset-block: var(--nkui-nest-inset);
+	inset-inline-start: calc(var(--nkui-row-indent, 0px) - var(--nkui-nest-inset));
+	inset-inline-end: var(--nkui-nest-inset);
+	border-radius: var(--nkui-box-radius); /* ONE radius for every band — never the row's 999px pill, never a per-depth square */
+	background: var(--nkui-row-wash, transparent);
+	z-index: 0;
+	pointer-events: none; /* clicks pass through to the row */
+}
+/* Content paints above the band: the label, the collapse chevron, the type/draft
+   dots (::before/::after), and the trailing count / weight badges. NOTE: the inbox
+   roll-up pill (.nkui-inbox-count) is DELIBERATELY excluded — it carries its own
+   `position: absolute` (anchored to the row's far-right cap); listing it here forced
+   it to `position: relative` and it flowed inline next to the label instead of
+   pinning right. It gets its z-index lift on its own rule below, staying absolute. */
+.nav-files-container :is(.nav-file-title, .nav-folder-title) > :is(.tree-item-inner, .tree-item-icon, .nav-file-title-content, .nav-folder-title-content, .collapse-icon),
+.nkui-queue-count,
+.nkui-weight-badge,
+.nav-file-title[data-nkui-type]::before,
+.nav-file-title[data-nkui-reviewed="false"]::after {
+	position: relative;
+	z-index: 1;
+}
+/* The band carries EVERY highlight, so clear the row's OWN background on EVERY
+   explorer row — otherwise Obsidian's native full-bleed selection/hover grey
+   paints under the nested band and the "shifted left, not nested" look survives.
+   This used to cover only kit-washed rows (typed / role / queue), leaving untyped
+   rows on the native grey — a different highlight on the same surface. Now one
+   system owns them all: typed rows take their type wash (below), untyped rows take
+   a neutral band wash on interaction (next rule), and at rest every row is clear. */
+.nav-files-container .nav-file-title,
+.nav-files-container .nav-folder-title {
+	background: transparent !important;
+}
+/* NEUTRAL band wash — the FALLBACK highlight for any row without an active kit
+   wash of its own, on hover and the active/selected/focused states: the same
+   nested pill as a typed row, in the theme-neutral tone. It must cover BOTH
+   untyped rows AND typed rows when "Tint by type" is off (the type washes below
+   are all gated on body.nkui-type-tint, and `background: transparent !important`
+   above already cleared Obsidian's native grey — so a typed row with tint off
+   would otherwise have NO highlight at all). Queue/role rows keep their own
+   coloured washes, so they stay excluded; typed/folder-type rows are NOT excluded
+   here — under tint their type wash (below) wins via !important, and with tint off
+   this neutral fallback is the only highlight they get. */
+.nav-files-container :is(.nav-file-title, .nav-folder-title):not([data-nkui-queue]):not([data-nkui-role]):hover {
+	--nkui-row-wash: color-mix(in srgb, var(--text-normal) var(--nkui-wash-hover), transparent);
+}
+.nav-files-container :is(.nav-file-title, .nav-folder-title):not([data-nkui-queue]):not([data-nkui-role]):is(.is-active, .has-focus, .is-selected) {
+	--nkui-row-wash: color-mix(in srgb, var(--text-normal) var(--nkui-wash-active), transparent);
 }
 
 /* ── File explorer: queue / floated files are coloured (not barred) so they read as
@@ -1821,11 +1963,14 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 /* ── Type-tinted highlights: a selected (exposed) typed file, and an open typed
    folder, take a faint wash of their TYPE colour for the row highlight instead of
    the theme's neutral selection grey — so the active item carries its kind. ───── */
+/* Interaction washes paint on the band (--nkui-row-wash), inset to hug the
+   content, not the row's full-bleed background. !important so they win over the
+   resting role / open-folder washes below. */
 body.nkui-type-tint .nav-file-title[data-nkui-type].is-active {
-	background: color-mix(in srgb, var(--nkui-type-color) 22%, transparent) !important;
+	--nkui-row-wash: color-mix(in srgb, var(--nkui-type-color) var(--nkui-wash-active), transparent) !important;
 }
 body.nkui-type-tint .nav-file-title[data-nkui-type]:hover {
-	background: color-mix(in srgb, var(--nkui-type-color) 12%, transparent) !important;
+	--nkui-row-wash: color-mix(in srgb, var(--nkui-type-color) var(--nkui-wash-hover), transparent) !important;
 }
 /* Shift/ctrl-click multi-select takes the same type wash as the active row —
    the theme's neutral selection grey otherwise breaks the tint language. */
@@ -1833,23 +1978,24 @@ body.nkui-type-tint .nav-file-title[data-nkui-type].is-selected,
 body.nkui-type-tint .nav-file-title[data-nkui-type].has-focus,
 body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].is-selected,
 body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus {
-	background: color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 18%, transparent) !important;
+	--nkui-row-wash: color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 18%, transparent) !important;
 }
-/* The focus BORDER follows the tint too — a twice-clicked row otherwise draws
-   the theme's neutral focus ring through the type-washed band. */
-body.nkui-type-tint .nav-file-title[data-nkui-type].has-focus,
-body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus {
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) 55%, transparent) !important;
+/* The focus BORDER follows the tint too — drawn on the BAND so the ring hugs the
+   nested highlight, not the row's full-bleed border-box. The band inherits
+   --nkui-type-color / --nkui-folder-color from the row. */
+body.nkui-type-tint .nav-file-title[data-nkui-type].has-focus > .nkui-row-band,
+body.nkui-type-tint .nav-folder-title[data-nkui-folder-type].has-focus > .nkui-row-band {
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--nkui-type-color, var(--nkui-folder-color)) var(--nkui-wash-ring), transparent);
 }
 /* Top-level (PARA root) typed folders carry a faint resting tone even while
    collapsed, so the tree's skeleton reads in colour at a glance; opening a
    folder steps the wash up (the rule below wins by order). The inbox/outbox
    role washes already rest-on (0.4.42 block). */
 body.nkui-type-tint .nav-folder-title[data-nkui-folder-type]:not([data-path*="/"]) {
-	background: color-mix(in srgb, var(--nkui-folder-color) 6%, transparent);
+	--nkui-row-wash: color-mix(in srgb, var(--nkui-folder-color) var(--nkui-wash-rest), transparent);
 }
 body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui-folder-type] {
-	background: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
+	--nkui-row-wash: color-mix(in srgb, var(--nkui-folder-color) 12%, transparent);
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1863,14 +2009,17 @@ body.nkui-type-tint .nav-folder:not(.is-collapsed) > .nav-folder-title[data-nkui
    ──────────────────────────────────────────────────────────────────────────── */
 body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-root) {
 	/* Box fill: the folder's own type colour (or its parent box's, inherited),
-	   a FAINT wash over the pane, stepped gently per depth and capped so a deep
-	   nest never compounds into mud (iOS steps ~6%/level; the kit's washes ~4–6%). */
+	   an OPAQUE tint mixed over the pane (never translucent) so DOM-nested boxes
+	   cannot stack their wash and compound bright. The tint grows with depth, so the
+	   innermost (focused) box reads brightest and each ancestor/parent shelf recedes
+	   toward the pane — depth without an additive blowout (user dir 2026-06-16). */
 	background: color-mix(in srgb,
 		var(--nkui-folder-color) min(var(--nkui-nest-wash-cap), calc(var(--nkui-nest-wash-base) + var(--nkui-depth, 0) * var(--nkui-nest-wash-step))),
-		transparent);
-	/* Concentric radius: inner = outer − depth × step, floored at 0. Sharp mode
-	   (--nkui-radius 0) gives concentric squares; rounded steps 16→12→8…. */
-	border-radius: max(0px, calc(var(--nkui-radius) - var(--nkui-depth, 0) * var(--nkui-nest-radius-step)));
+		var(--background-primary));
+	/* ONE radius for every box, every depth — no per-depth step (which decayed to
+	   a hard square once 3 deep). The 4px-per-level inset already reads the nesting;
+	   the corner stays constant. */
+	border-radius: var(--nkui-box-radius);
 	/* The children's row bands are full-bleed via Obsidian's inline-!important
 	   indent (CSS can't pull them in); the box clips them to its edge. Stream B
 	   replaces this stopgap with a JS-managed row indent. */
@@ -1886,14 +2035,21 @@ body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-ro
 	   container-level override applies; the inline-!important lock is on the ROW, not
 	   the container (Obsidian-File-Explorer-Indent-And-Bands-Use-Inline-Important). */
 	margin-inline-start: 0 !important;
-	padding: var(--nkui-nest-inset);
+	/* Inline inset only: the children frame sits one --nkui-nest-inset inside the
+	   wrapper (this is the FILE band's +1 step). Block padding is 0 — the band's own
+	   inset-block carries the even top/bottom gutter, so the title→first-child seam
+	   matches the file→file seam (block padding here would double-count it). */
+	padding: 0 var(--nkui-nest-inset);
 }
 /* ONE dominant container: the open folder's OWN title drops its competing resting
    wash + pill so it reads as the TOP of the box, not a second card stacked on it
    (the prototype-1 failure). Active/hover states (their own !important rules)
    still compose on top — emphasis over the group (decided A). */
 body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-root) > .nav-folder-title {
-	background: transparent;
+	/* Inside a box the WRAPPER fill carries the tint, so suppress the band's
+	   resting open-folder wash here; interaction washes (active/hover/selected)
+	   keep their !important and still layer on the band over the box. */
+	--nkui-row-wash: transparent;
 	border-radius: 0 !important;
 	margin: 0 !important;
 }
@@ -1910,17 +2066,38 @@ body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed):not(.mod-ro
 body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-file-title[data-nkui-type] .nav-file-title-content {
 	color: color-mix(in srgb, var(--nkui-type-color), var(--text-normal) 45%);
 }
-/* CONSISTENCY: a boxed file sits one tree-level below its folder header, so Obsidian
-   indents it ~18px further than the header (measured 42 vs 24 from the box edge). But
-   the BOX already carries the grouping, so the extra per-row step is redundant and
-   reads as the "margins too wide / inconsistent" the user flagged. Pull the file's
-   content back ONE indent step (Obsidian's own children-margin, 18px fallback) so
-   every file aligns under its folder header inside the box — the box shows depth, the
-   text sits at one consistent inset. Content-only shift (no fight with the row's
-   inline-!important padding); the type dot rides ::before the content, so it tracks. */
-body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-file-title .nav-file-title-content {
-	margin-inline-start: calc(-1 * var(--nav-item-children-margin-start, 18px));
+/* NATIVE FLOW inside a box: with full-bleed rows, a boxed file's content already
+   sits at its native indent (the row's inline padding), one tree-step inside its
+   folder header — so it nests concentrically with NO content or dot pull, and the
+   band (inset by that same --nkui-row-indent) hugs it. The old per-row pull was a
+   workaround for the margin-shrink approach the band replaced; measured live, a
+   pull here drove the child band LEFT of its parent (inverted nesting). The band
+   owns all inset; text and dots stay in Obsidian-native flow. */
+
+/* ── Even band gutters inside a box ──────────────────────────────────────────────
+   Boxed rows use the SAME base .nkui-row-band rule as every other explorer row:
+   the band's inset-inline-start is content-tracking (calc(--nkui-row-indent −
+   --nkui-nest-inset)), so it hugs the row's native indent with the even 4px left
+   gutter, while inset-inline-end / inset-block carry the 4px right + top/bottom.
+   (Earlier abandoned designs — a --nkui-depth-driven per-row inset, and a
+   decorator JS-flatten of the row onto its box column — were removed; the band
+   tracks Obsidian's native per-row indent, not box depth.) The rule below only
+   zeroes the boxed row's physical margins so the band's insets are the sole
+   gutters; it adds no indent of its own. */
+/* Right-gutter anchor + uniform vertical separator: zero the rounded row
+   margin-right (so the row border-box-right meets the box content-right and the
+   band's inset-inline-end is the only right gutter) and the row margin-block (so
+   the band's inset-block is the only vertical gutter, making every band-to-band
+   seam a uniform 2·nest-inset instead of today's alternating 4/8px). margin is a
+   physical property Obsidian does NOT !important-lock on these rows (it locks only
+   margin-inline-start, for the indent). */
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-folder-title,
+body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-file-title {
+	margin-right: 0 !important;
+	margin-block: 0 !important;
 }
+/* (Band corner is the single --nkui-box-radius from the base .nkui-row-band rule —
+   no per-depth concentric step, which used to decay to a square at depth.) */
 
 /* Reserve the scrollbar gutter in the file explorer so opening a folder — which adds
    rows and summons the vertical scrollbar — doesn't narrow the pane and shift the
@@ -1977,7 +2154,13 @@ body.nkui-nested-boxes .nav-folder[data-nkui-box]:not(.is-collapsed) .nav-file-t
    block (it must also clear the safe-area). */
 body:not(.is-mobile) .nav-files-container .nav-file-title,
 body:not(.is-mobile) .nav-files-container .nav-folder-title {
-	margin-inline: 0;
+	/* Full-bleed row: the per-depth wash inset is now the band's job
+	   (--nkui-row-indent on .nkui-row-band), so the row keeps Obsidian's native
+	   geometry and the text / dots stay in native flow — no margin shrink, no
+	   content compensation. Zeroing the inline margin also restores the desktop
+	   full-bleed when a theme pulls the rows in (the original item-11 fix). */
+	margin-inline-start: 0;
+	margin-inline-end: 0;
 }
 
 /* ── Mobile: keep reduced rows a comfortable tap target. ────────────────────── */
@@ -2099,11 +2282,11 @@ body.nkui-type-tint .nkui-now-row-contained:not(.nkui-now-row-gate):hover .nkui-
    outbox. */
 .nav-file-title[data-nkui-queue],
 .nav-folder-title[data-nkui-role="inbox"] {
-	background: color-mix(in srgb, var(--nkui-draft-color) 8%, transparent);
+	--nkui-row-wash: color-mix(in srgb, var(--nkui-draft-color) 8%, transparent);
 }
 .nav-folder-title[data-nkui-role="outbox"],
 .nav-folder-title[data-nkui-role="outbox"] + .nav-folder-children .nav-file-title[data-nkui-queue] {
-	background: color-mix(in srgb, color-mix(in srgb, var(--nkui-draft-color) 60%, var(--text-muted)) 9%, transparent);
+	--nkui-row-wash: color-mix(in srgb, color-mix(in srgb, var(--nkui-draft-color) 60%, var(--text-muted)) 9%, transparent);
 }
 .nav-folder-title[data-nkui-role="inbox"] .nav-folder-title-content,
 .nav-folder-title[data-nkui-role="outbox"] .nav-folder-title-content {
@@ -2689,8 +2872,13 @@ body.nkui-type-tint .nav-file-title[data-nkui-type][data-nkui-weight] .nav-file-
 	margin-left: var(--nkui-gap-s);
 	padding: 0.1em 0.4em;
 	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
-	background: color-mix(in srgb, var(--text-faint) 12%, transparent);
-	color: var(--text-faint);
+	/* An OPAQUE neutral chip mixed over the pane (not a translucent wash) so the
+	   badge reads on its own surface above any nested-box tint, the same as on a
+	   plain row; a hairline separates it from a same-tone surface; muted (not
+	   faint) text restores lightness contrast while staying a secondary cue. */
+	background: color-mix(in srgb, var(--text-faint) 14%, var(--background-primary));
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nkui-type-color, var(--text-faint)) 30%, transparent);
+	color: var(--nkui-tk, var(--text-muted));
 	font-family: var(--font-monospace, monospace);
 	font-size: var(--font-ui-smaller, 10px);
 	font-weight: var(--font-normal, 400);
@@ -3072,8 +3260,9 @@ body.is-mobile .nav-files-container > div {
 }
 body.is-mobile .nav-file-title,
 body.is-mobile .nav-folder-title {
-	margin-inline: 0 !important;
-	border-radius: var(--nkui-radius) !important;
+	margin-inline-start: 0 !important; /* full-bleed row; the per-depth wash inset is the band's job */
+	margin-inline-end: 0 !important;
+	border-radius: var(--nkui-box-radius) !important; /* the one row-highlight corner (the row box is transparent; the band paints) */
 }
 
 /* ── iOS device truth — the emulator stopped here, the notch phone didn't:
@@ -3105,6 +3294,8 @@ body.is-mobile {
 body.is-mobile .nav-file-title,
 body.is-mobile .nav-folder-title {
 	padding-inline-end: max(var(--size-4-2, 8px), env(safe-area-inset-right, 0px));
+	/* The transparent inline-start border supplies the mobile safe-area text inset;
+	   the per-depth indent is on the row's margin-inline-start, not here. */
 	border-inline-start: env(safe-area-inset-left, 0px) solid transparent;
 }
 /* The inbox pill's reserved square keeps clear of the inset right edge. */
@@ -3208,8 +3399,11 @@ body.is-mobile .metadata-property {
    comfortable tap target on mobile — the native control was too small to hit
    reliably. Desktop keeps Obsidian's default size. */
 body.is-mobile .metadata-property-value input[type="checkbox"] {
-	width: 20px;
-	height: 20px;
+	/* Enlarge via transform, not width/height — forcing the native box's size
+	   leaves its rendered tick off-centre; scale keeps the glyph centred while
+	   still giving a bigger tap target. */
+	transform: scale(var(--nkui-checkbox-scale));
+	transform-origin: center;
 }
 body.is-mobile .metadata-property-key {
 	min-width: 0;
@@ -3609,6 +3803,7 @@ body.nkui-rounded {
 	   16px; single-line chips keep the full pill via --nkui-radius-pill. */
 	--nkui-radius: 16px;
 	--nkui-radius-pill: 999px;
+	--nkui-box-radius: 12px; /* the ONE row-highlight corner, UI-wide (explorer band, box fill, For-You band) — rounded rect, never a pill or square */
 	/* Dots become circles only in rounded mode (item 15). */
 	--nkui-dot-radius: 50%;
 }
@@ -3670,7 +3865,8 @@ body.nkui-rounded.is-mobile .nkui-now :is(.nkui-now-group-head, .nkui-now-row, .
 }
 body.nkui-rounded.is-mobile .nav-file-title,
 body.nkui-rounded.is-mobile .nav-folder-title {
-	margin-inline: var(--nkui-gap-s) !important;
+	margin-inline-start: var(--nkui-gap-s) !important; /* rounded float gutter; the per-depth wash inset is the band's job */
+	margin-inline-end: var(--nkui-gap-s) !important;
 }
 /* ── Full-pill explorer highlights (item 4) — in rounded mode the file-pane
    selection / hover / role-wash bands read as FULL PILLS (rounded ends), not the
@@ -3683,10 +3879,10 @@ body.nkui-rounded.is-mobile .nav-folder-title {
    bands stay full-bleed and touching (the For You column language). */
 body.nkui-rounded .nav-files-container .nav-file-title,
 body.nkui-rounded .nav-files-container .nav-folder-title {
-	border-radius: var(--nkui-radius-pill, var(--nkui-radius)) !important;
-	/* Rounded bands must not touch (the file-panel rows ran seamless like the sharp
-	   column language); a small block gap floats them apart so each highlight reads
-	   as its own pill with breathing room. */
+	/* (The 999px full-pill row radius + the per-depth in-box select-pill radius are
+	   GONE — the band is the only rounded surface now (--nkui-box-radius); the row
+	   border-box is transparent so its own corner never paints. Keep only the block
+	   gap that floats each row's highlight apart — its own pill with breathing room.) */
 	margin-block: var(--nkui-gap-2xs);
 }
 /* Desktop: the full-bleed wave drops the container's right padding to 0 so sharp
@@ -3971,12 +4167,15 @@ body.nkui-type-tint .mod-root .workspace-tab-header.is-active[class*="nkui-type-
 /* § X — session unification: a "sessions" host folder (data-nkui-session-host)
    and its file children (data-nkui-session-child) render at standard size and
    justification (resetting the smaller typed-subfolder step), the folder name
-   alone separating them. */
+   alone separating them. Pin to the STANDARD explorer row size (--nav-item-size,
+   13px) — NOT `1em`, which rides the 15px pane base and rendered sessions LARGER
+   than their parent folder, overflowing long date-slug names off the row (the
+   horizontal-fit bug). "Standard size" means the same size every other row uses. */
 .nav-folder-title[data-nkui-session-host],
 .nav-folder-title[data-nkui-session-host] .nav-folder-title-content,
 .nav-file-title[data-nkui-session-child],
 .nav-file-title[data-nkui-session-child] .nav-file-title-content {
-	font-size: 1em;
+	font-size: var(--nav-item-size, var(--font-ui-small));
 	opacity: 1;
 }
 
@@ -4369,6 +4568,17 @@ body.nkui-skim-condense.nkui-skim-tier-outline
 	.markdown-preview-sizer
 	> :is(h3, h4, h5, h6).nkui-skim-head:not(.nkui-skim-expanded) {
 	font-size: 0.95em;
+}
+
+/* Rounded mode: a condensed block clamps to one line under overflow:hidden, and
+   in rounded mode the curve otherwise clips the leading/trailing glyph. Inset the
+   condensed prose + list rows by one inline gutter so the clamped line clears the
+   curve. Scoped to condense + rounded; two body classes outrank the base rule. */
+body.nkui-rounded.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-reviewed-header):not(.nkui-skim-expanded):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter):not(.el-h1):not(.el-h2):not(.el-h3):not(.el-h4):not(.el-h5):not(.el-h6) {
+	padding-inline: var(--nkui-gap-s);
 }
 
 /* ── Folding affordance — every decorated heading carries a leading chevron and

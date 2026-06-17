@@ -323,7 +323,7 @@ export class NowView extends ItemView {
 			this.renderBucket(
 				c,
 				`Needs you/${key}`,
-				pluralLabel(key, items.length),
+				key,
 				this.colorFor(key),
 				items,
 				{ showAge: false, showType: false, showDraft: false, showRowDot: false },
@@ -2047,14 +2047,6 @@ function formatToday(): string {
 		month: "long",
 		day: "numeric",
 	});
-}
-
-/** A Needs-you section label that agrees with its count: "session" / "sessions",
- * "note" / "notes", "index" / "indexes". The header CSS capitalises it. The
- * non-type buckets ("queued", "untyped") read as-is. */
-function pluralLabel(key: string, n: number): string {
-	if (key === "queued" || key === "untyped" || n === 1) return key;
-	return /(?:[sxz]|ch|sh)$/.test(key) ? `${key}es` : `${key}s`;
 }
 
 /** Build the subtitle DOM with twin-span labels so the container query can

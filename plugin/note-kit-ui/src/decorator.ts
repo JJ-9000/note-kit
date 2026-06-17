@@ -298,12 +298,18 @@ export class ExplorerDecorator {
 			const obs = new MutationObserver((muts) => this.onMutations(muts));
 			// attributeFilter: a rename updates data-path on the existing element —
 			// no childList mutation fires, so without this the row waits for the
-			// debounced pass and snaps.
+			// debounced pass and snaps. `style` is watched too: Obsidian writes each
+			// row's per-depth indent as an inline `padding-inline-start`, and when a
+			// recycled row's padding updates in a different tick than its data-path the
+			// band would keep a stale --nkui-row-indent until the next decorate /
+			// scroll-settle — painting the highlight at the old inset for a frame, then
+			// snapping (the "hover highlight loads to the side then snaps" flash). The
+			// style branch in onMutations re-mirrors the indent cheaply, before paint.
 			obs.observe(c, {
 				childList: true,
 				subtree: true,
 				attributes: true,
-				attributeFilter: ["data-path"],
+				attributeFilter: ["data-path", "style"],
 			});
 			this.observers.push(obs);
 			// Row recycling can reveal a row without any observable mutation (the
@@ -333,11 +339,30 @@ export class ExplorerDecorator {
 		let childrenInserted = false;
 		for (const m of muts) {
 			if (m.type === "attributes" && m.target instanceof HTMLElement) {
-				if (m.target.matches(".nav-file-title, .nav-folder-title")) {
-					this.decorate(m.target, s);
-					// A data-path swap is a RECYCLED row — re-stamp the settled
-					// rows once the scroll stops.
-					this.scrollRedraw();
+				const tgt = m.target;
+				if (tgt.matches(".nav-file-title, .nav-folder-title")) {
+					if (m.attributeName === "style") {
+						// Cheap, idempotent re-mirror of Obsidian's inline
+						// padding-inline-start into --nkui-row-indent the instant it
+						// changes — before paint (this runs in the observer microtask).
+						// Closes the stale-indent window that flashed a recycled row's
+						// band at the old inset, then snapped. NO full decorate here (it
+						// stays on data-path + the debounced pass, so scroll churn pays
+						// only this O(1) cost); the value-equal guard stops decorate's own
+						// indent write from re-triggering an endless style-mutation loop.
+						const indent = tgt.style.paddingInlineStart;
+						const cur = tgt.style.getPropertyValue("--nkui-row-indent");
+						if (indent) {
+							if (indent !== cur) tgt.style.setProperty("--nkui-row-indent", indent);
+						} else if (cur) {
+							tgt.style.removeProperty("--nkui-row-indent");
+						}
+					} else {
+						// data-path swap = a RECYCLED row — full re-decorate + re-stamp
+						// the settled rows once the scroll stops.
+						this.decorate(tgt, s);
+						this.scrollRedraw();
+					}
 				}
 				continue;
 			}

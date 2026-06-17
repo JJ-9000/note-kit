@@ -107,6 +107,12 @@ export interface NoteKitUiSettings {
 	 * 0.5–2.0. Persisted and re-applied on load. */
 	animSpeed: number;
 
+	/** Inter-element margin multiplier. The live CSS token --nkui-margin-scale
+	 * multiplies every margin BETWEEN rows / boxes / sections (NOT the content
+	 * padding/inset inside them); default 1.0 (no change), lower = denser. Persisted
+	 * and re-applied on load (set at :root, where the margin tokens compute). */
+	marginScale: number;
+
 	/** Skim mode — a reading-view declutter (reading view only; live preview is a
 	 * CM6 surface a post-processor never sees). One of:
 	 *  · "off"               — no skim treatment.
@@ -239,6 +245,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	minimalistMode: false,
 	// 1.0 = real-time (default); the CSS token --nkui-speed-user divides durations.
 	animSpeed: 1.1,
+	// 1.0 = default inter-element margins; --nkui-margin-scale multiplies them (0 = touching).
+	marginScale: 1,
 
 	// Skim off by default — it's an opt-in reading treatment, not a baseline look.
 	skimMode: "off",
@@ -437,6 +445,23 @@ export class NoteKitUiSettingTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						s.animSpeed = v;
 						document.documentElement.style.setProperty("--nkui-speed-user", String(v));
+						await save();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Margin scale")
+			.setDesc(
+				"Scale the space BETWEEN rows, boxes and sections — not the content inside them. 1× is the default; 0.5× halves the gaps for a denser tree; 0 makes them touch; higher spreads them out. (Drives --nkui-margin-scale.)"
+			)
+			.addSlider((sl) =>
+				sl
+					.setLimits(0, 1.5, 0.05)
+					.setValue(s.marginScale ?? 1)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						s.marginScale = v;
+						document.documentElement.style.setProperty("--nkui-margin-scale", String(v));
 						await save();
 					})
 			);

@@ -395,6 +395,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		// descendant (body) never reaches that :root computation, leaving the
 		// multiplier inert everywhere but body.nkui-minimal (which re-declares it).
 		document.documentElement.style.setProperty("--nkui-speed-user", String(this.settings.animSpeed));
+		// Same :root computation rule (above) applies to the inter-element margin dial —
+		// --nkui-margin-* tokens compute at :root from --nkui-margin-scale, so it must be
+		// set on documentElement, not body, to take effect. Default 1 = no change.
+		document.documentElement.style.setProperty("--nkui-margin-scale", String(this.settings.marginScale ?? 1));
 		this.applyMinimalExit();
 	}
 

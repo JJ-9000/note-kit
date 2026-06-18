@@ -39,23 +39,23 @@ _Generated from CONFIG.md by sync_config — do not hand-edit; edit CONFIG.md in
 
 | type | typical folder | naming pattern | required frontmatter | description |
 | ---- | -------------- | -------------- | -------------------- | ----------- |
-| project | `<projects>/` | Title-Case-Hyphens | type, tags, date, parent | active work with a defined goal, start, and end |
+| project | `<projects>/` | Title-Case-Hyphens | type, tags, date, parent | active work with a defined goal, start, and end; its file tracks live state and coordinates the plan, assets, and sessions |
 | area | `<areas>/` | Title-Case-Hyphens | type, tags, date, parent | active role or system maintained without start or end |
-| reference | `<reference>/` | Title-Case-Hyphens | type, tags, date, parent | canonical knowledge valuable with or without context. Used to form larger ideas by linking together references in active sessions. |
+| reference | `<reference>/` | Title-Case-Hyphens | type, tags, date, parent | one piece of canonical knowledge, valuable with or without context. Used to form larger ideas by linking together references in active sessions. |
 | voice | parent's `<voice>/` subfolder, else `<areas>/<voice>/` | Title-Case-Hyphens | type, tags, date, parent | resolute prose-voice principle for human-facing text |
 | design | parent's `<design>/` subfolder, else `<areas>/<design>/` | Title-Case-Hyphens | type, tags, date, parent | resolute design principle for skills, agents, and specs |
 | format | parent's `<format>/` subfolder, else `<areas>/<format>/` | Title-Case-Hyphens | type, tags, date, parent | resolute visual-format principle, and the canonical shape of a note type |
-| research | parent's `<research>/` subfolder, else `<areas>/<research>/` | Title-Case-Hyphens | type, tags, date, project parent | investigation, experimentation; unproven |
-| session | parent's `<sessions>/` subfolder, else `<archive>/<sessions>/` | YYYY-MM-DD-kebab-slug | type, tags, date, project | system-authored work log |
-| plan | parent's `<plans>` subfolder, else `<areas>/<plans>/` | Title-Case-Hyphens | type, tags, date, parent | forward-looking mission and execution |
-| note | parent's `<notes>/` subfolder, else `<areas>/<notes>/` | Title-Case-Hyphens | type, tags, date, parent | default plain-language markdown |
+| research | parent's `<research>/` subfolder, else `<areas>/<research>/` | Title-Case-Hyphens | type, tags, date, project parent | investigation, experimentation; unproven — its open questions and the evidence gathered against them, held under its parent until a finding settles it. |
+| session | parent's `<sessions>/` subfolder, else `<archive>/<sessions>/` | YYYY-MM-DD-kebab-slug | type, tags, date, project | system-authored work log — what a session did, decided, and learned, under its project; the newest feeds the project file's state-of-play. |
+| plan | parent's `<plans>` subfolder, else `<areas>/<plans>/` | Title-Case-Hyphens | type, tags, date, parent | forward-looking mission and execution that tracks the actual state of its in-development work against commits; one canonical plan per scope. |
+| note | parent's `<notes>/` subfolder, else `<areas>/<notes>/` | Title-Case-Hyphens | type, tags, date, parent | default plain-language markdown; the type a draft takes when no more specific one fits. |
 | journal | `<areas>/<journal>/` | YYYY-MM-DD-kebab-slug | type, tags, date, parent | self-authored personal reflection |
-| idea | parent's `<idea>/` subfolder, else `<areas>/<ideas>/` | Title-Case-Hyphens | type, tags, date, parent | single-shot capture of a spark |
+| idea | parent's `<idea>/` subfolder, else `<areas>/<ideas>/` | Title-Case-Hyphens | type, tags, date, parent | single-shot capture of a concept or goal, carried forward into a more specific type (project, area, etc.). |
 | snippet | `<snippets>/` | kebab-case | type, tags, date, parent | functional code, ready to paste |
-| source | parent's `<sources>/` subfolder, else `<areas>/<sources>/` | Title-Case-Hyphens | type, tags, date, parent | external artifact supporting another document |
-| index | the folder it covers (its folder-note cover — the file named after the folder, § Numbering) | Title-Case-Hyphens | type, tags, date | a folder's cover note linking **every** child for scoped navigation; only the direct children of a root (project, area, reference domain, snippet group) carry one — never a deeper subfolder or the archive |
+| source | parent's `<sources>/` subfolder, else `<areas>/<sources>/` | Title-Case-Hyphens | type, tags, date, parent | external artifact supporting another document, kept whole and preserved as captured. |
+| index | the folder it covers (its folder-note cover — the file named after the folder, § Numbering) | Title-Case-Hyphens | type, tags, date | a folder's cover note linking every child file and folder for scoped navigation, chaptered under clear labels that track these subdivisions and their purpose; only a root — a project, area, reference domain, or snippet group (CONFIG § Types) — carries one, and this root's children index their files and folders in this master, with project-specific links preserved in their source. |
 | addendum | `<inbox>/` if unreviewed, `<archive>/<inbox>/<addendum>/` when completed | Title-Case-Hyphens | type, tags, date, target | transient edit merging into its target |
-| log | parent's `<logs>/` subfolder, else `<archive>/<logs>/<agent> or <skill>/` | kebab-case | type, tags, date | operational log scoped to an agent or session run |
+| log | parent's `<logs>/` subfolder, else `<archive>/<logs>/<agent> or <skill>/` | kebab-case | type, tags, date | append-only operational log scoped to an agent or session run, one line per action. |
 | revision | target's `<notes>/<revision>-<version>` subfolder, else `<archive>/<target>/<revisions>/` | Title-Case-Hyphens | type, tags, date, target | edited working copy produced by the review skill |
 <!-- /note-kit:sync session-start -->
 

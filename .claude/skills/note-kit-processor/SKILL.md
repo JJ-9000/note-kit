@@ -63,7 +63,7 @@ Assign `type` per CONFIG's Types table:
 
 Default to `note` when torn (matching note-kit-transcription).
 
-**Dedup against the vault before emitting.** `mcp__vault__vault_search(<the atom's gist>)`; if the tool is unavailable (no daemon or `.mcp.json`), fall back to Glob/Grep over the candidate destination folders for the atom's key terms — softer, but it catches the obvious duplicates. A match above 0.85 that genuinely covers the atom → do not duplicate: emit a `type: addendum` targeting the existing note so the new angle merges in, or — if the atom adds nothing — record it in the index as "already covered by [[X]]" and emit no file. Re-importing knowledge the vault already holds is the failure this stage exists to prevent. Do not bloat existing references with context, process explanation, or session-specific information.
+**Dedup against the vault before emitting.** `mcp__vault__vault_search(<the atom's gist>)`; if the tool is unavailable, fall back to Glob/Grep over the candidate destination folders for the atom's key terms. A match above 0.85 that genuinely covers the atom → do not duplicate: emit a `type: addendum` targeting the existing note so the new information or correction merges in, or — if the atom adds no new information — record it in the run report (§5) as "already covered by [[X]]" and emit no file.  Type `<reference>`, tag `<standard>`, and similar documents are meant to be generic; Avoid bloating them with context, process explanation, or session-specific information.
 
 **Resolve links by search, never by guess.** `parent` / `project` come from a vault_search for the owning note; a single confident match → set it; ambiguous or none → leave the wikilink blank for the downstream agents. Never write an unresolvable reference.
 
@@ -72,16 +72,15 @@ Default to `note` when torn (matching note-kit-transcription).
 Container folder `<inbox>/<source-slug>-note-kit-processor/`. The folder is the unit of review.
 
 - **One atom, one file.** The naming pattern for its type (CONFIG § Types), full inbox frontmatter (`type`, `tags`, `date`, `reviewed: false`, `status: draft`, plus `parent`/`project` where resolved), and a **`## References` section at the bottom** carrying the citation — full source plus the precise anchor. The citation lives in that bottom section, never as a loose inline provenance line in the body. One source → one reference entry; an atom drawing on two passages of the same work lists both anchors under the one source.
-- **Preserve the original.** migrate → keep each original foreign note as a `type: source` file under the container's `<sources>/` subfolder, carrying its original title, created date, and tags in frontmatter; the atoms derived from it cite it. extract → the source itself stays outside the vault; its bibliographic anchor lives in the index. Nothing the user holds is moved or destroyed.
-- **Index at the container root**, `type: index`: a provenance block (the full citation of what was processed) followed by a table of every emitted atom — wikilink, type, one-line gist, source anchor, and dedup status (`new` / `merged into [[X]]` / `skipped-duplicate`). The index is the manifest that makes the folder reviewable as a unit; the typed atoms route out of the container only when the filing-agent moves the reviewed files to their homes.
+- **Preserve the original.** migrate → keep each original foreign note as a `type: source` file under the container's `<sources>/` subfolder, carrying its original title, created date, and tags in frontmatter; the atoms derived from it cite it. extract → the source itself stays outside the vault; each atom cites it in its own `## References` section. Nothing the user holds is moved or destroyed.
+- **Gate file at the container root** — `<source-slug>-Index.md`, `type: index`, `reviewed: false`. It is the container's table of every emitted atom — existing wikilink, type, one-line gist. It briefly cites and describes the input source, and concisely maps the ingestion. It lists only what the batch holds without metacontextual information about the run, reserved for /`<logs>` (CONFIG § Rules: artifacts stand alone). The index is the gate; the container's single approval point — **every file, atoms and gate alike, is emitted `reviewed: false`.** (CONFIG § Group approval, § Inbox output convention).
 
-## 5 — Compatibility report
+## 5 — Report the run
 
-The index closes with what the user must touch before the batch is vault-clean:
+Metacontextual run narrative belongs in /`<logs>`, not inside vault artifacts (CONFIG § Rules: artifacts stand alone). Silently deliver the ingested content, and report the run and metacontextual information in /`<logs>`
 
 - **Counts** — atoms emitted by type; how many merged into existing notes or were skipped as duplicates.
-- **Unresolved links** — every atom whose `parent`/`project` was left blank, for the user to set or the filing-agent to infer.
-- **Flagged uncertainty** — garbled passages, uncertain proper nouns, claims the source stated ambiguously: flagged, never filled.
+- **Flagged uncertainty** — garbled passages, uncertain proper nouns, ambiguously stated claims; each is flagged inline on its own atom (§ Fidelity) and named here so the user can confirm it.
 - **Unmapped metadata** — foreign fields with no kit equivalent, parked in the source note's frontmatter rather than dropped.
 
 ## Fidelity
@@ -89,7 +88,7 @@ The index closes with what the user must touch before the batch is vault-clean:
 - **Never fabricate.** An ambiguous, truncated, or garbled source gets flagged inline and left — do not fill the gap. Flag uncertain proper nouns for the user to confirm before they harden into the record.
 - **Preserve specifics verbatim** — names, numbers, dates, quoted lines, technical terms. "Tuesday" does not become "earlier that week."
 - **Re-express for atomicity where it helps** — every atom stays faithful to the source's claim; quote directly where precision carries the meaning.
-- **Cite the source, not the errand.** The `## References` section names the authoritative origin (the work, its author, and the anchor) — never the conversation that asked for the import. The note stands on its own; absolutely no inline changelog, process, or irrelevant context.
+- **Cite the source, not the errand.** The `## References` section names the authoritative origin (the work, its author, and the anchor) — never the conversation that asked for the import. The note stands on its own — no inline changelog, process, or irrelevant context.
 
 ## Large inputs — sub-agent fan-out
 
@@ -106,12 +105,11 @@ One input — a chapter of *Designing Data-Intensive Applications* pasted in, so
    - `Read-Committed-Prevents-Dirty-Reads.md` — `type: reference`, the claim in three sentences, then a `## References` section citing *Designing Data-Intensive Applications*, ch. 7, p. 234.
    - `Snapshot-Isolation-Uses-MVCC.md` — `type: reference`, `## References` → ch. 7, p. 239.
    - The addendum file targets [[Two-Phase-Locking]], `## References` → ch. 7, p. 257.
-   - `Ddia-Ch7-Transactions-Index.md` — `type: index`, a provenance block with the full citation, then this manifest table:
+   - `Ddia-Ch7-Transactions-Index.md` — `type: index`, `reviewed: false`: a table of the atoms the container holds, with a brief citation of the source and a one-line map of the ingestion (the deadlock detail merged onto [[Two-Phase-Locking]], so it is reported in /`<logs>`, not listed here):
 
-   | note                                    | type                          | gist                                   | source        | status                  |
-   | --------------------------------------- | ----------------------------- | -------------------------------------- | ------------- | ----------------------- |
-   | [[Read-Committed-Prevents-Dirty-Reads]] | reference                     | dirty reads, and how RC blocks them    | ch. 7, p. 234 | new                     |
-   | [[Snapshot-Isolation-Uses-MVCC]]        | reference                     | SI keeps several committed versions    | ch. 7, p. 239 | new                     |
-   | —                                       | addendum → [[Two-Phase-Locking]] | adds the deadlock-detection detail     | ch. 7, p. 257 | merged into [[Two-Phase-Locking]] |
+   | note                                    | type      | gist                                |
+   | --------------------------------------- | --------- | ----------------------------------- |
+   | [[Read-Committed-Prevents-Dirty-Reads]] | reference | dirty reads, and how RC blocks them |
+   | [[Snapshot-Isolation-Uses-MVCC]]        | reference | SI keeps several committed versions |
 
-5. **Compatibility report + summary (§5).** Close the index with counts (2 new reference, 1 merged) and any blank `parent` links or flagged uncertainties. Then post the chat summary: the container path, atom count by type, the merged/skipped count, and anything the user should resolve before the filing-agent runs.
+5. **Report the run (§5).** Deliver the references silently; report the run — container path, 2 new references, the deadlock detail merged into [[Two-Phase-Locking]], any flagged uncertainty — in /`<logs>`, never inside the gate file.

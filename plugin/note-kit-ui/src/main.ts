@@ -52,6 +52,13 @@ export default class NoteKitUiPlugin extends Plugin {
 	 * (the user checking the box) and offer to close the tab. Seeded on file-open so
 	 * the very first flip is caught (an unseen file has no prior `false` to compare). */
 	private reviewedState = new Map<string, boolean>();
+	/** Active "close tab?" offers, keyed by the leaf they were injected into, each
+	 * carrying the file path it belongs to and a cleanup that removes the button,
+	 * un-hides the reviewed box, and clears the fade timer. Obsidian REUSES a leaf's
+	 * metadata DOM across file switches, so an offer left from note A would otherwise
+	 * persist onto note B's reviewed control (you couldn't review B). syncCloseOffers
+	 * restores any offer whose leaf has moved to a different file. */
+	private closeOffers = new Map<WorkspaceLeaf, { path: string; restore: () => void }>();
 	/** True while we're opening the For You view — keeps the new-tab→For-You handler
 	 * from racing the brief empty leaf `getLeaf("tab")` creates for it. */
 	private openingNow = false;
@@ -227,6 +234,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		// recognised as a flip (not a first sighting) and the close-tab offer fires.
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file) => {
+				// A leaf that opened a different file must drop any stale "close tab?"
+				// offer (Obsidian reuses the metadata DOM, so it would otherwise sit on
+				// the new note's reviewed control and block reviewing it).
+				this.syncCloseOffers();
 				this.dedupeTabsFor(file?.path);
 				if (file) this.seedReviewed(file);
 				// Queue files open in the clean queue view (unless the user escaped
@@ -604,9 +615,24 @@ export default class NoteKitUiPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (view instanceof MarkdownView && view.file?.path === file.path) {
-				// Show after ~1/4s, once Obsidian has re-rendered the property block.
-				window.setTimeout(() => this.injectCloseButton(view, leaf), 250);
+				// Show after ~1/4s, once Obsidian has re-rendered the property block —
+				// but only if the leaf is STILL on this file then (a fast switch to
+				// another note must not get note A's offer stamped onto it).
+				window.setTimeout(() => {
+					if (view.file?.path === file.path) this.injectCloseButton(view, leaf);
+				}, 250);
 			}
+		}
+	}
+
+	/** Restore any "close tab?" offer whose leaf has moved off the file it belongs
+	 * to (the leaf's metadata DOM is reused across file switches, so the offer would
+	 * otherwise linger on the next note). Called on every file-open / leaf change. */
+	private syncCloseOffers(): void {
+		for (const [leaf, offer] of [...this.closeOffers]) {
+			const view = leaf.view;
+			const path = view instanceof MarkdownView ? (view.file?.path ?? "") : "";
+			if (path !== offer.path) offer.restore();
 		}
 	}
 
@@ -614,7 +640,10 @@ export default class NoteKitUiPlugin extends Plugin {
 		const prop = view.containerEl.querySelector<HTMLElement>(
 			'.metadata-property[data-property-key="reviewed"]'
 		);
-		if (!prop || prop.querySelector(".nkui-close-offer")) return;
+		if (!prop) return;
+		// Clear any prior offer in this leaf before stamping a fresh one.
+		this.closeOffers.get(leaf)?.restore();
+		if (prop.querySelector(".nkui-close-offer")) return;
 		const value = prop.querySelector<HTMLElement>(".metadata-property-value");
 		if (!value) return;
 		value.style.display = "none";
@@ -624,7 +653,9 @@ export default class NoteKitUiPlugin extends Plugin {
 			if (timer) window.clearTimeout(timer);
 			btn.remove();
 			value.style.display = ""; // the checked reviewed box returns
+			this.closeOffers.delete(leaf);
 		};
+		this.closeOffers.set(leaf, { path: view.file?.path ?? "", restore });
 		// The fill depletes over the close-offer window (the hold animation in
 		// reverse, 5x the configured hold); when it empties the offer expires.
 		// Hovering pauses it — the button holds full and the countdown restarts
@@ -635,6 +666,8 @@ export default class NoteKitUiPlugin extends Plugin {
 		btn.addEventListener("click", (ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
+			if (timer) window.clearTimeout(timer);
+			this.closeOffers.delete(leaf);
 			leaf.detach();
 		});
 		btn.addEventListener("pointerenter", () => {

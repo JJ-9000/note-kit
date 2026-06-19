@@ -156,6 +156,10 @@ export class NowView extends ItemView {
 		// render (theme switch, plugin CSS injecting on reload) changes the metrics,
 		// so re-measure whenever the app's CSS changes.
 		this.registerEvent(this.app.workspace.on("css-change", () => this.onResize()));
+		// Mark the row of the open file (matches the explorer marking the active
+		// file). DOM-only, no re-render — cheap enough for every leaf/file change.
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.markActiveRow()));
+		this.registerEvent(this.app.workspace.on("file-open", () => this.markActiveRow()));
 		this.render();
 		await this.reloadAndRender();
 		// FIRST open: the renders above can run before the view has laid out
@@ -390,6 +394,24 @@ export class NowView extends ItemView {
 		// Version footer — appended LAST so it anchors to the bottom of the pane
 		// content rather than sitting directly under the final section (W1).
 		c.createDiv({ cls: "nkui-now-version", text: `v${this.plugin.manifest.version}` });
+
+		// A full rebuild wiped the active marks — re-apply for the open file.
+		this.markActiveRow();
+	}
+
+	/** Mark the For-You row whose file is currently open, so opening an item
+	 * highlights its row the way the explorer marks the active file. DOM-only
+	 * toggle (no re-render); the path is compared, never used as a CSS selector
+	 * (a path can carry characters a selector would choke on). */
+	private markActiveRow(): void {
+		const active = this.app.workspace.getActiveFile()?.path ?? null;
+		this.contentEl
+			.querySelectorAll(".nkui-now-row-active")
+			.forEach((el) => el.removeClass("nkui-now-row-active"));
+		if (!active) return;
+		this.contentEl.querySelectorAll<HTMLElement>("[data-nkui-path]").forEach((el) => {
+			if (el.getAttribute("data-nkui-path") === active) el.addClass("nkui-now-row-active");
+		});
 	}
 
 	/** Publish the mobile/desktop vertical-centering shift (applyScreenShift)
@@ -869,6 +891,7 @@ export class NowView extends ItemView {
 		const row = list.createDiv("nkui-now-reducedrow nkui-now-waitgate nkui-cols nkui-row-hold");
 		// A waiting child keeps its kind's tint, like every top-level row.
 		this.applyTint(row, e.type);
+		row.setAttr("data-nkui-path", e.file.path);
 		const members = !!e.setFiles?.length;
 		const aria = members
 			? "Approved — the filing-agent files this set next pass. Hold to undo — sends the set back to drafts. Tap to peek at the set."
@@ -1029,6 +1052,7 @@ export class NowView extends ItemView {
 				: null;
 			const m = inner.createDiv("nkui-now-gatemember");
 			this.applyTint(m, type);
+			m.setAttr("data-nkui-path", f.path);
 			m.setAttr("role", "button");
 			m.setAttr("tabindex", "0");
 			// A non-markdown (asset) member carries a file icon and its full name
@@ -1098,6 +1122,9 @@ export class NowView extends ItemView {
 
 	private renderRow(list: HTMLElement, e: Entry, opts: RowOpts, contained = false): void {
 		const row = list.createDiv("nkui-now-row nkui-cols");
+		// Carry the file path so markActiveRow can mark the row of the open file
+		// (the explorer marks the active file's row; the FYP now matches it).
+		row.setAttr("data-nkui-path", e.file.path);
 		if (contained) row.addClass("nkui-now-row-contained");
 		if (e.isGate) row.addClass("nkui-now-row-gate");
 		// Every row carries its type colour as --nkui-row-color: the stylesheet tints

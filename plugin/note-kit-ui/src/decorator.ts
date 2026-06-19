@@ -1,4 +1,4 @@
-import { TFile, TFolder, Vault, debounce, type Debouncer } from "obsidian";
+import { Platform, TFile, TFolder, Vault, debounce, type Debouncer } from "obsidian";
 import { isApproved, isUnreviewed, pickGateName } from "./kitShared";
 import type NoteKitUiPlugin from "./main";
 
@@ -102,6 +102,15 @@ export class ExplorerDecorator {
 	 * would push the trailing deadline forever and starve the full pass.
 	 * redrawBounded() forces a flush once the burst passes the window. 0 = idle. */
 	private redrawBurstStart = 0;
+	/** Return-to-pane scroll timers (mobile). On a mobile drawer reopen the explorer
+	 * lands at the top; we scroll the ACTIVE FILE's row into view by moving only the
+	 * list container (never the drawer — that was the disruptive reveal). Each
+	 * schedule cancels the prior window; cleared on stop. */
+	private scrollTimers: number[] = [];
+	/** Was the explorer the active leaf at the last active-leaf-change? Scroll-into-
+	 * view fires only on a genuine RETURN (other leaf → explorer), never on a repeat
+	 * fired while already in the explorer (mobile re-fires it on scroll/touch). */
+	private lastActiveWasExplorer = false;
 
 	constructor(plugin: NoteKitUiPlugin) {
 		this.plugin = plugin;
@@ -187,6 +196,18 @@ export class ExplorerDecorator {
 				this.redraw();
 			})
 		);
+		// MOBILE: returning to the explorer (its leaf becoming active — drawer reopen)
+		// lands at the top. Scroll the active file's row into view, moving ONLY the
+		// list container (never the drawer). Fire only on the transition INTO the
+		// explorer — a repeat while already there (mobile re-fires on scroll/touch)
+		// must not re-scroll. Desktop restores its own scroll, so this is mobile-only.
+		this.plugin.registerEvent(
+			app.workspace.on("active-leaf-change", (leaf) => {
+				const isExplorer = leaf?.view?.getViewType() === "file-explorer";
+				if (isExplorer && !this.lastActiveWasExplorer) this.scheduleScrollActiveIntoView();
+				this.lastActiveWasExplorer = isExplorer;
+			})
+		);
 		this.attachObservers();
 		this.decorateAll();
 	}
@@ -204,6 +225,8 @@ export class ExplorerDecorator {
 			window.clearTimeout(this.expandRedrawTimer);
 			this.expandRedrawTimer = undefined;
 		}
+		for (const t of this.scrollTimers) window.clearTimeout(t);
+		this.scrollTimers = [];
 		this.clearAll();
 		// Unwrap getSortedFolderItems, then hand the row order back to Obsidian.
 		this.unpatchExplorerSort();
@@ -287,14 +310,17 @@ export class ExplorerDecorator {
 		// appears via layout-change, which re-runs this) — and re-sort once when
 		// a wrap landed, so the new leaf's rows take kit order immediately.
 		if (this.patchExplorerSort()) this.resortExplorer();
-		const live = this.containers();
 		// Drop observers whose container is gone; keep ones still attached.
 		this.observers = this.observers.filter((o) => {
 			// no public way to read target; simplest is to rebuild — disconnect all.
 			o.disconnect();
 			return false;
 		});
-		for (const c of live) {
+		// Iterate LEAVES (not bare containers) so the scroll listener can record the
+		// position keyed by leaf — that key survives a mobile drawer view rebuild.
+		for (const leaf of this.plugin.app.workspace.getLeavesOfType("file-explorer")) {
+			const c = leaf.view.containerEl.querySelector<HTMLElement>(".nav-files-container");
+			if (!c) continue;
 			const obs = new MutationObserver((muts) => this.onMutations(muts));
 			// attributeFilter: a rename updates data-path on the existing element —
 			// no childList mutation fires, so without this the row waits for the
@@ -319,6 +345,39 @@ export class ExplorerDecorator {
 				this.scrollBound.add(c);
 				this.plugin.registerDomEvent(c, "scroll", () => this.scrollRedraw(), { passive: true });
 			}
+		}
+	}
+
+	/** Mobile return-to-pane: scroll the active file's row into view. Cancels any
+	 * in-flight window and schedules a fresh short burst — the drawer animates open,
+	 * so the first tick can run before the row is laid out. Each attempt only moves
+	 * the list container (no drawer touch), so the repeats are harmless. */
+	private scheduleScrollActiveIntoView(): void {
+		if (!Platform.isMobile) return;
+		for (const t of this.scrollTimers) window.clearTimeout(t);
+		this.scrollTimers = [0, 150].map((delay) =>
+			window.setTimeout(() => this.scrollActiveIntoView(), delay)
+		);
+	}
+
+	/** Scroll the active file's rendered row into view inside its explorer, moving
+	 * ONLY the `.nav-files-container` scrollTop (never the drawer — that was the
+	 * disruptive native reveal). No-op when nothing is open or the row isn't
+	 * currently rendered (a virtualized off-screen row simply can't be targeted). */
+	private scrollActiveIntoView(): void {
+		const file = this.plugin.app.workspace.getActiveFile();
+		if (!file) return;
+		for (const c of this.containers()) {
+			if (c.offsetParent === null) continue; // not visible
+			let row: HTMLElement | null = null;
+			c.querySelectorAll<HTMLElement>(".nav-file-title").forEach((r) => {
+				if (r.getAttribute("data-path") === file.path) row = r;
+			});
+			if (!row) continue;
+			const rb = (row as HTMLElement).getBoundingClientRect();
+			const cb = c.getBoundingClientRect();
+			// Centre-ish the row in the pane by nudging only this container's scroll.
+			c.scrollTop += rb.top - cb.top - Math.max(0, (c.clientHeight - rb.height) / 2);
 		}
 	}
 

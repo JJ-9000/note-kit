@@ -464,15 +464,49 @@ body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
 body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] ::selection {
 	background: color-mix(in srgb, var(--nkui-type-color) 30%, transparent);
 }
-/* The leaf's scrollbar follows the type too — the standard scrollbar-color tints
-   the thumb to the mid tone over a transparent track; the webkit pseudo is the
-   fallback for the Chromium/iOS engine Obsidian renders in, desktop + mobile. An
-   untyped leaf has no --nkui-tm, so the var is invalid and the bar keeps default. */
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] {
-	scrollbar-color: var(--nkui-tm) transparent;
+/* Scrollbar corners follow the kit's rounded/sharp toggle — bind Obsidian's own
+   --scrollbar-radius (read by BOTH the track and the thumb) to --nkui-box-radius,
+   the same token that rounds every box and band (12px rounded → a pill on the 12px
+   bar, 0 sharp → square). One binding, so every styled scrollbar — tinted leaf and
+   neutral panel alike — matches the toggle. Set on body so it overrides the theme's
+   inherited value for all descendants; unused where scrollbars aren't styled (iOS). */
+body {
+	--scrollbar-radius: var(--nkui-box-radius);
 }
-body.nkui-type-tint .workspace-leaf-content[class*="nkui-type-"] ::-webkit-scrollbar-thumb {
-	background: var(--nkui-tm);
+/* Scrollbar WIDTH — slim every styled scrollbar to a fraction of the theme's own
+   --scrollbar-width (12px → ~4px at the default 0.33). Central, editable token
+   (--nkui-scrollbar-scale, :root); multiplies the THEME value so it stays dynamic
+   if the theme changes its scrollbar size. Only styled (desktop) scrollbars read a
+   width — iOS overlay bars are already thin/native, untouched. Covers the markdown
+   content scrollers too (.markdown-preview-view reading, .cm-scroller editing) —
+   verified 4px in both; note a scroller open ACROSS a plugin reload keeps its old
+   width until it re-renders (webkit scrollbar size is a render-time metric), so a
+   reopen/restart shows the new width on already-open files. */
+body.styled-scrollbars ::-webkit-scrollbar {
+	width: calc(var(--scrollbar-width) * var(--nkui-scrollbar-scale)) !important;
+	height: calc(var(--scrollbar-height) * var(--nkui-scrollbar-scale)) !important;
+}
+/* The leaf's scrollbar follows the type too — tint the thumb to the mid tone, via
+   the ::-webkit-scrollbar-thumb pseudo ONLY (below). Do NOT set the standard
+   `scrollbar-color` here: on Chromium/Electron, setting scrollbar-color switches the
+   element to the STANDARD scrollbar, which on Windows is the NATIVE bar (wide, with
+   stepper arrows) and OPTS OUT of every ::-webkit-scrollbar rule — so the type tint
+   showed but the slim --nkui-scrollbar-scale width (and the no-arrows custom bar)
+   never applied to typed note leaves (verified: scrollbar-color set → 15px native;
+   removed → 4px webkit). GATED on body.styled-scrollbars: only where Obsidian draws
+   the custom webkit scrollbar; iOS overlay bars stay native/thin, untouched. The
+   thumb tint matches the app thumb's WEIGHT, just hued (native is white@0.1 — barely
+   there), brighter on hover/active like the native thumb (0.1 → 0.2). */
+body.nkui-type-tint.styled-scrollbars .workspace-leaf-content[class*="nkui-type-"] {
+	--nkui-scrollbar-thumb-tint: color-mix(in srgb, var(--nkui-tm) 15%, transparent);
+	--nkui-scrollbar-thumb-tint-active: color-mix(in srgb, var(--nkui-tm) 30%, transparent);
+}
+body.nkui-type-tint.styled-scrollbars .workspace-leaf-content[class*="nkui-type-"] ::-webkit-scrollbar-thumb {
+	background: var(--nkui-scrollbar-thumb-tint);
+}
+body.nkui-type-tint.styled-scrollbars .workspace-leaf-content[class*="nkui-type-"] ::-webkit-scrollbar-thumb:hover,
+body.nkui-type-tint.styled-scrollbars .workspace-leaf-content[class*="nkui-type-"] ::-webkit-scrollbar-thumb:active {
+	background: var(--nkui-scrollbar-thumb-tint-active);
 }
 
 /* A folder named NN-<Type> (Projects, Areas, References, Snippets) is coloured by
@@ -697,7 +731,17 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	--nkui-tap: 40px;
 	--nkui-control: 32px;
 	--nkui-control-sm: 20px;                   /* checkbox, colour swatch */
-	--nkui-checkbox-scale: 1.35;               /* native-checkbox enlarge factor: scale about centre, never width/height (which offsets the tick) */
+	--nkui-checkbox-scale: 1;                   /* native-checkbox scale (about centre, never width/height which offsets the tick). 1 = native 16px, even with the strip text; was 1.35 (→22px) which read oversized/out-of-sync */
+	/* Frontmatter/properties text size — ONE central, editable token (like the
+	   margin tokens) defaulting to the theme's standard small-UI size (--font-ui-small,
+	   ~13px: a metadata size, smaller than body, that tracks the theme's UI scale).
+	   Every value in the strip inherits this single size, so the row is uniform AND
+	   theme-driven — retune here, e.g. `calc(var(--font-text-size) * 0.85)` to scale
+	   it with the reader's font-size slider instead. */
+	--nkui-meta-font-size: var(--font-ui-small, 13px);
+	/* Scrollbar width as a fraction of the theme's --scrollbar-width (default 0.33
+	   → ~4px from the theme's 12px). One editable knob for every styled scrollbar. */
+	--nkui-scrollbar-scale: 0.33;
 	/* ── Nested-container depths (Note-Kit-UI-Nested-Containers-Plan) ───────────
 	   An open folder (later: an open For-You section) draws a filled tinted box
 	   that wraps its children; each deeper box nests one --nkui-nest-inset inside
@@ -1496,30 +1540,45 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	   fewer wrapped rows → a shorter frontmatter the reader scrolls past fast to
 	   reach the document, then back up to the review checkbox. A minimal row gap
 	   and a tight block margin keep the whole header dense (the ~3:1 ask). */
-	/* Hair gap on the cross axis (the sanctioned sub-scale token for a dense chip
-	   strip), gap-s between chips. The block margin sets the strip's tight rhythm
-	   — it was being silently zeroed by a later `margin: 0`, now split into block
-	   (the rhythm) and inline (0) so nothing clobbers it. */
-	gap: var(--nkui-gap-hair) var(--nkui-gap-s);
-	margin-block: var(--nkui-margin-2xs) var(--nkui-margin-s);
+	/* Every gap/margin/pad on the strip rides the global --nkui-margin-* scale (the
+	   Settings "Margin scale" slider), so the whole box breathes with one dial.
+	   Chip gaps: row tighter (hair) than column (s). */
+	gap: var(--nkui-margin-hair) var(--nkui-margin-s);
+	/* EVEN external margin — equal above and below the box (was 2xs/s, lopsided). */
+	margin-block: var(--nkui-margin-m);
 	margin-inline: 0;
-	/* A chip at max-width 100% (tags, description) otherwise runs flush to the
-	   text column's edges. */
-	padding: 0 var(--nkui-gap-s);
+	/* One theme-derived size for the whole strip; every value inherits it (below). */
+	font-size: var(--nkui-meta-font-size);
+	/* EVEN internal padding on all four sides, on the margin scale (was 0/gap-s
+	   inline + gap-2xs block — uneven and off the dial). The content now sits an
+	   equal inset inside the tinted box. */
+	padding: var(--nkui-margin-s);
 	/* The strip carries a faint wash of the note's OWN type colour so it reads as
 	   belonging to the note, not a neutral system box. --nkui-type-color resolves
 	   on the typed leaf this strip sits inside; an untyped note (no var) falls
 	   through to a plain --background-secondary, unchanged. */
 	background: color-mix(in srgb, var(--nkui-type-color, transparent) 7%, var(--background-secondary));
 	border-radius: var(--nkui-radius);
-	padding-block: var(--nkui-gap-2xs);
 }
-/* The frontmatter BLOCK carries its own bottom margin (Obsidian's ~36px) on top
-   of the compacted strip's own margin, so the first header floated far below the
-   property strip. Bring the block's bottom margin to one scale step — the note
-   body now starts right under the strip. */
+/* The container must not add its OWN vertical spacing on top of the strip's even
+   margin (Obsidian gives it block padding + a margin, which stacked below the box
+   and broke the even top/bottom). Zero its block spacing so the strip's
+   margin-block is the SINGLE, even, slider-driven gap above and below; keep its
+   inline padding (that centres the column). */
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-container {
-	margin-bottom: var(--nkui-margin-s);
+	margin-block: 0 !important;
+	padding-block: 0 !important;
+}
+/* ONE box, not two. On mobile Obsidian wraps the properties in a .metadata-content
+   shell with its OWN opaque background + radius + padding (desktop leaves it
+   transparent) — so the tinted .metadata-properties sat inside a larger UNTINTED
+   box ("two panes"). Neutralise the shell so only the kit's tinted strip shows;
+   no-op on desktop where it is already transparent. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-content {
+	background: transparent !important;
+	border: none !important;
+	border-radius: 0 !important;
+	padding: 0 !important;
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property {
 	flex: 0 0 auto;
@@ -1528,8 +1587,18 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	padding: 0;
 }
 .nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value {
-	font-size: var(--font-ui-small, 13px);
+	font-size: inherit; /* take the strip's --nkui-meta-font-size (theme-driven) */
 	color: var(--text-muted);
+}
+/* One text scale across the whole strip. Text properties (type, status) render
+   their value inside a `.metadata-input-longtext` (and -text/-number/-select) that
+   Obsidian sizes at --metadata-input-font-size (0.875em), and tag pills carry their
+   own size — so values drift apart. Force every value-bearing element to INHERIT
+   the strip's single theme-derived size, so the row is uniform AND tracks the
+   user's theme/font settings (change the theme → the strip follows). */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value :is(input, [class*="metadata-input-"], .multi-select-container, .multi-select-pill, .multi-select-pill-content) {
+	font-size: inherit !important;
+	line-height: 1.4;
 }
 /* A long free-text value (e.g. `description` on skill/spec notes) must take its
    own full-width row and wrap. As a `flex: 0 0 auto` item it otherwise sizes to
@@ -1565,6 +1634,14 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
    glyph with its own gap. Hidden = display:none, so it contributes no space.
    Live edit keeps it. */
 .nkui-calm-reading .markdown-reading-view .metadata-property .clickable-icon {
+	display: none !important;
+}
+/* A link-valued property (project, etc.) renders a trailing .metadata-link-flair
+   icon (~22px) after the link text. On desktop it shows only on hover, but on
+   mobile/touch it's PERSISTENT — opening a "mysterious gap" after the chip. It's
+   navigation decoration (the link text is still clickable), so hide it in the calm
+   strip on both platforms; the chip then ends right after its text. */
+.nkui-calm-reading :is(.markdown-reading-view, .markdown-source-view) .metadata-property-value .metadata-link-flair {
 	display: none !important;
 }
 /* Group line 1: type · date · draft · reviewed; tags drop to their own line. */
@@ -1650,8 +1727,14 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	input[type="checkbox"] {
 	transform: scale(var(--nkui-checkbox-scale));
 	transform-origin: center;
-	margin-left: var(--nkui-pad-y-tight);
-	margin-right: var(--nkui-gap-s);
+	/* Sit on the text's centre line, not its baseline — the box was rendering ~3px
+	   low, out of line with the row's text. */
+	vertical-align: middle;
+	align-self: center;
+	/* Symmetric margins: an asymmetric left/right margin on a centred-flex item
+	   shifts the whole row's visual centre (the "skews left when weight is present"
+	   report) — equal margins keep the strip centred whatever follows the checkbox. */
+	margin-inline: var(--nkui-gap-2xs);
 }
 /* The --nkui-checkbox-scale grows the box past its layout edge to the RIGHT, but
    the property and its value box clip overflow (Obsidian default) — so the scaled
@@ -1874,6 +1957,26 @@ body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty
 }
 body.nkui-type-tint .nkui-now-group:not(.is-collapsed):not(.nkui-now-group-empty):not(.nkui-now-group-queue) .nkui-now-foldwrap :is(.nkui-now-row, .nkui-now-reducedrow, .nkui-now-gatemember):hover {
 	background: color-mix(in srgb, var(--nkui-row-color, var(--nkui-section-color, var(--interactive-accent))) 12%, var(--background-primary));
+}
+/* The For-You row whose file is currently OPEN takes the explorer's active-row
+   treatment — the 22% type wash (--nkui-wash-active, one step above hover's 12%)
+   plus the readable-bright title — so opening a FYP item marks its row exactly the
+   way the file pane marks the active file. !important to beat the 6% rest / 12%
+   hover washes; the marker class is toggled by markActiveRow on file/leaf change. */
+body.nkui-type-tint :is(.nkui-now-row, .nkui-now-reducedrow, .nkui-now-gatemember).nkui-now-row-active {
+	background: color-mix(in srgb, var(--nkui-row-color, var(--nkui-section-color, var(--interactive-accent))) var(--nkui-wash-active), var(--background-primary)) !important;
+}
+/* Neutral fallback (tint off, or a row with no type colour): the explorer's
+   text-normal active wash at the same step. */
+.nkui-now-row.nkui-now-row-active,
+.nkui-now-reducedrow.nkui-now-row-active,
+.nkui-now-gatemember.nkui-now-row-active {
+	background: color-mix(in srgb, var(--text-normal) var(--nkui-wash-active), transparent);
+}
+/* Active row title takes the readable-bright type tone, like the explorer's open row. */
+body.nkui-type-tint .nkui-now-row-active .nkui-now-rowtitle,
+body.nkui-type-tint .nkui-now-gatemember.nkui-now-row-active .nkui-now-gatemember-name {
+	color: var(--nkui-tbr, var(--nkui-tb, var(--text-normal)));
 }
 
 /* Row highlights — dropdown headers, For You rows, and the explorer selection —
@@ -2492,9 +2595,13 @@ body:not(.nkui-anim) .nkui-now .is-settling {
 	position: relative;
 	isolation: isolate;
 	overflow: hidden;
-	border: none;
-	background: transparent;
-	box-shadow: none;
+	/* Obsidian's default <button> styling (higher specificity than this class) was
+	   re-applying a solid background + the inset "gradient rim" box-shadow over these
+	   resets — !important strips them so the offer is a FLAT tinted chip (its ::before
+	   wash), matching the borderless kit buttons/highlights, no rimmed bevel. */
+	border: none !important;
+	background: transparent !important;
+	box-shadow: none !important;
 	color: var(--text-accent, var(--interactive-accent));
 	font-style: italic;
 	font-size: var(--font-ui-small, 13px);
@@ -4448,6 +4555,29 @@ body.nkui-skim-condense
 	-webkit-box-orient: vertical;
 	overflow: hidden;
 	transition: opacity var(--nkui-fade) var(--nkui-ease);
+}
+/* Skimmed TABLES: the .el-table wrapper above condenses to 0.5em, and the <table>
+   inherits it — but Obsidian resets the CELLS (th/td) to the absolute
+   --font-text-size, so the table text stayed FULL size while everything around it
+   shrank. Force the cells to inherit the condensed size so the table reduces with
+   the rest of the outline. */
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> .el-table:not(.nkui-skim-expanded) :is(table, thead, tbody, tr, th, td) {
+	font-size: inherit !important;
+}
+/* MOBILE tap-to-expand: iOS fires a synthetic `click` (the skim toggle) only on
+   elements it considers clickable — i.e. carrying cursor:pointer. The heading has
+   it (.nkui-skim-heading), but the condensed BLOCKS did not, so tapping a skimmed
+   block to expand worked on desktop (click fires on anything) yet did NOTHING on a
+   phone. Mark every condensed block tappable so the delegated block-click handler
+   receives the tap on iOS too. */
+body.nkui-skim-condense
+	.markdown-preview-view
+	.markdown-preview-sizer
+	> div:not(.nkui-skim-head):not(.nkui-skim-expanded):not(.nkui-reviewed-header):not(.mod-header):not(.mod-footer):not(.markdown-preview-pusher):not(.mod-frontmatter) {
+	cursor: pointer;
 }
 /* Condensed-mode headings — keyed on the STRUCTURAL heading-section class (.el-hN),
    not the nkui-skim-head decoration marker, so a heading that virtualises into view

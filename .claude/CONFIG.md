@@ -319,7 +319,7 @@ The always-on obligation set, canonical here and distributed by `sync_config`: t
 | Procedural text instructs; knowledge text declares; both in plain words. | |
 | A question asked in chat that goes unanswered lands in the `<user-queue>` before the session ends. | An unanswered chat question lands in `<user-queue>` before session end. |
 | Sub-agents inherit none of this — name every tool and rule they need in the spawning prompt. | Sub-agents inherit none of this — name every tool and rule in the spawning prompt. |
-| Maintain any active plans, crossing out finished work and correcting course on altered targets. | |
+| Maintain any active plans and relevant project docs, crossing out finished work and correcting course on altered targets; after delivering content or acting on work directly, update them to match and revise the delivery to the user's weighted standards. | After delivering or acting directly, update active plans and project docs (cross out done, correct course), and revise to the user's weighted standards. |
 | Use the vault's configured skills (§ Skill slugs) when alias actions are invoked (planning, researching, etc.). | Alias actions (plan, research, …) run their configured skill (§ Skill slugs). |
 | All edits to vault content outside of `<inbox>` check with the destination's mission, plans, and project scope; alterations are logged in `<archive>`. | Edits outside `<inbox>`: check the destination's mission, plans, scope; log alterations in `<archive>`. |
 | On a repeated correction or lengthy confusion, stop and raise the issue in the `<user-queue>` to clarify intent rather than guessing again. | Repeated correction → stop and raise it in `<user-queue>`, not another guess. |

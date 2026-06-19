@@ -1,6 +1,6 @@
 # hooks
 
-Three Python hooks Claude Code runs at fixed moments in a session. Each prints JSON to stdout that Claude Code injects as context (or as a reminder). They're wired in `settings.json` — see Part 4 of the main README.
+Three Python hooks Claude Code runs during a session. Two inject context (`load-rules` on prompts, `session-start-context` at session start); one (`config-sync`) runs a config sync silently after an edit to `CONFIG.md`. They're wired in `settings.json` — see Part 4 of the main README.
 
 ## What's in here
 
@@ -8,7 +8,7 @@ Three Python hooks Claude Code runs at fixed moments in a session. Each prints J
 | -------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `load-rules.py`            | `UserPromptSubmit` | Reads `.claude/RULES.md` and injects the always-on rules on a cadence: the session's first prompt and every `rules-injection-period` prompts after (CONFIG § Rules injection, default 30), re-anchoring against long-session drift without per-prompt repetition. |
 | `session-start-context.py` | `SessionStart`     | Asks the vault-search daemon what you're working on and injects a brief: active project, recent sessions, cited references, quality gaps.                                                     |
-| `session-end-audit.py`     | `Stop`             | Post-session upkeep: runs `sync_config` when the session edited `CONFIG.md`; reminds Claude to re-check documentation when hooks, rules, skills, or `CLAUDE.md` changed; gates the stop on a handoff when the session edited vault content (≥3 files blocks, fewer reminds). |
+| `config-sync.py`           | `PostToolUse`      | Runs `sync_config` when an Edit/Write/MultiEdit touches `CONFIG.md`, regenerating the `CLAUDE.md`/`AGENTS.md`/`RULES.md` tables from the canon. Silent — prints nothing, exits 0.            |
 
 ## load-rules.py
 
@@ -30,15 +30,12 @@ The orientation hook. On session start it calls the vault-search daemon's `/api/
 - **Dependencies:** none (Python standard library).
 - **Install:** Part 4 of the main README. Requires the daemon — see Part 5.
 
-## session-end-audit.py
+## config-sync.py
 
-The post-session upkeep hook. When a session ends, it scans the transcript once and runs three jobs:
+The config-sync hook. It runs after every Edit/Write/MultiEdit tool call; when the edited file is `CONFIG.md`, it runs `scripts/sync_config.py` so every generated surface (orientation tables, `## Always-on rules` blocks, `RULES.md`, harness permissions) stays in sync with the canon. For any other file it exits immediately.
 
-1. **Config sync** — if the session edited `CONFIG.md`, runs `scripts/sync_config.py` so every generated surface (orientation tables, `## Always-on rules` blocks, `RULES.md`, harness permissions) stays in sync with the canon.
-2. **Documentation-drift guard** — if the session touched `.claude/hooks`, `.claude/skills`, `.claude/rules`, `scheduled-tasks`, `CONFIG.md`, or `CLAUDE.md`, reminds Claude to verify the documentation surfaces still reflect reality.
-3. **Handoff gate** — if the session edited vault content (outside the kit root) and never ran a handoff skill: at `HANDOFF_BLOCK_THRESHOLD` (3) or more distinct files it blocks the stop until `note-kit-handoff` runs; below it, it reminds. Fails open — an unreadable transcript never blocks.
-
-- **Configure your documentation surfaces:** edit the `SURFACES` list at the top of the file. Add a system-architecture doc, a hooks reference, etc., if you keep them.
-- **Configure the handoff gate:** edit `HANDOFF_BLOCK_THRESHOLD` at the top of the file.
+- **Silent by design:** prints nothing to stdout and exits 0 on every path, so it never injects context or re-invokes the session — the sync is a pure side effect.
+- **Gating:** fires only when `tool_input.file_path` ends in `CONFIG.md`; a `CONFIG.md` edit made through any other mechanism does not trigger it (fails closed — no sync, never an error).
+- **Timeout:** the `sync_config` subprocess is capped at 55s, just under the hook's 60s `settings.json` timeout.
 - **Dependencies:** none (Python standard library).
 - **Install:** Part 4 of the main README.

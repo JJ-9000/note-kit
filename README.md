@@ -113,7 +113,7 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 
    This creates the folder structure (the real folders behind the tokens), copies the kit into `<vault>/.claude/`, seeds both queues with worked examples, installs the Obsidian UI (the `note-kit-ui` plugin and the `Note-Kit` theme), and writes the config files:
 
-   - **Hooks and `settings.json`** — wires three hooks: always-on rules fed to every message, a vault briefing at session start, and a config re-sync at session end.
+   - **Hooks and `settings.json`** — wires three hooks: the always-on rules re-injected on a cadence, a vault briefing at session start, and a config re-sync after any `CONFIG.md` edit.
    - **`.mcp.json`** — registers the vault-search daemon as the `vault` MCP tool. Approve the tool when Claude Code prompts on first launch.
    - **`settings.local.json`** — holds machine-local permission grants and appears as you approve tools; don't sync or share it between machines.
 

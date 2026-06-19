@@ -11,7 +11,7 @@
 - Procedural text instructs; knowledge text declares; both in plain words.
 - An unanswered chat question lands in `<user-queue>` before session end.
 - Sub-agents inherit none of this — name every tool and rule in the spawning prompt.
-- Maintain any active plans, crossing out finished work and correcting course on altered targets.
+- After delivering or acting directly, update active plans and project docs (cross out done, correct course), and revise to the user's weighted standards.
 - Alias actions (plan, research, …) run their configured skill (§ Skill slugs).
 - Edits outside `<inbox>`: check the destination's mission, plans, scope; log alterations in `<archive>`.
 - Repeated correction → stop and raise it in `<user-queue>`, not another guess.

@@ -21,12 +21,14 @@
         ]
       }
     ],
-    "Stop": [
+    "PostToolUse": [
       {
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python ./.claude/hooks/session-end-audit.py"
+            "command": "python ./.claude/hooks/config-sync.py",
+            "timeout": 60
           }
         ]
       }

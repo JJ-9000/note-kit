@@ -25,7 +25,7 @@ Produces:
     lives under .claude/, so the canon files ride along inside the copytree.
   - A sandbox marker prepended to the installed .claude/CLAUDE.md.
   - A .claude/settings.json wiring the three hooks (UserPromptSubmit,
-    SessionStart, Stop) so a fresh install has active hooks without hand-paste.
+    SessionStart, PostToolUse) so a fresh install has active hooks without hand-paste.
   - A <vault>/.mcp.json registering the vault-search daemon as the `vault`
     HTTP MCP server, so mcp__vault__vault_search is available once the daemon
     is installed + running and the server is approved in Claude Code.
@@ -420,13 +420,27 @@ def main() -> None:
     _HOOKS = {
         "hooks": {
             "UserPromptSubmit": [
-                {"type": "command", "command": "python ./.claude/hooks/load-rules.py"}
+                {
+                    "hooks": [
+                        {"type": "command", "command": "python ./.claude/hooks/load-rules.py"}
+                    ]
+                }
             ],
             "SessionStart": [
-                {"type": "command", "command": "python ./.claude/hooks/session-start-context.py"}
+                {
+                    "matcher": "startup|resume|clear|compact",
+                    "hooks": [
+                        {"type": "command", "command": "python ./.claude/hooks/session-start-context.py"}
+                    ]
+                }
             ],
-            "Stop": [
-                {"type": "command", "command": "python ./.claude/hooks/session-end-audit.py"}
+            "PostToolUse": [
+                {
+                    "matcher": "Edit|Write|MultiEdit",
+                    "hooks": [
+                        {"type": "command", "command": "python ./.claude/hooks/config-sync.py", "timeout": 60}
+                    ]
+                }
             ],
         }
     }

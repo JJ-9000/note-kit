@@ -86,7 +86,7 @@ _Generated from CONFIG.md by sync_config — do not hand-edit; edit CONFIG.md in
 - Procedural text instructs; knowledge text declares; both in plain words.
 - A question asked in chat that goes unanswered lands in the `<user-queue>` before the session ends.
 - Sub-agents inherit none of this — name every tool and rule they need in the spawning prompt.
-- Maintain any active plans, crossing out finished work and correcting course on altered targets.
+- Maintain any active plans and relevant project docs, crossing out finished work and correcting course on altered targets; after delivering content or acting on work directly, update them to match and revise the delivery to the user's weighted standards.
 - Use the vault's configured skills (§ Skill slugs) when alias actions are invoked (planning, researching, etc.).
 - All edits to vault content outside of `<inbox>` check with the destination's mission, plans, and project scope; alterations are logged in `<archive>`.
 - On a repeated correction or lengthy confusion, stop and raise the issue in the `<user-queue>` to clarify intent rather than guessing again.

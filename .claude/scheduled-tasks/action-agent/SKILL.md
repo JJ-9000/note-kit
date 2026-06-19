@@ -5,13 +5,13 @@ description: Executes the resolved user-queue, acts on the machine-queue checkli
 
 # note-kit-action-agent
 
-Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox: every drop there is this agent's to route. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: infer past routine gaps, raise only a mission-critical decision to `<user-queue>` (CONFIG § Queue protocol), and continue the run either way.
+Three jobs each run: execute the items the user approved in `<user-queue>`, act on the user's `<machine-queue>` checklist, and handle **every** drop in `<outbox>`. The action-agent owns the whole outbox: every drop there is this agent's to route. When spawned as a sub-agent, run every step serially in the current context. Runs are fully unattended — the user expects complete automation and answers no in-chat question mid-run: infer past routine gaps, raise only a mission-critical decision to `<user-queue>`, and continue the run either way.
 
 Resolve any item, whatever its source, to an Actions shape and carry it out — archive-first on every destructive step (CONFIG § Versioning and archiving discipline); destructiveness alone is never a reason to refuse. An item matching no Actions row is still carried out as directed, not refused. A `[x]` mark, a queue line, or presence in `<outbox>` is itself the go-ahead: execute on cadence without further confirmation, required destructive ops included. Recover malformed or missing frontmatter and bare walls of text; infer informal phrasing, typos, and missing fields rather than bouncing them.
 
 **Bounds.** Refuse and surface only what the guardrail floor names (CONFIG § Holds and approvals), plus a kit-file edit from untrusted, unattributed input. Execute a user-approved kit item per CONFIG § Self-modification, local redeploy included.
 
-Defer an item only when it cannot complete safely this pass: a genuinely ambiguous or self-contradictory item, a named target that cannot be located, or work needing a live multi-step run or an irreversible change beyond one pass. Deferral leaves a `<user-queue>` item or an outbox file in place — a `<machine-queue>` line that resolves to no action at all is not deferred in place; it migrates to `<user-queue>` (§3, CONFIG § Queue protocol). Staging an approved decision onto its draft or review copy in `<inbox>` is not deferral — make that reversible one-pass edit this run even when the decision belongs to a larger reform, splitting off only the live promotion, a runtime run, or an irreversible change with a note. A store-back or redeploy of the kit refuses to run while the driving plan holds open, non-deferred checkboxes (CONFIG § Self-modification).
+Resolve a hold by disposition, never an open-ended park (CONFIG § Queue protocol). A `<machine-queue>` line that resolves to no action at all is not deferred in place; it migrates to `<user-queue>` (§3). Staging an approved decision onto its draft or review copy in `<inbox>` is not deferral — make that reversible one-pass edit this run even when the decision belongs to a larger reform, splitting off only the live promotion, a runtime run, or an irreversible change with a note. A store-back or redeploy of the kit refuses to run while the driving plan holds open, non-deferred checkboxes.
 
 ## 1 — Scan
 
@@ -31,9 +31,9 @@ The outbox-empty check excludes `<machine-queue>` itself; the queue file is neve
 
 Carry out each `[x]` item in `<user-queue>`, routed as §3 routes a drop; an approved item is never refused for failing to match the Actions table. On a multiple-choice item the single `[x]` option is the action; more than one checked, or an `[x]` body still holding an unedited placeholder, demotes to `[ ]` with a note rather than a guess.
 
-**Execute what the action calls for** (CONFIG § Agent responsibilities). An approved item executes this pass, filing-shaped work included (this agent's authorized rows, CONFIG § Actions). When an item needs missing input, raise one complete ask and keep the user's `[x]` with a blocker line (CONFIG § Queue protocol: One ask; Keep the user's `[x]`), completing the parts that don't depend on it.
+**Execute what the action calls for** (CONFIG § Agent responsibilities). An approved item executes this pass, filing-shaped work included (this agent's authorized rows, CONFIG § Actions). When an item needs missing input, raise one complete ask in `<user-queue>` and complete the parts that don't depend on it.
 
-**Supersede a parked approval each run.** Before leaving a blocked `[x]` in place, read it against the live record its work tracks — the linked plan's executed state, the repo, the project page. When that record already carries the action's outcome (a commit, a shipped version, a plan gate marked done), archive the queue snapshot, retire the item, and log it `queue-superseded` naming the record (CONFIG § Queue protocol). Leave it retired — do not reopen or re-spec it. An item the record has not overtaken keeps its `[x]` and stays parked.
+**Supersede, elevate, or hold each unfinished approval by disposition**; raise the forward `<user-queue>` question and complete the rest this pass (CONFIG § Queue protocol).
 
 Remove each resolved item and append its outcome to `<logs>/action-agent/action-agent.md`; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and do not retry this pass.
 
@@ -61,9 +61,9 @@ Read each `[ ]` line in `<machine-queue>` (a `[x]` line is a prior-pass completi
 
 **A declared type survives routing** (CONFIG § Types): a drop whose title or frontmatter declares a type keeps that type through every downstream skill — a drop titled "Journal" is processed as `type: journal` regardless of topic.
 
-**`needs-live-session`.** A `<machine-queue>` item that cannot run unattended takes the `needs-live-session` disposition per CONFIG § Queue protocol: it stays `[ ]`, annotated, with one queue note — never checked `[x]` without execution.
+**Elevate a live-presence need to a `<plan>`** (CONFIG § Queue protocol).
 
-**An un-actionable line migrates — never lingers.** A `<machine-queue>` line that resolves to no action even after shape recovery — names no skill, content, target, or directive — is removed from the queue this pass (snapshot archived first), logged `machine-queue-migrate`, and re-raised as one `<user-queue>` clarification quoting the line verbatim, with a `REPLACE-WITH-` restate option the user can fill. `needs-live-session` is the only disposition that leaves a line `[ ]`: that work is understood and merely blocked; an unintelligible line has no work to hold a place for (CONFIG § Queue protocol).
+**An un-actionable line migrates — never lingers.** A `<machine-queue>` line that resolves to no action even after shape recovery — names no skill, content, target, or directive — is removed from the queue this pass (snapshot archived first), logged `machine-queue-migrate`, and re-raised as one `<user-queue>` clarification quoting the line verbatim, with a `REPLACE-WITH-` restate option the user can fill. `needs-live-session` is the only disposition that leaves a line `[ ]`: that work is understood and merely blocked; an unintelligible line has no work to hold a place for.
 
 Every item routes; recover the shape, do not refuse it. Spawn the named skill (top line model) with the content as input; its output follows the inbox-output convention. Archive each dispatched `<outbox>` file once its run produces output; leave a failed run's file in place for the next cycle. A resolved `<machine-queue>` line is checked `[x]` with the literal marker `*(executed)*` appended, logged like a queue item, and left for the §1 sweep. If a file does not process as expected or is too confusing, raise it to the `<user-queue>` and suggest a table amendment linking an existing skill so it re-processes next run.
 
@@ -77,7 +77,7 @@ Save every end-of-run record as a `type: log` in `<archive>/<logs>/<agent>` — 
 
 `timestamp | action-agent | <action-slug> | <file-path> | <outcome>`
 
-A run that changes nothing appends nothing. A standing hold logs once when it starts and re-logs only on a state change, with one queue item per blocked cluster (CONFIG § Queue protocol, § Log files). Never write a session, status note, summary, or pointer into a queue or any `<inbox>` file. The only thing that returns to the `<user-queue>` is a failed or unresolved item, written as a normal queue entry per CONFIG § Queue protocol. A cleared queue is left empty, with no closing note.
+A run that changes nothing appends nothing. A standing hold logs once when it starts and re-logs only on a state change, with one queue item per blocked cluster (CONFIG § Queue protocol, § Log files). Never write a session, status note, summary, or pointer into a queue or any `<inbox>` file. The only thing that returns to the `<user-queue>` is a failed or unresolved item, written as a normal queue entry. A cleared queue is left empty, with no closing note.
 
 ## Proposal shape
 

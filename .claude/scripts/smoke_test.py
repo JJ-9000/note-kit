@@ -45,6 +45,7 @@ Exit code 0 = PASS, 1 = FAIL. Prints a per-step table and a PASS/FAIL summary.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -63,6 +64,7 @@ from config_variables import _folder_by_semantic, token_path  # noqa: E402
 
 _INBOX_FOLDER = _folder_by_semantic("inbox")
 _ARCHIVE_FOLDER = _folder_by_semantic("archive")
+_AREAS_FOLDER = _folder_by_semantic("areas")
 _INBOX_ASSETS_REL = token_path("inbox-assets")
 _LOGS_REL = token_path("logs")
 _USER_QUEUE_REL = token_path("user-queue")
@@ -293,6 +295,94 @@ def _assert_clean_audit(tmp_vault: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Regression guard: an unreviewed addendum survives a filing/index pass.
+#
+# 2026-06-16 — the filing-agent merged a `reviewed: false` addendum into its
+# target plan (archive-first) because the target RESOLVED, bypassing the user's
+# approval gate. The fix makes the addendum's OWN `reviewed` field the merge
+# gate (CONFIG § Operational documents; filing-agent SKILL §1/§2/§2a). This is
+# the deterministic backstop: the shared work-surface the agents read must
+# treat a reviewed:false addendum as a WAITING draft — never merge it into its
+# target, never archive it, never flip its `reviewed` flag — even when its
+# `target` resolves to a real vault file.
+# ---------------------------------------------------------------------------
+
+def _hash(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _assert_addendum_survives(tmp_vault: Path, scripts_dir: Path, env: dict) -> None:
+    """Drop a reviewed:false addendum whose target resolves, run the snapshot
+    builder, and assert the addendum is untouched: still in the inbox, byte
+    unchanged, still reviewed:false, its target plan not merged into, and the
+    addendum surfaced as a waiting draft in the review backlog (not filed)."""
+    target = tmp_vault / _AREAS_FOLDER / "Addendum-Survival-Target-Plan.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "---\ntype: plan\ntags:\n  - plan\ndate: 2026-06-16\n"
+        'parent: "[[Note-Kit]]"\nreviewed: true\nstatus: in-progress\n---\n\n'
+        "# Addendum-Survival-Target-Plan\n\nOriginal plan body — no merged content.\n",
+        encoding="utf-8",
+    )
+    addendum = tmp_vault / _INBOX_FOLDER / "Addendum-Survival-Sample.md"
+    addendum.parent.mkdir(parents=True, exist_ok=True)
+    addendum.write_text(
+        "---\ntype: addendum\ntags:\n  - addendum\ndate: 2026-06-16\n"
+        'target: "[[Addendum-Survival-Target-Plan]]"\nreviewed: false\nstatus: draft\n---\n\n'
+        "# Addendum-Survival-Sample\n\nProposed edit that merges into the target plan.\n",
+        encoding="utf-8",
+    )
+
+    add_before, tgt_before = _hash(addendum), _hash(target)
+
+    bsi = scripts_dir / "build_state_index.py"
+    proc = subprocess.run(
+        [sys.executable, str(bsi)],
+        capture_output=True, text=True, env=env, cwd=str(tmp_vault), timeout=300,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip().splitlines()[-1:] or ["nonzero exit"]
+        _record("addendum-survival: build_state_index clean exit", False, tail[0])
+        return
+    _record("addendum-survival: build_state_index clean exit", True, "rc 0")
+
+    add_ok = addendum.exists() and _hash(addendum) == add_before
+    _record(
+        "addendum-survival: reviewed:false addendum untouched in inbox",
+        add_ok,
+        "unchanged" if add_ok else "MUTATED OR MOVED — the merge gate leaked",
+    )
+
+    still_false = addendum.exists() and "reviewed: false" in addendum.read_text(encoding="utf-8")
+    _record(
+        "addendum-survival: addendum still reviewed:false (no auto-approve)",
+        still_false,
+        "false" if still_false else "FLIPPED to reviewed:true",
+    )
+
+    tgt_ok = _hash(target) == tgt_before
+    _record(
+        "addendum-survival: target plan not merged into",
+        tgt_ok,
+        "unchanged" if tgt_ok else "MERGED — unreviewed content reached the target",
+    )
+
+    # The deterministic layer leaves inbox drafts alone — the addendum must
+    # appear in NO open finding (a proposal to file, merge, or relocate it).
+    # Filing/merging an addendum is the agent's gated decision, never an
+    # automatic one keyed off a resolving target.
+    snap = _snapshot_path(tmp_vault)
+    findings = _open_findings(snap.read_text(encoding="utf-8")) if snap.exists() else []
+    proposed = [row for _, row in findings if "Addendum-Survival-Sample" in row]
+    _record(
+        "addendum-survival: deterministic layer proposes no action on the inbox addendum",
+        not proposed,
+        "no finding targets it" if not proposed
+        else f"a finding proposes acting on the unreviewed addendum: {proposed[0][:80]}",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -382,6 +472,11 @@ def main() -> int:
             #      (already-compliant) vault.
             if bsi_ok:
                 _assert_clean_audit(tmp_vault)
+                # Regression guard (2026-06-16): a reviewed:false addendum whose
+                # target resolves must survive a deterministic pass untouched.
+                # Runs AFTER the clean-audit assertion so its fixture files do
+                # not perturb the fresh-install findings check above.
+                _assert_addendum_survives(tmp_vault, installed_scripts, janitor_env)
         else:
             _record("build_state_index.py", False, "not installed; cannot run")
 

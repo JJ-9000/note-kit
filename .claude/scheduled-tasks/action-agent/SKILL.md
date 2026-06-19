@@ -77,7 +77,7 @@ Save every end-of-run record as a `type: log` in `<archive>/<logs>/<agent>` — 
 
 `timestamp | action-agent | <action-slug> | <file-path> | <outcome>`
 
-A run that changes nothing appends nothing. An open decision logs once when it starts and re-logs only on a state change, with one queue item per decision (CONFIG § Queue protocol, § Log files). Only a failed or unresolved item returns to the `<user-queue>`, written as a normal queue entry; keep sessions, status notes, summaries, and pointers out of every queue and `<inbox>` file. A cleared queue is left empty, with no closing note.
+A run that changes nothing appends nothing. An open decision logs once when it starts and re-logs only on a state change, with one queue item per decision (CONFIG § Queue protocol, § Log files). Only a failed or unresolved item returns to the `<user-queue>`, written as a normal, forward posturing queue entry, useful to the user with minimal context; keep sessions, status notes, summaries, and pointers out of every queue and `<inbox>` file. A cleared queue is left empty, with no closing note.
 
 ## Proposal shape
 

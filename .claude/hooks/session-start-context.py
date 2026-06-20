@@ -4,9 +4,10 @@ Daemon lifecycle (start with use): when the daemon is down, this hook launches
 it detached via daemonctl and moves on without waiting for warm-up — the first
 session of the day brings the engine up; the daemon's own idle timeout takes it
 back down (vault-search/config.yaml `lifecycle.idle_shutdown_minutes`).
-Also surfaces pending `needs-live-session` items (CONFIG § Queue protocol) so
-an interactive session picks up work an unattended pass deferred: open
-machine-queue lines, and the user-queue's standing blocked clusters.
+On a reactivation of its owning project or area — cwd inside `Projects/<X>` or
+`Areas/<X>` — surfaces that owner's deferred work so the session picks up what an
+unattended pass left for a live session. Scoped to the active owner and fired
+only on such a reactivation, never on a random session (CONFIG § Queue protocol).
 """
 from __future__ import annotations
 
@@ -82,8 +83,22 @@ def _start_daemon_if_down(cwd: str) -> bool:
         return False
 
 
-def pending_live_session_items(cwd: str) -> list[str]:
-    """Open machine-queue items annotated needs-live-session — work for THIS session."""
+def _active_owner(cwd: str) -> str | None:
+    """Project/area name when cwd sits inside `Projects/<X>` or `Areas/<X>` (legacy
+    numeric prefix tolerated), else None — the reactivation signal: deferred work
+    re-presents only when the session resolves to its owning project or area,
+    never on a random session. Daemon-independent so the gate holds when the
+    brief is unavailable."""
+    parts = cwd.replace("\\", "/").rstrip("/").split("/")
+    for i in range(len(parts) - 1):
+        root = re.sub(r"^\d+-", "", parts[i])
+        if root in ("Projects", "Areas"):
+            return parts[i + 1] or None
+    return None
+
+
+def pending_live_session_items(cwd: str, owner: str) -> list[str]:
+    """Open machine-queue items annotated needs-live-session that name `owner`."""
     machine_queue_rel, _ = _queue_paths(cwd)
     path = os.path.join(cwd, machine_queue_rel)
     try:
@@ -91,19 +106,20 @@ def pending_live_session_items(cwd: str) -> list[str]:
             lines = f.readlines()
     except OSError:
         return []
+    owner_l = owner.lower()
     return [
         ln.strip()
         for ln in lines
-        if "needs-live-session" in ln and "[ ]" in ln
+        if "needs-live-session" in ln and "[ ]" in ln and owner_l in ln.lower()
     ][:5]
 
 
-def pending_user_queue_clusters(cwd: str) -> list[str]:
-    """User-queue standing clusters annotated needs-live-session.
+def pending_user_queue_clusters(cwd: str, owner: str) -> list[str]:
+    """User-queue clusters that name `owner` and await a live session.
 
-    A blocked cluster lives as one `###` item per CONFIG § Queue protocol;
-    the annotation appears in its body (agents write `needs-live-session`,
-    the user sometimes writes it with spaces). Returns the item headings.
+    A blocked cluster lives as one `###` item per CONFIG § Queue protocol; it is
+    surfaced only when its body references the active owner, so deferred work
+    returns on a reactivation of its own project/area and nowhere else.
     """
     _, user_queue_rel = _queue_paths(cwd)
     path = os.path.join(cwd, user_queue_rel)
@@ -112,10 +128,13 @@ def pending_user_queue_clusters(cwd: str) -> list[str]:
             text = f.read()
     except OSError:
         return []
+    owner_l = owner.lower()
     titles: list[str] = []
     for section in re.split(r"^### ", text, flags=re.MULTILINE)[1:]:
         heading, _, _body = section.partition("\n")
         blob = section.lower()
+        if owner_l not in blob:
+            continue
         if "needs-live-session" in blob or "needs live session" in blob:
             titles.append(heading.strip())
     return titles[:5]
@@ -234,14 +253,19 @@ def main() -> None:
             "search tools become available shortly."
         ) if launched else ""
 
-    live = pending_live_session_items(cwd)
-    clusters = pending_user_queue_clusters(cwd)
-    if live or clusters:
-        block_lines = ["## Waiting for a live session"]
-        block_lines += [f"- machine-queue: {ln}" for ln in live]
-        block_lines += [f"- user-queue: {t}" for t in clusters]
-        block = "\n".join(block_lines)
-        ctx = (ctx + "\n\n" + block) if ctx else block
+    # Re-present deferred work ONLY on a reactivation of its owning project/area —
+    # never on a random session (CONFIG § Queue protocol). A fresh, reference, or
+    # vault-root session resolves to no owner and surfaces nothing.
+    owner = _active_owner(cwd)
+    if owner:
+        live = pending_live_session_items(cwd, owner)
+        clusters = pending_user_queue_clusters(cwd, owner)
+        if live or clusters:
+            block_lines = [f"## {owner} — waiting on a live session"]
+            block_lines += [f"- machine-queue: {ln}" for ln in live]
+            block_lines += [f"- user-queue: {t}" for t in clusters]
+            block = "\n".join(block_lines)
+            ctx = (ctx + "\n\n" + block) if ctx else block
 
     print(json.dumps({
         "hookSpecificOutput": {

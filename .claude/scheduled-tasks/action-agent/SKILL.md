@@ -19,7 +19,7 @@ Three sources, in order. If all are empty, append nothing and stop.
 
 | source            | holds                                                                                                                                                |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<user-queue>`    | AI-authored proposals the user marked `[x]` (execute), `[-]` (reject), or `[ ]` (defer)                                                              |
+| `<user-queue>`    | AI-authored proposals the user marked `[x]` (execute), `[-]` (reject), or `[ ]` (unanswered — re-presented next interactive session)                                                              |
 | `<machine-queue>` | the user's own checklist for the agent; check an item `[x]` only *after* the action completes and is logged/archived, never when execution starts    |
 | `<outbox>`        | any drop the user left — a skill instruction, an input, or fileable content; no frontmatter or specific formatting needed                            |
 
@@ -35,7 +35,7 @@ Carry out each `[x]` item in `<user-queue>`, routed as §3 routes a drop, even w
 
 **Supersede, elevate, or clarify each unfinished approval by disposition**; raise the forward `<user-queue>` question and complete the rest this pass (CONFIG § Queue protocol).
 
-Remove each resolved item and append its outcome to `<logs>/action-agent/action-agent.md`; `[-]` removes with the reason logged, `[ ]` is left. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and leave it for the next pass.
+Remove each resolved item and append its outcome to `<logs>/action-agent/action-agent.md`; `[-]` removes with the reason logged, `[ ]` stays an open decision, re-presented to the next interactive session. Re-check each run for `[x]` lines that survived a prior removal. Stagger two items that touch one file. On failure, append the reason and retry it next pass.
 
 **`review-flag` verification — this agent owns it.** A `review-flag` clears only on a real resolution: confirm the user's answer is present (the resolved `<user-queue>` item or the note's own updated state), carry out the action, then retag the item `review-complete` so it is not re-picked. The janitor flags staleness; the action-agent verifies and clears. Group approval stays with the filing-agent.
 
@@ -63,7 +63,7 @@ Read each `[ ]` line in `<machine-queue>` (a `[x]` line is a prior-pass completi
 
 **Elevate a live-presence need to a `<plan>`** (CONFIG § Queue protocol).
 
-**An un-actionable line migrates.** A `<machine-queue>` line that resolves to no action even after shape recovery — names no skill, content, target, or directive — is removed from the queue this pass (snapshot archived first), logged `machine-queue-migrate`, and re-raised as one `<user-queue>` clarification quoting the line verbatim, with a `REPLACE-WITH-` restate option the user can fill. `needs-live-session` is the only disposition that leaves a line `[ ]`: that work is understood and merely blocked; an unintelligible line has no work to hold a place for.
+**An un-actionable line migrates.** A `<machine-queue>` line that resolves to no action even after shape recovery — names no skill, content, target, or directive — is removed from the queue this pass (snapshot archived first), logged `machine-queue-migrate`, and re-raised as one `<user-queue>` clarification quoting the line verbatim, with a `REPLACE-WITH-` restate option the user can fill. A `needs-live-session` line is understood but blocked, so it elevates to a `<plan>` (CONFIG § Queue protocol) rather than holding a `[ ]`; an unintelligible line has no work to hold a place for.
 
 Every item routes; recover the shape and route it. Spawn the named skill (top line model) with the content as input; its output follows the inbox-output convention. Archive each dispatched `<outbox>` file once its run produces output; leave a failed run's file in place for the next cycle. A resolved `<machine-queue>` line is checked `[x]` with the literal marker `*(executed)*` appended, logged like a queue item, and left for the §1 sweep. If a file does not process as expected or is too confusing, raise it to the `<user-queue>` and suggest a table amendment linking an existing skill so it re-processes next run.
 
@@ -77,7 +77,7 @@ Save every end-of-run record as a `type: log` in `<archive>/<logs>/<agent>` — 
 
 `timestamp | action-agent | <action-slug> | <file-path> | <outcome>`
 
-A run that changes nothing appends nothing. An open decision logs once when it starts and re-logs only on a state change, with one queue item per decision (CONFIG § Queue protocol, § Log files). Only a failed or unresolved item returns to the `<user-queue>`, written as a normal, forward posturing queue entry, useful to the user with minimal context; keep sessions, status notes, summaries, and pointers out of every queue and `<inbox>` file. A cleared queue is left empty, with no closing note.
+A run that changes nothing appends nothing and stops silently. An open decision logs once when it starts and re-logs only on a state change, with one queue item per decision (CONFIG § Queue protocol, § Log files). Only a failed or unresolved item returns to the `<user-queue>`, written as a normal, forward posturing queue entry, useful to the user with minimal context; keep sessions, status notes, summaries, and pointers out of every queue and `<inbox>` file. A cleared queue is left empty, with no closing note.
 
 ## Proposal shape
 

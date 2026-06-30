@@ -11,7 +11,7 @@ Note-kit helps organize your notes, and keeps track of information while working
 Throughout this document, tokens like `<inbox>` and `<projects>` appear — these are defined in `CONFIG.md` along with all user-facing configurations. 
 
 > [!WARNING]
-> **Note-Kit is in development and does not work perfectly. Stay tuned for ddevelopments.**
+> **Note-Kit is in development and does not work perfectly. Stay tuned for developments.**
 
 ---
 

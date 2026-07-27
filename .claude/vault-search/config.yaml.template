@@ -1,5 +1,5 @@
 vault_path: "<VAULT_ROOT>"
-inbox_folder: "Inbox"   # Update if your inbox is named differently (e.g. a legacy "00-Inbox" install). Also update INBOX_FOLDER in indexer.py and the exclude_paths below.
+inbox_folder: "<INBOX>"   # Written from CONFIG § Folders by install_daemon.py (via generate_vocabulary.py); do not hand-edit — rename the inbox in CONFIG.md and reinstall.
 host: "127.0.0.1"
 port: 8765
 
@@ -21,11 +21,15 @@ watch:
   full_rescan_interval_hours: 6
   exclude_paths:
     - "Archive"
-    - "Inbox/Claude-Conversations"   # Replace "Inbox" to match inbox_folder above
-    - "Inbox/Sources"                # Replace "Inbox" to match inbox_folder above
+    - "<INBOX>/Claude-Conversations"
+    - "<INBOX>/Sources"
+    - "References/Sources"
     - ".obsidian"
     - ".claude"
     - ".smart-env"
+    - ".history"
+    - ".trash"
+    - ".redteam"
 
 workflow_clustering:
   enabled: true

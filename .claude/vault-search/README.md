@@ -12,7 +12,11 @@ Persistent local MCP server that indexes the Obsidian vault and exposes 13 MCP t
 | `indexer.py` | Markdown chunking, frontmatter parsing, watchdog observer, indexer thread. |
 | `topology.py` | Cached PARA + wikilink-graph topology feeding the topology and project tools. |
 | `workflow.py` | Workflow-cluster builder (Jaccard similarity over shared References). |
-| `config.yaml` | Vault path, port, exclude paths, model config, cadence overrides. Ships with `<VAULT_ROOT>`/`<HOME>`/`<DATA_DIR>` placeholders; `install_daemon.py` substitutes real paths. |
+| `config.yaml.template` | The shipped, pristine settings file: vault path, port, exclude paths, model config, cadence overrides, carrying `<VAULT_ROOT>`/`<HOME>`/`<DATA_DIR>`/`<INBOX>` placeholders. |
+| `config.yaml` | The live settings file `install_daemon.py` writes from `config.yaml.template` with the real paths and the inbox name substituted. Machine-local — generated per install, never committed. |
+| `generate_vocabulary.py` | Writes `vocabulary.json` from CONFIG § Folders and § Types so the daemon speaks the install's own folder and type names. |
+| `vocabulary.py` | Reads `vocabulary.json` at runtime, falling back to the built-in names when it is absent or unparseable. |
+| `wikilink_helpers.py` | Shared wikilink parsing for the indexer and the topology graph. |
 | `requirements.txt` | Pinned Python deps (FastMCP 3.2, sqlite-vec 0.1.9, sentence-transformers 5+). |
 | `install_daemon.py` | One-command installer (stdlib only): creates the venv, installs deps, writes config. Does NOT start the server. |
 | `install-service.ps1` | NSSM service install for Windows (idempotent; needs admin). Run `install_daemon.py` first. |

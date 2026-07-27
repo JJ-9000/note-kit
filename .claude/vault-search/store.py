@@ -1,7 +1,9 @@
 """SQLite + sqlite-vec + FTS5 storage layer for the vault-search daemon.
 
-Phase 0 subset of the schema in §5.5 of Vault-Retrieval-System-Description-Detailed.md.
-Wikilinks / workflow_clusters / quality_signals tables are deferred to later phases.
+Implements the schema in §5.5 of Vault-Retrieval-System-Description-Detailed.md:
+files, chunks, chunk_embeddings, chunk_fts, wikilinks, and workflow_clusters are
+all created here and populated by the upsert and clustering paths. Only the
+quality_signals table remains deferred to a later phase.
 """
 from __future__ import annotations
 
@@ -713,6 +715,199 @@ class Store:
             return Path(self.db_path).stat().st_size
         except FileNotFoundError:
             return 0
+
+    # ---- query surface for tools / topology / workflow ----------------------
+    # These wrap the raw SQL those modules used to reach in for through
+    # store._conn / store._lock, keeping the connection and lock private to
+    # Store. The SQL is carried over verbatim from the former in-module queries.
+
+    def file_meta(self, path: str) -> dict[str, Any] | None:
+        """Files-table row for a path (file_id, para_type, para_owner,
+        parent_index, title, last_modified), or None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT file_id, path, para_type, para_owner, parent_index, "
+                "title, last_modified FROM files WHERE path = ?",
+                (path,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def all_file_rows(self) -> list[dict[str, Any]]:
+        """Every files-table row the topology builder groups over."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT file_id, path, para_type, para_owner, parent_index, "
+                "title, frontmatter_json, last_modified FROM files"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def files_by_ids(self, file_ids: Iterable[int]) -> list[dict[str, Any]]:
+        """Selected files-table rows by file_id (file_id, path, title,
+        para_type, para_owner)."""
+        ids = list(file_ids)
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT file_id, path, title, para_type, para_owner "
+                f"FROM files WHERE file_id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def chunk_texts_for_path(self, path: str, limit: int) -> list[str]:
+        """First `limit` chunk texts (by chunk_index) for a file path."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT c.text FROM chunks c JOIN files f ON c.file_id = f.file_id "
+                "WHERE f.path = ? ORDER BY c.chunk_index LIMIT ?",
+                (path, limit),
+            ).fetchall()
+        return [r["text"] for r in rows]
+
+    def chunk_texts_for_file_id(self, file_id: int, limit: int) -> list[str]:
+        """First `limit` chunk texts (by chunk_index) for a file_id."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT text FROM chunks WHERE file_id = ? ORDER BY chunk_index LIMIT ?",
+                (file_id, limit),
+            ).fetchall()
+        return [r["text"] for r in rows]
+
+    def citation_count_for_owner_path(self, owner: str, ref_path: str) -> int:
+        """How many resolved wikilinks from `owner`'s files point at `ref_path`."""
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM wikilinks w
+                JOIN files src ON w.src_file_id = src.file_id
+                WHERE src.para_owner = ? AND w.dst_file_id = (
+                    SELECT file_id FROM files WHERE path = ?
+                )
+                """,
+                (owner, ref_path),
+            ).fetchone()
+        return row["c"] if row else 0
+
+    def refs_for_project(self, project_name: str) -> list[dict[str, Any]]:
+        """Cited reference/snippet/index rows for a project owner, rolled up
+        with citation counts (ref_path, ref_title, para_type, citation_count)."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT dst.path AS ref_path, dst.title AS ref_title,
+                       dst.para_type AS para_type, COUNT(*) AS citation_count
+                FROM wikilinks w
+                JOIN files src ON w.src_file_id = src.file_id
+                JOIN files dst ON w.dst_file_id = dst.file_id
+                WHERE w.is_resolved = 1
+                  AND src.para_owner = ?
+                  AND dst.para_type IN ('reference', 'snippet', 'index')
+                GROUP BY dst.file_id
+                ORDER BY citation_count DESC
+                LIMIT 10
+                """,
+                (project_name,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def outbound_ref_rows_for_owner(self, owner: str) -> list[dict[str, Any]]:
+        """Distinct reference/snippet/index (path, para_type) an owner's files
+        cite, ordered by path."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT DISTINCT dst.path, dst.para_type
+                FROM wikilinks w
+                JOIN files src ON w.src_file_id = src.file_id
+                JOIN files dst ON w.dst_file_id = dst.file_id
+                WHERE src.para_owner = ?
+                  AND w.is_resolved = 1
+                  AND dst.para_type IN ('reference', 'snippet', 'index')
+                ORDER BY dst.path
+                """,
+                (owner,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def citing_projects_for_domain(
+        self, domain: str, root: str
+    ) -> list[dict[str, Any]]:
+        """Projects/sessions citing any file in a reference/snippet domain,
+        with citation counts (project, c)."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT src.para_owner AS project, COUNT(*) AS c
+                FROM wikilinks w
+                JOIN files src ON w.src_file_id = src.file_id
+                JOIN files dst ON w.dst_file_id = dst.file_id
+                WHERE w.is_resolved = 1
+                  AND dst.para_owner = ?
+                  AND dst.path LIKE ? || '/%'
+                  AND src.para_type IN ('project', 'session')
+                  AND src.para_owner IS NOT NULL
+                GROUP BY src.para_owner
+                ORDER BY c DESC
+                """,
+                (domain, root),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def orphan_reference_paths(self) -> list[str]:
+        """reference/snippet notes with no inbound resolved wikilink and no
+        parent_index — the orphan-reference quality gap."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT f.path
+                FROM files f
+                LEFT JOIN wikilinks w ON w.dst_file_id = f.file_id AND w.is_resolved = 1
+                WHERE f.para_type IN ('reference', 'snippet')
+                  AND f.parent_index IS NULL
+                GROUP BY f.file_id
+                HAVING COUNT(w.link_id) = 0
+                ORDER BY f.path
+                """
+            ).fetchall()
+        return [r["path"] for r in rows]
+
+    def ref_to_citing_projects_rows(self) -> list[dict[str, Any]]:
+        """(ref_path, project) for every resolved project/session -> reference/
+        snippet/index citation; workflow clustering's co-citation source."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT dst.path AS ref_path, src.para_owner AS project
+                FROM wikilinks w
+                JOIN files src ON w.src_file_id = src.file_id
+                JOIN files dst ON w.dst_file_id = dst.file_id
+                WHERE w.is_resolved = 1
+                  AND src.para_type IN ('project', 'session')
+                  AND src.para_owner IS NOT NULL
+                  AND dst.para_type IN ('reference', 'snippet', 'index')
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def session_to_cited_refs_rows(self) -> list[dict[str, Any]]:
+        """(session_path, ref_path) for every resolved session -> reference/
+        snippet/index citation; workflow clustering's member-session source."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT src.path AS session_path, dst.path AS ref_path
+                FROM wikilinks w
+                JOIN files src ON w.src_file_id = src.file_id
+                JOIN files dst ON w.dst_file_id = dst.file_id
+                WHERE w.is_resolved = 1
+                  AND src.para_type = 'session'
+                  AND dst.para_type IN ('reference', 'snippet', 'index')
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def _resolve_one(

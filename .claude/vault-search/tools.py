@@ -25,6 +25,12 @@ from topology import (
     domain_info_dict,
     project_info_dict,
 )
+from vocabulary import (
+    PROJECT_ROOT,
+    AREA_ROOT,
+    REFERENCE_ROOT,
+    SNIPPETS_ROOT,
+)
 
 RRF_K = 60
 TITLE_BOOST_MAX = 0.6
@@ -94,17 +100,17 @@ def _classify_para_position(para_position: str) -> dict[str, str | None]:
     if not parts:
         return out
     root = re.sub(r"^\d+-", "", parts[0])
-    if root == "Projects" and len(parts) >= 2:
+    if root == PROJECT_ROOT and len(parts) >= 2:
         out["owner"] = parts[1]
         out["para_type"] = "project"
-    elif root == "Areas" and len(parts) >= 2:
+    elif root == AREA_ROOT and len(parts) >= 2:
         out["owner"] = parts[1]
         out["area"] = parts[1]
         out["para_type"] = "area"
-    elif root == "References" and len(parts) >= 2:
+    elif root == REFERENCE_ROOT and len(parts) >= 2:
         out["domain"] = parts[1]
         out["para_type"] = "reference"
-    elif root == "Snippets" and len(parts) >= 2:
+    elif root == SNIPPETS_ROOT and len(parts) >= 2:
         out["domain"] = parts[1]
         out["para_type"] = "snippet"
     return out
@@ -391,27 +397,11 @@ def vault_get_bridge_references(
         return []
 
     def cite_count(owner: str, ref_path: str) -> int:
-        with store._lock:
-            row = store._conn.execute(
-                """
-                SELECT COUNT(*) AS c
-                FROM wikilinks w
-                JOIN files src ON w.src_file_id = src.file_id
-                WHERE src.para_owner = ? AND w.dst_file_id = (
-                    SELECT file_id FROM files WHERE path = ?
-                )
-                """,
-                (owner, ref_path),
-            ).fetchone()
-        return row["c"] if row else 0
+        return store.citation_count_for_owner_path(owner, ref_path)
 
     out: list[dict[str, Any]] = []
     for ref_path in shared:
-        ref_row = None
-        with store._lock:
-            ref_row = store._conn.execute(
-                "SELECT title, para_type FROM files WHERE path = ?", (ref_path,)
-            ).fetchone()
+        ref_row = store.file_meta(ref_path)
         out.append({
             "ref_path": ref_path,
             "ref_title": (ref_row["title"] if ref_row else None) or ref_path,
@@ -503,10 +493,7 @@ def detect_workflow(
     for c in clusters:
         bits: list[str] = []
         for path in c["centroid_refs"][:5]:
-            with store._lock:
-                row = store._conn.execute(
-                    "SELECT title FROM files WHERE path = ?", (path,)
-                ).fetchone()
+            row = store.file_meta(path)
             if row and row["title"]:
                 bits.append(str(row["title"]))
             else:
@@ -628,10 +615,7 @@ def _build_active_project_brief(
 
     latest_sessions: list[dict[str, Any]] = []
     for path in proj.sessions[:5]:
-        with store._lock:
-            row = store._conn.execute(
-                "SELECT title, last_modified FROM files WHERE path = ?", (path,)
-            ).fetchone()
+        row = store.file_meta(path)
         latest_sessions.append({
             "path": path,
             "title": (row["title"] if row else None) or path,
@@ -652,15 +636,10 @@ def _build_active_project_brief(
 
 def _file_first_paragraph(store: Store, path: str, max_chars: int = 400) -> str | None:
     """First non-heading paragraph of the file."""
-    with store._lock:
-        row = store._conn.execute(
-            "SELECT text FROM chunks c JOIN files f ON c.file_id = f.file_id "
-            "WHERE f.path = ? ORDER BY c.chunk_index LIMIT 1",
-            (path,),
-        ).fetchone()
-    if not row:
+    texts = store.chunk_texts_for_path(path, 1)
+    if not texts:
         return None
-    text = row["text"]
+    text = texts[0]
     # Strip leading H1
     lines = [ln for ln in text.split("\n") if not ln.lstrip().startswith("# ")]
     body = " ".join(ln.strip() for ln in lines if ln.strip())
@@ -668,38 +647,17 @@ def _file_first_paragraph(store: Store, path: str, max_chars: int = 400) -> str 
 
 
 def _file_text(store: Store, path: str, max_chars: int = 600) -> str | None:
-    with store._lock:
-        rows = store._conn.execute(
-            "SELECT text FROM chunks c JOIN files f ON c.file_id = f.file_id "
-            "WHERE f.path = ? ORDER BY c.chunk_index LIMIT 2",
-            (path,),
-        ).fetchall()
-    if not rows:
+    texts = store.chunk_texts_for_path(path, 2)
+    if not texts:
         return None
-    full = "\n\n".join(r["text"] for r in rows)
+    full = "\n\n".join(texts)
     full = " ".join(full.split())
     return full[:max_chars - 1].rstrip() + "…" if len(full) > max_chars else full
 
 
 def _refs_for_project(store: Store, project_name: str) -> list[dict[str, Any]]:
     """Cited references for a project, rolled up across all its files."""
-    with store._lock:
-        rows = store._conn.execute(
-            """
-            SELECT dst.path AS ref_path, dst.title AS ref_title,
-                   dst.para_type AS para_type, COUNT(*) AS citation_count
-            FROM wikilinks w
-            JOIN files src ON w.src_file_id = src.file_id
-            JOIN files dst ON w.dst_file_id = dst.file_id
-            WHERE w.is_resolved = 1
-              AND src.para_owner = ?
-              AND dst.para_type IN ('reference', 'snippet', 'index')
-            GROUP BY dst.file_id
-            ORDER BY citation_count DESC
-            LIMIT 10
-            """,
-            (project_name,),
-        ).fetchall()
+    rows = store.refs_for_project(project_name)
     return [{
         "ref_path": r["ref_path"],
         "ref_title": r["ref_title"] or r["ref_path"],
@@ -765,15 +723,11 @@ def vault_find_related(
     if file_id is None:
         return []
 
-    with store._lock:
-        chunk_rows = store._conn.execute(
-            "SELECT text FROM chunks WHERE file_id = ? ORDER BY chunk_index LIMIT 4",
-            (file_id,),
-        ).fetchall()
-    if not chunk_rows:
+    chunk_texts = store.chunk_texts_for_file_id(file_id, 4)
+    if not chunk_texts:
         return []
 
-    seed = "\n\n".join(r["text"] for r in chunk_rows)[:4000]
+    seed = "\n\n".join(chunk_texts)[:4000]
     embedding = embedder.encode([seed])[0]
     pool = max(top_k * 8, 40)
     vec_results = store.vec_search(embedding, pool)
@@ -810,12 +764,7 @@ def vault_find_related(
     # Surface graph-adjacent files even if they're not in vec top-pool.
     have_paths = {d["path"] for d in out}
     if linked_ids:
-        with store._lock:
-            link_rows = store._conn.execute(
-                f"SELECT file_id, path, title, para_type, para_owner "
-                f"FROM files WHERE file_id IN ({','.join('?' for _ in linked_ids)})",
-                tuple(linked_ids),
-            ).fetchall()
+        link_rows = store.files_by_ids(linked_ids)
         for r in link_rows:
             if r["path"] in have_paths:
                 continue

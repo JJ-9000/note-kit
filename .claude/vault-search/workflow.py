@@ -86,7 +86,7 @@ def build_workflow_clusters(
             continue
         score = _cluster_modularity(G, community)
         # Member sessions: sessions that wikilink to >=2 refs in this community
-        member_set = community_set = set(community)
+        community_set = set(community)
         sessions: list[str] = []
         for sess_path, sess_refs in member_sessions.items():
             if len(sess_refs & community_set) >= 2:
@@ -110,41 +110,16 @@ def build_workflow_clusters(
 
 def _ref_to_citing_projects(store: Store) -> dict[str, set[str]]:
     """For each Reference/Snippet/Index path, set of project owners that cite it."""
-    with store._lock:
-        rows = store._conn.execute(
-            """
-            SELECT dst.path AS ref_path, src.para_owner AS project
-            FROM wikilinks w
-            JOIN files src ON w.src_file_id = src.file_id
-            JOIN files dst ON w.dst_file_id = dst.file_id
-            WHERE w.is_resolved = 1
-              AND src.para_type IN ('project', 'session')
-              AND src.para_owner IS NOT NULL
-              AND dst.para_type IN ('reference', 'snippet', 'index')
-            """
-        ).fetchall()
     out: dict[str, set[str]] = {}
-    for r in rows:
+    for r in store.ref_to_citing_projects_rows():
         out.setdefault(r["ref_path"], set()).add(r["project"])
     return out
 
 
 def _ref_to_member_sessions(store: Store) -> dict[str, set[str]]:
     """For each session path, set of reference paths it wikilinks to."""
-    with store._lock:
-        rows = store._conn.execute(
-            """
-            SELECT src.path AS session_path, dst.path AS ref_path
-            FROM wikilinks w
-            JOIN files src ON w.src_file_id = src.file_id
-            JOIN files dst ON w.dst_file_id = dst.file_id
-            WHERE w.is_resolved = 1
-              AND src.para_type = 'session'
-              AND dst.para_type IN ('reference', 'snippet', 'index')
-            """
-        ).fetchall()
     out: dict[str, set[str]] = {}
-    for r in rows:
+    for r in store.session_to_cited_refs_rows():
         out.setdefault(r["session_path"], set()).add(r["ref_path"])
     return out
 

@@ -15,15 +15,18 @@ from pathlib import Path
 from typing import Any
 
 from store import Store
+from vocabulary import (
+    PROJECT_ROOT,
+    AREA_ROOT,
+    REFERENCE_ROOT,
+    SNIPPETS_ROOT,
+)
 
 
-# Semantic root names (the kit defaults). A legacy install's numeric prefix
-# ("01-Projects") is stripped before comparison, and constructed paths reuse
-# the root segment actually observed on disk, so both schemes work unchanged.
-PROJECT_ROOT = "Projects"
-AREA_ROOT = "Areas"
-REFERENCE_ROOT = "References"
-SNIPPETS_ROOT = "Snippets"
+# The semantic root names come from vocabulary.py (one install-time source
+# generated from CONFIG § Folders). A legacy install's numeric prefix
+# ("01-Projects") is stripped before comparison, and constructed paths reuse the
+# root segment actually observed on disk, so both schemes work unchanged.
 
 
 def _root_name(segment: str) -> str:
@@ -117,11 +120,7 @@ def build_topology(store: Store) -> VaultTopology:
         REFERENCE_ROOT: [],
         SNIPPETS_ROOT: [],
     }
-    with store._lock:  # short read transaction; stays under the store lock
-        rows = store._conn.execute(
-            "SELECT file_id, path, para_type, para_owner, parent_index, "
-            "title, frontmatter_json, last_modified FROM files"
-        ).fetchall()
+    rows = store.all_file_rows()
 
     file_by_path: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -265,20 +264,7 @@ def _find_named(files: list[dict[str, Any]], name: str) -> str | None:
 def _outbound_refs_for_owner(
     store: Store, owner: str
 ) -> tuple[list[str], list[str]]:
-    with store._lock:
-        rows = store._conn.execute(
-            """
-            SELECT DISTINCT dst.path, dst.para_type
-            FROM wikilinks w
-            JOIN files src ON w.src_file_id = src.file_id
-            JOIN files dst ON w.dst_file_id = dst.file_id
-            WHERE src.para_owner = ?
-              AND w.is_resolved = 1
-              AND dst.para_type IN ('reference', 'snippet', 'index')
-            ORDER BY dst.path
-            """,
-            (owner,),
-        ).fetchall()
+    rows = store.outbound_ref_rows_for_owner(owner)
     refs = [r["path"] for r in rows if r["para_type"] in ("reference", "index")]
     snips = [r["path"] for r in rows if r["para_type"] == "snippet"]
     return refs, snips
@@ -356,23 +342,7 @@ def _find_index(owner: str, files: list[dict[str, Any]]) -> str | None:
 def _citing_projects_for_domain(
     store: Store, domain: str, root: str
 ) -> dict[str, int]:
-    with store._lock:
-        rows = store._conn.execute(
-            """
-            SELECT src.para_owner AS project, COUNT(*) AS c
-            FROM wikilinks w
-            JOIN files src ON w.src_file_id = src.file_id
-            JOIN files dst ON w.dst_file_id = dst.file_id
-            WHERE w.is_resolved = 1
-              AND dst.para_owner = ?
-              AND dst.path LIKE ? || '/%'
-              AND src.para_type IN ('project', 'session')
-              AND src.para_owner IS NOT NULL
-            GROUP BY src.para_owner
-            ORDER BY c DESC
-            """,
-            (domain, root),
-        ).fetchall()
+    rows = store.citing_projects_for_domain(domain, root)
     return {r["project"]: r["c"] for r in rows}
 
 
@@ -393,20 +363,7 @@ def _detect_quality_gaps(
             gaps.missing_index.append(dom.path)
 
     # orphan_references: type=reference with 0 inbound wikilinks AND no parent_index.
-    with store._lock:
-        rows = store._conn.execute(
-            """
-            SELECT f.path
-            FROM files f
-            LEFT JOIN wikilinks w ON w.dst_file_id = f.file_id AND w.is_resolved = 1
-            WHERE f.para_type IN ('reference', 'snippet')
-              AND f.parent_index IS NULL
-            GROUP BY f.file_id
-            HAVING COUNT(w.link_id) = 0
-            ORDER BY f.path
-            """
-        ).fetchall()
-    gaps.orphan_references = [r["path"] for r in rows]
+    gaps.orphan_references = store.orphan_reference_paths()
 
     return gaps
 

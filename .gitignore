@@ -3,6 +3,8 @@
 .claude/scheduled_tasks.lock
 .claude/vault-search/.venv/
 .claude/vault-search/data/
+.claude/vault-search/config.yaml
+.claude/vault-search/vocabulary.json
 
 # Build and cache artifacts
 __pycache__/

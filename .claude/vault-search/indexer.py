@@ -1,8 +1,9 @@
 """Vault file chunking, embedding, and watching.
 
-Phase 0: chunking + embedding + watcher. Wikilink extraction is parsed but not
-persisted — it's deferred to Phase 1 (the wikilinks table isn't in the Phase 0
-schema).
+Chunks each file's body, embeds every chunk, and watches for changes. Wikilinks
+are extracted per chunk (and recursively from frontmatter) and persisted to the
+store's wikilinks table through upsert_file_with_chunks; the link graph is
+resolved to dst_file_id after each walk.
 """
 from __future__ import annotations
 
@@ -20,61 +21,30 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
 from store import Store, content_hash
+from vocabulary import (
+    INBOX_FOLDER,
+    PROJECT_ROOT,
+    AREA_ROOT,
+    REFERENCE_ROOT,
+    SNIPPETS_ROOT,
+    ARCHIVE_ROOT,
+    PARA_ROOTS,
+    CANONICAL_TYPES,
+)
+from wikilink_helpers import WIKILINK_RE, normalize_link_target
 
 log = logging.getLogger("vault.indexer")
 
-# Wikilink syntactic forms this regex captures (and skips):
-#   [[Name]]                  basename
-#   [[Name|alias]]            alias
-#   [[Name#section]]          section anchor
-#   [[Path/Name]]             path-prefixed (Obsidian disambiguation)
-#   [[Name.md]]               explicit .md suffix
-# Embeds (`![[Name]]`) are NOT captured — the `(?<!!)` lookbehind excludes
-# them so they don't double-populate the wikilinks table as both an embed and
-# a regular link.
-WIKILINK_PATTERN = re.compile(r"(?<!!)\[\[([^|\]]+?)(?:\|([^\]]+))?\]\]")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 FENCE_PATTERN = re.compile(r"^(```|~~~)")
 
-# Fallback set if the rules.md registry can't be parsed at module load. Kept
-# in sync with `rules/rules.md`'s `## Type registry` section so a missing
-# registry doesn't silently misclassify files. Update both together.
-_FALLBACK_FRONTMATTER_TYPES = frozenset({
-    "project", "area", "reference", "research", "session", "plan",
-    "note", "journal", "idea", "snippet", "source", "index", "addendum",
-})
-
-
-def _load_canonical_types() -> frozenset[str]:
-    """Read the canonical type set from the kit's rules.md if present.
-
-    The indexer ships inside `note-kit/vault-search/`, so the rules file is
-    two parents up at `note-kit/rules/rules.md`. Falls back to the static set
-    on any failure (missing file, parse error) so the daemon still starts.
-    """
-    here = Path(__file__).resolve().parent
-    rules_path = here.parent / "rules" / "rules.md"
-    if not rules_path.exists():
-        return _FALLBACK_FRONTMATTER_TYPES
-    try:
-        text = rules_path.read_text(encoding="utf-8")
-        heading = re.search(r"^## Type registry\s*$", text, re.MULTILINE)
-        if heading is None:
-            return _FALLBACK_FRONTMATTER_TYPES
-        after = text[heading.end():]
-        next_h2 = re.search(r"^## ", after, re.MULTILINE)
-        section = after[:next_h2.start()] if next_h2 else after
-        types = set(re.findall(r"^- `([a-z][a-z0-9]*)`\s+—", section, re.MULTILINE))
-        return frozenset(types) if types else _FALLBACK_FRONTMATTER_TYPES
-    except Exception:
-        return _FALLBACK_FRONTMATTER_TYPES
-
-
-VALID_FRONTMATTER_TYPES = _load_canonical_types()
-
-# Must match inbox_folder in config.yaml — update both together if you rename
-# your inbox (e.g. a legacy "00-Inbox" install).
-INBOX_FOLDER = "Inbox"
+# The canonical note-type set and the inbox / PARA-root folder names come from
+# vocabulary.py — one install-time source generated from CONFIG § Folders and
+# § Types by generate_vocabulary.py. Every folder-name and type-set literal the
+# indexer used to hold its own copy of now lives there (INBOX_FOLDER,
+# PROJECT_ROOT, AREA_ROOT, REFERENCE_ROOT, SNIPPETS_ROOT, ARCHIVE_ROOT,
+# PARA_ROOTS, CANONICAL_TYPES are imported above).
+VALID_FRONTMATTER_TYPES = CANONICAL_TYPES
 
 
 def _root_name(segment: str) -> str:
@@ -83,25 +53,23 @@ def _root_name(segment: str) -> str:
     return re.sub(r"^\d+-", "", segment)
 
 
-def _normalize_link_target(raw: str) -> str | None:
-    """Resolve a wikilink interior to a basename stem suitable for resolution.
+def _iter_wikilinks(text: str):
+    """Yield (dst_basename, alias|None) for each non-embed `[[...]]` in text.
 
-    Mirrors the audit script's helper of the same purpose: strips alias
-    (`|alias`), section anchor (`#section`), path prefix, and `.md` suffix.
-    Returns None for the empty placeholder `[[]]` and fragment-only links
-    like `[[#anchor]]`. Used everywhere this module extracts a link target
-    from a captured regex group.
+    Uses the vendored wikilink_helpers (WIKILINK_RE + normalize_link_target) so
+    the daemon parses links identically to the rest of the kit. Embeds
+    (`![[...]]`) are skipped; the empty placeholder `[[]]` and fragment-only
+    links (`[[#anchor]]`) normalize to an empty basename and are dropped.
     """
-    target = raw.split("|", 1)[0]
-    target = target.split("#", 1)[0]
-    target = target.strip()
-    if not target:
-        return None
-    if "/" in target:
-        target = target.rsplit("/", 1)[-1]
-    if target.lower().endswith(".md"):
-        target = target[:-3]
-    return target or None
+    for m in WIKILINK_RE.finditer(text):
+        if m.group(1):  # '!' embed marker
+            continue
+        interior = m.group(2)
+        dst = normalize_link_target(interior)
+        if not dst:
+            continue
+        alias = interior.split("|", 1)[1].strip() if "|" in interior else None
+        yield dst, (alias or None)
 
 
 # ---- chunking ---------------------------------------------------------------
@@ -212,14 +180,8 @@ def _build_chunks(
         # Body wikilinks: store the canonical basename (with section anchor
         # and path prefix stripped) so the DB has uniform dst_path values
         # regardless of which syntactic form the author used. Embeds are
-        # already filtered out by the regex's (?<!!) lookbehind.
-        wls: list[tuple[str, str | None]] = []
-        for m in WIKILINK_PATTERN.finditer(text):
-            dst = _normalize_link_target(m.group(1))
-            if dst is None:
-                continue
-            alias = m.group(2).strip() if m.group(2) else None
-            wls.append((dst, alias))
+        # skipped by _iter_wikilinks.
+        wls: list[tuple[str, str | None]] = list(_iter_wikilinks(text))
         chunks.append(Chunk(
             chunk_index=len(chunks),
             text=text,
@@ -296,6 +258,11 @@ def _apply_overlap(chunks: list[Chunk], overlap_tokens: int) -> list[Chunk]:
                 text=new_text,
                 section_heading=cur.section_heading,
                 token_count=_approx_token_count(new_text),
+                # Carry the chunk's own wikilinks through the overlap rebuild.
+                # The prepended prefix is only embedding context; its links
+                # already belong to the previous chunk, so re-attributing them
+                # here would double-count — keep cur's links, and only cur's.
+                wikilinks=cur.wikilinks,
             ))
         else:
             out.append(cur)
@@ -324,12 +291,7 @@ def extract_frontmatter_wikilinks(meta: dict) -> list[tuple[str, str | None]]:
 
     def walk(v) -> None:
         if isinstance(v, str):
-            for m in WIKILINK_PATTERN.finditer(v):
-                dst = _normalize_link_target(m.group(1))
-                if dst is None:
-                    continue
-                alias = m.group(2).strip() if m.group(2) else None
-                out.append((dst, alias))
+            out.extend(_iter_wikilinks(v))
         elif isinstance(v, list):
             for item in v:
                 walk(item)
@@ -355,34 +317,30 @@ def classify_para(rel_path: str, frontmatter_meta: dict) -> tuple[str, str | Non
     else:
         if not parts:
             para_type = "unknown"
-        elif parts[0] == INBOX_FOLDER or root == "Inbox":
+        elif parts[0] == INBOX_FOLDER or root == INBOX_FOLDER:
             para_type = "inbox"
-        elif root == "Projects":
+        elif root == PROJECT_ROOT:
             para_type = "session" if (len(parts) >= 4 and parts[2] == "Sessions") else "project"
-        elif root == "Areas":
+        elif root == AREA_ROOT:
             para_type = "session" if (len(parts) >= 4 and parts[2] == "Sessions") else "area"
-        elif root == "References":
+        elif root == REFERENCE_ROOT:
             para_type = "reference"
-        elif root == "Snippets":
+        elif root == SNIPPETS_ROOT:
             para_type = "snippet"
-        elif root == "Archive":
+        elif root == ARCHIVE_ROOT:
             para_type = "archive"
         else:
             para_type = "unknown"
 
     para_owner: str | None = None
-    if len(parts) >= 2 and root in {
-        "Projects", "Areas", "References", "Snippets"
-    }:
+    if len(parts) >= 2 and root in PARA_ROOTS:
         para_owner = parts[1]
 
     project_fm = frontmatter_meta.get("project")
     if isinstance(project_fm, str):
-        m = re.search(r"\[\[([^\[\]]+?)\]\]", project_fm)
-        if m:
-            normalized = _normalize_link_target(m.group(1))
-            if normalized:
-                para_owner = normalized
+        first = next(_iter_wikilinks(project_fm), None)
+        if first and first[0]:
+            para_owner = first[0]
 
     return para_type, para_owner
 
@@ -397,13 +355,13 @@ def extract_title(content_body: str, fallback_filename: str) -> str:
 
 def extract_parent_index(body: str) -> str | None:
     """Look for `Parent: [[Index-Name]]` or `Parent:: [[Index-Name]]` within
-    the first ~30 lines. Handles every wikilink syntactic form via
-    `_normalize_link_target` (anchor, alias, path-prefix, .md suffix).
+    the first ~30 lines. Handles every wikilink syntactic form via the vendored
+    `normalize_link_target` (anchor, alias, path-prefix, .md suffix).
     """
     for line in body.splitlines()[:30]:
         m = re.match(r"^\s*Parent\s*::?\s*\[\[([^\[\]]+?)\]\]", line)
         if m:
-            return _normalize_link_target(m.group(1))
+            return normalize_link_target(m.group(1)) or None
     return None
 
 
@@ -482,6 +440,15 @@ class Indexer:
         try:
             rel = abs_path.resolve().relative_to(self.vault_path).as_posix()
         except ValueError:
+            return True
+        # Dot-directory rule: never index anything under a dot-directory at any
+        # depth — <history> (.history, cold storage), .trash, .redteam,
+        # .obsidian, .claude, .git, .smart-env, and any future one. This is the
+        # general guarantee; config.yaml's exclude_paths names the same dirs for
+        # a fresh install's documentation, but the rule holds even if that list
+        # is edited. Only directory segments are tested (not the filename), so a
+        # cold-stored note under .history returns no live hit after reindex.
+        if any(seg.startswith(".") for seg in rel.split("/")[:-1]):
             return True
         for ex in self.exclude_paths:
             if rel == ex or rel.startswith(ex + "/"):

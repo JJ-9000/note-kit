@@ -13,13 +13,15 @@ installer makes a fresh checkout runnable:
   1. Creates a virtualenv at ``<vault>/.claude/vault-search/.venv``.
   2. ``pip install -r requirements.txt`` into that venv (FastMCP, sqlite-vec,
      sentence-transformers, watchdog, ...).
-  3. Copies ``config.yaml`` and substitutes the three placeholders with real,
-     absolute paths:
+  3. Generates ``vocabulary.json`` from CONFIG § Folders / § Types, then writes
+     ``config.yaml`` FROM ``config.yaml.template`` (never editing the template
+     in place), substituting the placeholders with real values:
        <VAULT_ROOT> -> the vault root (parent of .claude/)
        <HOME>       -> the user's home directory
        <DATA_DIR>   -> <vault>/.claude/vault-search/data   (self-contained,
                        no admin rights needed, already excluded from the
                        vault scan because it lives under .claude/)
+       <INBOX>      -> the inbox folder literal from CONFIG § Folders
      and creates the data dir.
   4. Prints the exact command to START the daemon and a one-line health check.
 
@@ -29,7 +31,9 @@ copy would fail. Starting is a deliberate, separate step the installer only
 prints.
 
 Re-running is safe: an existing venv is reused (pass --recreate-venv to rebuild
-it), and config.yaml is re-substituted from the template each run.
+it), and config.yaml is regenerated from config.yaml.template each run — the
+template keeps its placeholders, so a later vault move re-substitutes correctly
+instead of re-indexing a stale path.
 
 Usage:
     python install_daemon.py [--vault-root <vault>] [--skip-deps]
@@ -59,9 +63,12 @@ _DAEMON_DIR = Path(__file__).resolve().parent          # .claude/vault-search
 _CLAUDE_DIR = _DAEMON_DIR.parent                        # .claude
 _DEFAULT_VAULT_ROOT = _CLAUDE_DIR.parent                # vault root
 
-_CONFIG_TEMPLATE = _DAEMON_DIR / "config.yaml"
+_CONFIG_TEMPLATE = _DAEMON_DIR / "config.yaml.template"
+_CONFIG_DEST = _DAEMON_DIR / "config.yaml"
 _REQUIREMENTS = _DAEMON_DIR / "requirements.txt"
 _VENV_DIR = _DAEMON_DIR / ".venv"
+_VOCAB_JSON = _DAEMON_DIR / "vocabulary.json"
+_CONFIG_MD = _CLAUDE_DIR / "CONFIG.md"
 
 
 def _venv_python(venv_dir: Path) -> Path:
@@ -135,18 +142,30 @@ def _pip_install(py: Path, requirements: Path) -> bool:
 
 
 def _substitute_config(
-    template: Path, dest: Path, vault_root: Path, home: Path, data_dir: Path
+    template: Path, dest: Path, vault_root: Path, home: Path, data_dir: Path,
+    inbox: str,
 ) -> None:
-    """Copy config.yaml and replace <VAULT_ROOT>, <HOME>, <DATA_DIR>.
+    """Write ``dest`` (config.yaml) FROM ``template`` (config.yaml.template),
+    replacing <VAULT_ROOT>, <HOME>, <DATA_DIR>, and <INBOX>.
+
+    The template is read but never written, so its placeholders survive every
+    install — a later vault move re-substitutes correctly instead of leaving a
+    substituted-in-place config that silently re-indexes the old path.
 
     Paths are written with forward slashes — PyYAML reads them fine on every OS
     and they avoid backslash-escaping surprises in the YAML string values.
     """
+    if template.resolve() == dest.resolve():
+        raise RuntimeError(
+            "config template and destination are the same file; the template "
+            "must stay pristine (config.yaml.template -> config.yaml)."
+        )
     text = template.read_text(encoding="utf-8")
     replacements = {
         "<VAULT_ROOT>": vault_root.as_posix(),
         "<HOME>": home.as_posix(),
         "<DATA_DIR>": data_dir.as_posix(),
+        "<INBOX>": inbox,
     }
     for placeholder, value in replacements.items():
         text = text.replace(placeholder, value)
@@ -157,10 +176,41 @@ def _substitute_config(
             f"config substitution left unresolved placeholders: {leftovers}"
         )
 
-    dest.write_text(text, encoding="utf-8")
+    dest.write_text(text, encoding="utf-8", newline="\n")
     print(f"[install] Wrote config: {dest}")
     print(f"            vault_path -> {replacements['<VAULT_ROOT>']}")
     print(f"            data dir   -> {replacements['<DATA_DIR>']}")
+    print(f"            inbox      -> {replacements['<INBOX>']}")
+
+
+def _generate_vocabulary(config_md: Path, out: Path) -> str:
+    """Write vocabulary.json from CONFIG § Folders / § Types; return the inbox
+    literal to substitute into config.yaml.
+
+    generate_vocabulary is a sibling stdlib-only module, so this runs on the
+    bare Python the installer uses — no venv, no third-party imports. On any
+    failure the daemon's runtime vocabulary.py falls back to the kit defaults,
+    so we warn and return the default inbox ("Inbox") rather than aborting.
+    """
+    try:
+        import generate_vocabulary as gv
+        vocab = gv.build_vocabulary(config_md.read_text(encoding="utf-8"))
+        out.write_text(
+            __import__("json").dumps(vocab, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8", newline="\n",
+        )
+        print(f"[install] Wrote vocabulary: {out}")
+        print(f"            inbox -> {vocab['inbox_folder']}  "
+              f"roots={len(vocab['roots'])} types={len(vocab['types'])}")
+        return vocab["inbox_folder"]
+    except Exception as exc:
+        print(
+            f"[install] WARNING: could not generate vocabulary.json from "
+            f"{config_md} ({exc}). The daemon will use its built-in default "
+            f"vocabulary; config.yaml gets the default inbox name 'Inbox'.",
+            file=sys.stderr,
+        )
+        return "Inbox"
 
 
 def _quote(p: Path | str) -> str:
@@ -225,11 +275,14 @@ def main() -> int:
     else:
         deps_ok = _pip_install(py, _REQUIREMENTS)
 
-    # 3. Data dir + config substitution.
+    # 3. Data dir + vocabulary + config substitution.
     data_dir.mkdir(parents=True, exist_ok=True)
     print(f"[install] Data dir ready: {data_dir}")
+    inbox = _generate_vocabulary(_CONFIG_MD, _VOCAB_JSON)
     try:
-        _substitute_config(_CONFIG_TEMPLATE, _CONFIG_TEMPLATE, vault_root, home, data_dir)
+        _substitute_config(
+            _CONFIG_TEMPLATE, _CONFIG_DEST, vault_root, home, data_dir, inbox
+        )
     except Exception as exc:
         print(f"[install] ERROR writing config: {exc}", file=sys.stderr)
         return 1

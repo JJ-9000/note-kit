@@ -10,6 +10,7 @@ import json
 import logging
 import logging.handlers
 import os
+import signal
 import sys
 import threading
 import time
@@ -85,8 +86,7 @@ def _idle_watchdog_thread() -> None:
             continue
         if time.time() - LAST_ACTIVITY["t"] > idle_sec:
             log.info("idle_shutdown", extra={"ctx_idle_minutes": idle_min})
-            logging.shutdown()
-            os._exit(0)
+            _graceful_shutdown(reason="idle_shutdown", exit_code=0)
 
 
 # ---- config + logging -------------------------------------------------------
@@ -148,12 +148,45 @@ class DaemonState:
         self.warmup_error: str | None = None
         self.warmup_started_at: float | None = None
         self._stop = threading.Event()
+        self._shutting_down: bool = False
         self.last_recluster_at: float | None = None
         self.last_full_rescan_at: float | None = None
 
 
 STATE = DaemonState()
 log = logging.getLogger("vault.server")
+
+
+def _graceful_shutdown(reason: str, exit_code: int = 0) -> None:
+    """Close the store and stop background threads, then exit the process.
+
+    The single teardown path shared by the SIGTERM/SIGINT handlers, the
+    /shutdown endpoint, and the idle watchdog — so the SQLite store is always
+    checkpointed and closed before exit rather than left to an abrupt kill.
+    Guarded so overlapping triggers (a signal racing the idle timer) run it once.
+    """
+    if STATE._shutting_down:
+        return
+    STATE._shutting_down = True
+    STATE._stop.set()
+    try:
+        if STATE.indexer_thread is not None:
+            STATE.indexer_thread.stop()
+    except Exception:
+        pass
+    try:
+        if STATE.observer is not None:
+            STATE.observer.stop()
+    except Exception:
+        pass
+    try:
+        if STATE.store is not None:
+            STATE.store.close()
+    except Exception:
+        pass
+    log.info("shutdown", extra={"ctx_reason": reason})
+    logging.shutdown()
+    os._exit(exit_code)
 
 
 # ---- warmup -----------------------------------------------------------------
@@ -560,10 +593,29 @@ async def api_topology_status(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@mcp.custom_route("/shutdown", methods=["POST"])
+async def shutdown(request: Request) -> JSONResponse:
+    """Graceful-stop trigger for the control helper.
+
+    The daemon binds 127.0.0.1 only, so this is a localhost-local control. It
+    runs the shared teardown (store close) in a background thread so this
+    response flushes before the process exits — the cross-platform graceful path
+    daemonctl.py uses before falling back to a force kill (Windows has no
+    deliverable SIGTERM for a detached, windowless console process).
+    """
+    def _do() -> None:
+        time.sleep(0.3)
+        _graceful_shutdown(reason="shutdown_endpoint", exit_code=0)
+
+    threading.Thread(target=_do, daemon=True, name="shutdown").start()
+    return JSONResponse({"status": "shutting down", "pid": os.getpid()}, status_code=200)
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request: Request) -> JSONResponse:
     payload = {
         "status": "ok" if STATE.warmed_up else ("error" if STATE.warmup_error else "warming"),
+        "pid": os.getpid(),
         "uptime_sec": int(time.time() - STATE.start_time),
         "warming_started_sec_ago": (
             int(time.time() - STATE.warmup_started_at)
@@ -590,6 +642,22 @@ def main() -> None:
     config_path = here / "config.yaml"
     init_daemon(config_path)
     threading.Thread(target=_idle_watchdog_thread, daemon=True, name="idle-watchdog").start()
+
+    # Close the store on SIGTERM/SIGINT. uvicorn installs its own signal
+    # handlers when it runs (and may override these), so the try/finally below is
+    # the reliable teardown: when uvicorn returns after catching a signal, the
+    # store still closes. On POSIX these handlers also cover the case uvicorn
+    # does not; on Windows a detached daemon receives no deliverable signal, so
+    # the /shutdown endpoint is the graceful path there.
+    def _signal_handler(signum, _frame):  # pragma: no cover - signal path
+        _graceful_shutdown(reason=f"signal_{signum}", exit_code=0)
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _signal_handler)
+        except (ValueError, OSError):
+            pass
+
     log.info(
         "starting_mcp_server",
         extra={
@@ -601,7 +669,10 @@ def main() -> None:
     import uvicorn
 
     app = _ActivityMiddleware(mcp.http_app())
-    uvicorn.run(app, host=STATE.config["host"], port=STATE.config["port"], log_config=None)
+    try:
+        uvicorn.run(app, host=STATE.config["host"], port=STATE.config["port"], log_config=None)
+    finally:
+        _graceful_shutdown(reason="server_exit", exit_code=0)
 
 
 if __name__ == "__main__":

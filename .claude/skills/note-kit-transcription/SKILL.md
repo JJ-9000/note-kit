@@ -5,14 +5,14 @@ description: Turn an existing block of text into a clean, digestible note that p
 
 # transcription
 
-Text in, digestible note out. The input already exists; the job is transcription, not authorship — listen like a friend, output like a transcriptionist. The output preserves the source's vocabulary and the directive or emotion inside it, clustered so a reader can scan it.
+Text in, digestible note out. The input already exists; the job is transcription. The output preserves the source's vocabulary and the directive or emotion inside it, clustered.
 
 ## 1 — Read the whole block first
 
-Read it all before writing a word; structure emerges from the whole. While reading, work out under the hood — none of this appears in the output:
+Read it all before writing a word. While reading, work out under the hood — none of this appears in the output:
 
 - **Voices.** One or several? Name prefixes (`<name>:`), turn-taking, register shifts — a single-voice dump and a multi-party meeting get attributed differently.
-- **Semantic clusters.** Group by meaning, not by order spoken — speakers circle back. Tag each passage with the topic it is *about*, merge passages sharing a topic even when minutes apart, name each cluster from a phrase the source itself used, and keep a cluster only if it survives the register pass — a pure-throwaway topic dissolves to nothing. These clusters become the sections.
+- **Semantic clusters.** Group by meaning. Tag each passage with the topic it is *about*, merge passages sharing a topic even when minutes apart, name each cluster from a phrase the source itself used, and keep a cluster only if it survives the register pass — a pure-throwaway topic dissolves to nothing. These clusters become the sections.
 - **Tone registers.** Tag each segment silently per the table below.
 
 If the block is truncated or garbled, say so, tag the uncertainty inline, and move on. Do not invent the missing parts.
@@ -38,7 +38,7 @@ When read-side tags conflict (emphatic + throwaway), the emphatic-throwaway rule
 
 ## 3 — Synthesize: intelligent transcription
 
-The output removes filler and false starts, preserves the speaker's exact vocabulary and sentence structure, groups by semantic cluster, and never editorializes — oral-history archival practice, not summary, paraphrase, or interpretation. Every sentence must pass one test:
+The output removes filler and false starts, preserves the speaker's exact vocabulary and sentence structure, groups by semantic cluster, and never editorializes. Every sentence must pass one test:
 
 > **Could a professional transcriptionist have produced this sentence using only the source's own words?**
 
@@ -52,15 +52,15 @@ If no, it does not belong. Three prohibitions:
 
 ## 4 — Output shape
 
-Body is semantic clusters, each under a **bold header drawn from the source's own language** — not an editorial label. Order by meaning, emphatic clusters floating up; within a cluster, separate sub-thoughts with a **blank line** (or lead each with `→`) so they render as distinct lines on a phone. Never stack lines with single newlines — Markdown collapses those into one run; one thought per block. Meetings and calls produce three recurring clusters — include each **only when the block contains it**:
+Body is semantic clusters, each under a **bold header drawn from the source's own language** — not an editorial label. Order by meaning, emphatic clusters floating up; within a cluster, separate sub-thoughts with a **blank line** (or lead each with `→`). One thought per block. Meetings and calls produce three recurring clusters — include each **only when the block contains it**:
 
 - **Decisions** — points the participants settled, in their words, attributed where someone owns the call.
 - **Action items** — commitments. Attribute the owner and preserve any deadline verbatim; no owner named → record without one.
 - **Open questions** — what was raised and left unresolved, kept as questions in the source's phrasing.
 
-Everything else stays in topic clusters. No editorial TL;DR or headline — that is summary, which this skill does not produce.
+Everything else stays in topic clusters. No editorial TL;DR or headline.
 
-**Frontmatter inference.** A source whose title or frontmatter declares a type keeps it (CONFIG § Types) — a drop titled "Journal" produces a `type: journal` note regardless of topic; classification fills gaps, never overrides declarations. Otherwise infer `type` from the types table in CLAUDE.md's session-start defaults — for a transcript, one of `journal`, `idea`, `note`, or `source`, defaulting to `note` when unsure. Name the file by that type's naming pattern (CONFIG § Types), from the source's own subject — name what it is, no clever title. Set `project:` and the `parent:` backlink only when the transcript's distinctive vocabulary resolves to a single active project; otherwise leave them for the downstream agents. The note lands loose in the inbox root, no container folder and no version token (CONFIG § Inbox output convention).
+**Frontmatter inference.** A source whose title or frontmatter declares a type keeps it (CONFIG § Types) — a drop titled "Journal" produces a `type: journal` note regardless of topic. Otherwise infer `type` from CONFIG § Types — for a transcript, one of `journal`, `idea`, `note`, or `source`, defaulting to `note` when unsure. Name the file by that type's naming pattern (CONFIG § Types), from the source's own subject — name what it is, no clever title. Set `project:` and the `parent:` backlink only when the transcript's distinctive vocabulary resolves to a single active project; otherwise leave them for the downstream agents. The note lands loose in the `<inbox>` root, no container folder and no version token (CONFIG § Inbox output convention).
 
 ## Focus mode
 

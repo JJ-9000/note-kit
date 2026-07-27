@@ -1,6 +1,6 @@
 ---
 name: note-kit-plan
-description: Writes and maintains a plan note: a living checklist of the work to reach a goal, in topic sections whose items are checkboxes stating what to do and the outcome it reaches. The shape fits the task, whether an execution plan, an investigation plan, or both, and runs end to end when that is what the work needs. Research and gates appear only when the work calls for them. Activates on "make a plan", "plan out X", "write a plan for", "scope X", /note-kit-plan, and from the note-kit-handoff skill to write or update a session's plan.
+description: Writes and maintains a plan note — a living checklist of the work to reach a goal, in topic sections whose items are checkboxes stating what to do and the outcome it reaches. The shape fits the task, whether an execution plan, an investigation plan, or both, and runs end to end when that is what the work needs. Research and gates appear only when the work calls for them. Activates on "make a plan", "plan out X", "write a plan for", "scope X", /note-kit-plan, and from the note-kit-handoff skill to write or update a session's plan.
 ---
 
 # plan

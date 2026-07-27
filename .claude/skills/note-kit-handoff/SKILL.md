@@ -5,9 +5,9 @@ description: End-of-session deliverables — a session log plus any atomic refer
 
 # handoff
 
-Produce the session-end deliverables below. The session log is mandatory; everything else is written only when the session actually earned it. Write nothing the session did not produce.
+Produce the session-end deliverables below. The session log is mandatory; everything else is written only when the session earned it — write what the session produced.
 
-**Link what already exists; do not rewrite it.** When the session already committed a note, standard, or structural change directly to the vault, the log points to it by `[[wikilink]]` — never duplicate a file already on disk or reiterate its content. A session that did its writing live earns a thorough log and a plan, and few or no new notes — the correct outcome, not a thin one.
+**Link what already exists; do not rewrite it.** When the session already committed a note, standard, or structural change directly to the vault, the log points to it by `[[wikilink]]` — never duplicate a file already on disk or reiterate its content. A session that did its writing live earns a thorough log and a plan, and few or no new notes.
 
 **A note earns its place by being useful** — admitted only because a future reader would retrieve it. An atom no one would search for, a standard that restates a known rule, a plan that repeats the State-of-play line: none of these is owed.
 
@@ -26,7 +26,7 @@ Everything a handoff produces lands in one container `<inbox>/<date>-<topic>-ses
 
 Write to the container root: `<inbox>/<date>-<topic>-session/<YYYY-MM-DD>-<slug>.md`, `type: session`, `project: "[[Name]]"` (naming per CONFIG § Types); the slug names the session topic. The log opens with the decision header — at most five lines: what this set adds or changes, what deserves a real read, and — only when it gates tag-along files — what approval triggers (CONFIG § Group approval). A session log that stands alone names no gate and triggers no set approval. Stamp `project:` only after confirming the target exists — one vault search or project listing check; no match → leave the field empty for downstream inference, never invent a name.
 
-Target length is ~400 words, per the session format note (CONFIG § Format notes): Successes and Failures stay concrete; Progress trims to decisions.
+Target length is ~600 words, per the session format note (CONFIG § Format notes): Successes and Failures stay concrete; Progress trims to decisions. Trim the draft to that target before writing the file — cut narration and anything a linked file already carries, keeping the concrete detail.
 
 | section        | holds                                                                                                                              |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,6 +40,8 @@ Write for a reader with zero context. Name the function, the parameter, the path
 
 **Originating idea.** If this session grew from an `idea` note or `plan`, stamp that file `status: in-progress` and `session: "[[<this session log>]]"`, and link it from Relevant files. Only handoff knows which idea or plan the session acted on, so only handoff can set this. Touch idea or plan files only if they were acted upon directly, not silently handled by coincidence (CONFIG § File handling).
 
+**Cover currency.** Session close leaves the cover current: rewrite the state-of-play block in place on the folder-note cover (CONFIG § Numbering; a living document is maintained where it lives and stays inside the currency threshold, CONFIG § Status). Give the block the shape its cover's format note defines — `Format-Project` for a project cover, `Format-Area` for an area cover; where that note carries no state-block skeleton, use the detector-parsable heading `## State of play — <YYYY-MM-DD>`. Update the block already on the cover, leaving exactly one dated block. A session that changed no state the cover records names that reason in the log's **State of play** row instead.
+
 ## 2 — Atomic reference notes
 
 A reference note follows the **evergreen / atomic-note standard** (Matuschak; Zettelkasten atomicity): one self-contained, context-free, reusable piece of confirmed knowledge, naming **no project specifics** — how an API actually behaves versus its docs, an undocumented default, a silent-failure mode, an interaction effect, a performance characteristic confirmed by test.
@@ -48,22 +50,13 @@ What earns a note is a struggle that resolved: when effort spent fixing X turns 
 
 ### What makes a note atomic
 
-Apply these six tests in order and act on the first that fails:
-
-1. **One concept (the "and" test).** A claim needing an "and", comma splice, or "; additionally" to be accurate is two claims — split.
-2. **Independent reusability (the borrow test).** Two facts different future notes would borrow are separate atoms; a fact only useful beside another merges in.
-3. **Context-independence (the survival test).** Delete the session and project in your mind; if the note no longer asserts something true and usable, fold it back into the log.
-4. **Link, don't embed (the single-source test).** A reusable sibling fact is `[[wikilink]]`ed, never restated; a shared fact lives in one note.
-5. **Evergreen, not event (the tense test).** An atom states how something *is* ("the accessor returns null before init"), not what happened; lift the generalization or leave it in the log.
-6. **Done (the subtraction test).** Finished when removing any sentence loses a reusable fact and no second independent claim remains to split off.
-
-The only two failure modes: too **big** (compound — caught by 1, 2, 6) splits; too **small or stale** (caught by 3, 5) folds back. The note-kit-processor skill applies the same six tests.
+Apply the six atomicity tests in order and act on the first that fails — the tests and their two failure modes live in CONFIG § Atomicity tests.
 
 ### Form
 
 One insight per file, in the container — never loose in `<inbox>` — `type: reference`, `Title-Case-Hyphens.md` (CONFIG § Types), `parent: [[]]` left blank. Beyond that the note takes **whatever shape the idea needs** — no required skeleton. A clean atom is often a specific title and two to six sentences; some want a short paragraph on how the fact was confirmed (setup, tool version, the exact test); some a code fence or small table. Use a heading only when the note genuinely has more than one part. The non-negotiables: **self-contained**, **properly linked** (related reusable facts referenced by `[[wikilink]]`, never restated), and a title naming the one idea precisely.
 
-Do not pad. If nothing this session generalizes past the project, write **zero** atomic notes. Paste any snippet code into chat as well as into its file.
+Write only what generalizes: if nothing this session carries past the project, write **zero** atomic notes. Paste any snippet code into chat as well as into its file.
 
 ## 3 — Standards the session earned (optional)
 
@@ -73,21 +66,13 @@ Classify the standard by its axis before writing it: a correction about appearan
 
 Before minting a new note, search the existing standards for one that already holds this principle. A genuinely new standard gets its own note. A standard the vault already records, re-derived this session, files instead as a `type: addendum` targeting the existing standard note (`target: "[[<existing-standard>]]"`): the addendum either sharpens the rule's wording or records the recurrence to raise the standard's emphasis, accruing onto the one canonical note rather than a divergent twin.
 
-### Weight — the weighted-types table
+### Weight
 
-Only a **configured weighted type** carries a `weight` frontmatter field; today that is **voice, design, format**. This table is the policy — extensible if other types should ever accrue weight:
-
-| weighted type | carries `weight` |
-| ------------- | ---------------- |
-| voice         | yes              |
-| design        | yes              |
-| format        | yes              |
-
-`weight` is a stored, optional integer — how often the kit has re-derived the standard. Handoff writes the recurrence as the `type: addendum` above; the **filing-agent bumps `weight`** on merge (both a precision-refinement and a recurrence-tally increment it). A heavier standard is enforced harder: the review crit and the analyst check the heaviest standards first, and severity also lives in the standard's own language. Never bump `weight` on a non-configured type; CONFIG stays silent on it — this table is the source of truth. `weight` is **experimental**: measured by the analyst, pending a keep-or-cut decision.
+Record a re-derived standard as the `type: addendum` above and leave `weight` to the merge that raises it (CONFIG § Weighted types).
 
 A project-state change instead — a new blocker, a resolved issue, a decision — is a `type: addendum` targeting the note that holds that state.
 
-**Addendum target must be real.** A `type: addendum` may target only a note actually referenced or touched this session — the project's `Project.md`, `Open-Issues.md`, or a plan doc that came up. Never target an invented, unseen, or deleted note. If the project-state update has no such existing home, write it as a standalone instead. If the session surfaced no standard, write none.
+**Addendum target must be real.** A `type: addendum` targets a note this session referenced or touched — the project cover (the folder-note, CONFIG § Numbering) or its canonical plan — confirmed on disk before the `target:` field is stamped. A project-state update with no such home is written as a standalone instead. A session that surfaced no standard writes none.
 
 When the resume point needs more than the log's State-of-play line, invoke the note-kit-plan skill to write or update the session's canonical plan note rather than hand-rolling one (look in `<inbox>` or the project/parent root), passing it the session context and the current State-of-play. An existing plan is updated in place; none → a draft in `<inbox>`.
 
@@ -98,20 +83,27 @@ Before posting the summary, confirm you did not skip an output the session earne
 | output                      | write one when the session                                                                                                                                 | the tell                                                                                        |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | session log                 | always                                                                                                                                                     | mandatory                                                                                       |
+| project cover (§1)          | changed state the project cover records — a blocker, a decision, a new resume point                                                                        | the cover's newest dated block predates this session                                            |
 | atomic reference note (§2)  | confirmed a reusable, context-free fact a struggle resolved                                                                                                | a Successes/Failures finding that stays true with the project deleted                           |
 | voice note (§3)             | stated or corrected how prose should read, beyond this project                                                                                             | someone pushed back on phrasing, tone, or lingo                                                 |
 | design note (§3)            | stated or corrected how something works or is organized, beyond this project: methodology, architecture, process, naming, ordering, prefixes               | a correction about behavior or structure, not appearance or wording                             |
 | format note (§3)            | stated or corrected how something looks, beyond this project: color, typography, chart or diagram visual character, styling; appearance is the format axis | a correction about visual character, not structure, behavior, or wording                        |
-| project-state addendum (§3) | hit a new blocker, resolved an issue, or made a decision with an existing home note                                                                        | a `Project.md`, `Open-Issues`, or plan should record it                                         |
+| project-state addendum (§3) | hit a new blocker, resolved an issue, or made a decision with an existing home note                                                                        | the project cover or its canonical plan should record it                                        |
 | plan                        | created a plan, or an existing plan was meaningfully adjusted, completed, or deferred                                                                      | session started from a plan, or a plan was specifically accessed and checked during the session |
 | originating idea (§1)       | grew from a captured `idea` note                                                                                                                           | the idea still reads as a loose spark, but this session acted on it                             |
-| `<user-queue>` proposal     | asked a question in chat that went unanswered                                                                                                              | an open question would evaporate with the session — write it in proposal shape to the `<user-queue>` before the session closes (CONFIG § Queue protocol) |
+| `<user-queue>` proposal     | left an answerable **judgment call** unresolved in chat — one item per decision, each independently evidenced                                              | a genuine choice would evaporate with the session — write it in proposal shape to the `<user-queue>` (CONFIG § Queue protocol). A live-session **gate checklist** ("re-flash the device", "run the live test") is not a queue item — it routes to the plan and the log's State of play |
+
+**Machine-gates route to the plan, not the queue.** A user-presence gate — a step needing the user's hardware, GPU, webcam, or eyes ("re-flash the device", "run the live test", "judge the output by eye") — is a checklist item, not an answerable decision. Record every such gate on the session's canonical plan (invoke note-kit-plan, §3) and in the log's **State of play**, where the session brief surfaces them on resume. The `<user-queue>` receives a genuine judgment call the action-agent cannot resolve on its own, one item per decision. A list of gates in the queue degrades it (CONFIG § Queue protocol; § Holds — user-presence).
+
+**Check each queue row before writing it.** A `<user-queue>` row passes three checks at emit time: every option on the item resolves the same judgment; the item holds a decision rather than a set of independently executable steps; and every option executes from its own line, with no destination, name, scope, or count parked in a nested bullet beneath it. A second judgment gets its own item, independently evidenced; a set of steps routes to the session's canonical plan; nested detail folds up into the option or the context line (CONFIG § Queue protocol, `Format-User-Queue`).
 
 **A correction you received is the strongest signal of a standard.** When the user overrides how you did something and the override is not specific to one file, you have found a voice or design standard; file it per §3 (new note, or addendum onto the existing standard). An existing standard or rule does not cancel the note.
 
+**A verdict sweeps forward.** A session that falsifies a mechanism lists every document known to assert it, edits the ones whose correction is mechanical — each carrying a forward pointer to the verdict — and records the remainder in the log's **State of play** for the analyst's sweep. Retiring the mechanism's vocabulary runs in the same pass (CONFIG § Deprecation).
+
 **Voice pre-correction (pre-filing).** Re-read each atomic reference for imperative "do this" phrasing where descriptive belongs — a reference states how something IS. Rewrite before filing; this is the most common voice error.
 
-**Shape each output to its type.** Before writing any typed note, fetch its Format note via `mcp__vault__vault_search("Format-<Type>")` — `Format-Reference`, `Format-Voice`, `Format-Design`, `Format-Session` (CONFIG § Format notes). The Format note carries the canonical frontmatter and body skeleton. Two invariants: never edit a format note mid-run; a missing format note → fall back to CONFIG § Types and flag the gap, never invent a shape. Every `<inbox>` draft carries `reviewed: false` and `status: draft`. Refer to any folder by its wildcard token, not its literal name.
+**Shape each output to its type.** Before writing any typed note, fetch its Format note via `mcp__vault__vault_search("Format-<Type>")` — one per output this run writes: `Format-Session`, `Format-Reference`, `Format-Voice`, `Format-Design`, `Format-Format`, `Format-Addendum`, and `Format-Project` or `Format-Area` for the cover (CONFIG § Format notes). The Format note carries the canonical frontmatter and body skeleton. Two invariants: never edit a format note mid-run; a missing format note → fall back to CONFIG § Types and flag the gap, never invent a shape. Every `<inbox>` draft carries `reviewed: false` and `status: draft`. Refer to any folder by its wildcard token, not its literal name.
 
 ## 5 — Chat summary
 

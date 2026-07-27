@@ -57,8 +57,10 @@ Open findings emitted here (snapshot-derivable, deterministic detections):
     history and stay out. An unparseable condition degrades one row
     (`claim-unparseable`), never the run, and a line stamped at or after this
     run defers (`claim-deferred`) — a claimant never certifies itself.
-  - `near-duplicate` / `near-duplicate-skipped` / `near-duplicate-truncated` —
-    the redundancy surface's pair flag. Cosine similarity over the vault-search
+  - `near-duplicate` — the redundancy surface's pair flag. (Its two companion
+    codes, `near-duplicate-skipped` and `near-duplicate-truncated`, report how
+    the detector RAN and belong to ## Detector status, not here — see
+    DETECTOR_STATUS_CODES.) Cosine similarity over the vault-search
     daemon's OWN chunk embeddings (read READ-ONLY out of its index.db
     `chunk_embeddings`, since the daemon's HTTP surface exposes no pair
     endpoint), file vector = L2-normalized mean of its chunk vectors, threshold
@@ -256,6 +258,28 @@ _CONVENTION_KEYS = {
     "upstream-type", "upstream-status", "value",
 }
 _PATH_KEYS = {"path", "target"}
+
+# ---------------------------------------------------------------------------
+# Detector-status codes — informational, never an open finding.
+#
+# An open finding names a vault file and proposes a change to it: the janitor
+# confirms and acts. A detector-status row names the SNAPSHOT ITSELF and
+# reports how a detector ran — it skipped for a stated reason, or it truncated
+# its report at a cap. There is nothing to act on and nothing to confirm, so
+# these rows report in ## Detector status and stay out of ## Open findings.
+#
+# Why this matters beyond tidiness: `near-duplicate-skipped` fires on EVERY
+# fresh install, because the detector reads the vault-search daemon's own
+# embeddings and a just-scaffolded vault has no index.db by definition.
+# Counting that row as an open finding made a pristine install report itself
+# unclean, and its skip reason names the daemon's `.claude/vault-search/`
+# index path — a diagnostic pointing at where the index would be, not a
+# proposal to touch a kit file.
+# ---------------------------------------------------------------------------
+DETECTOR_STATUS_CODES = frozenset({
+    "near-duplicate-skipped",
+    "near-duplicate-truncated",
+})
 
 
 def parse_convention_predicate(pred: str):
@@ -2719,6 +2743,19 @@ def main() -> None:
             f"{nd_skip_reason} — no fallback similarity was substituted",
         ))
 
+    # Split the detector-status rows out before the rollup: they report how a
+    # detector RAN, not a change to propose, so they carry their own section and
+    # never inflate the open-findings count (DETECTOR_STATUS_CODES).
+    detector_status = [row for row in open_findings
+                       if row[0] in DETECTOR_STATUS_CODES]
+    open_findings = [row for row in open_findings
+                     if row[0] not in DETECTOR_STATUS_CODES]
+
+    detector_status_lines = [
+        f"{ts} | {ACTOR} | {code} | {target} | {value or '-'}"
+        for code, target, value in detector_status
+    ]
+
     # Count rollup (code | scope | count) then per-file detail rows, in the kit's
     # state-log line shape. scope_of is the shared module-level helper.
     finding_counts: dict[tuple[str, str], int] = defaultdict(int)
@@ -2878,11 +2915,28 @@ def main() -> None:
         ))
     sections.append("")
 
+    sections.append("## Detector status")
+    sections.append(
+        "<!-- State rows (CONFIG § Log files): code | target | value. How a "
+        "detector RAN this pass — it skipped for a stated reason, or truncated "
+        "its report at a cap. These rows name the snapshot itself, propose no "
+        "change, and are NOT open findings: there is nothing for the janitor to "
+        "confirm or act on. A path under .claude/ in a skip reason is a "
+        "diagnostic naming where an index would live, never a proposal to touch "
+        "a kit file. -->"
+    )
+    if detector_status_lines:
+        sections.append("\n".join(detector_status_lines))
+    else:
+        sections.append("(every detector ran)")
+    sections.append("")
+
     sections.append("## Open findings")
     sections.append(
         "<!-- State rows (CONFIG § Log files): code | target | count. The count "
         "rollup is first; the per-file detail rows follow. Findings are "
-        "deterministic detections; the janitor confirms before acting. -->"
+        "deterministic detections; the janitor confirms before acting. "
+        "Detector-status rows report in ## Detector status above, not here. -->"
     )
     if finding_count_lines:
         sections.append("\n".join(finding_count_lines))
@@ -2911,6 +2965,9 @@ def main() -> None:
     print(f"  Files walked: {len(md_files_all)} .md + {len(non_md_files)} non-md")
     print(f"  Open findings: {len(open_findings)} "
           f"({len(finding_counts)} distinct code/scope rollups)")
+    print(f"  Detector status: {len(detector_status)} row(s)"
+          + (f" — {', '.join(sorted({c for c, _t, _v in detector_status}))}"
+             if detector_status else ""))
     print(f"  Suppressed by convention: {sum(convention_hits.values())} "
           f"across {len(convention_rows)} store rows"
           + (f", {len(convention_warnings)} malformed store line(s)"

@@ -25,11 +25,14 @@ What it does:
   4. Asserts the detect-only contract and a CLEAN fresh-install pass:
        - audit.py --dry-run writes NOTHING — no state snapshot, no ledger
          directory (the snapshot refresh is gated behind --apply);
-       - the snapshot written by the direct build_state_index run names zero
+       - the snapshot written by the direct build_state_index run proposes zero
          .claude/ paths (the kit must never propose moving its own files) and
          carries ~0 open findings (a fresh scaffold is already compliant).
-     Fails loudly if the dry run wrote anything, or the snapshot names a kit
-     file or carries open findings.
+         ## Detector status and ## Near-duplicate are read as diagnostics: with
+         no index.db on a fresh install the near-duplicate detector skips, and
+         the assertion is that the snapshot RECORDS that skip.
+     Fails loudly if the dry run wrote anything, or the snapshot proposes a kit
+     file, carries open findings, or drops a detector skip silently.
   5. Asserts the Lane-F portability + write-safety acceptance checks:
        - the fresh scaffold's settings.json (and the scaffold's own _HOOKS
          fallback) carry the live-proven `$CLAUDE_PROJECT_DIR` + "shell": "bash"
@@ -260,20 +263,49 @@ def _open_findings(snapshot_text: str) -> list[tuple[str, str]]:
     return rows
 
 
+def _section_body(snapshot_text: str, heading: str) -> str:
+    """Return the text between `heading` and the next `## ` heading.
+
+    Empty string when the heading is absent, so a caller asserting on a
+    section's contents reads a missing section as a missing record.
+    """
+    out: list[str] = []
+    in_section = False
+    for ln in snapshot_text.splitlines():
+        s = ln.strip()
+        if s.startswith("## "):
+            if in_section:
+                break
+            in_section = s == heading
+            continue
+        if in_section:
+            out.append(ln)
+    return "\n".join(out)
+
+
 def _assert_clean_audit(tmp_vault: Path) -> None:
-    """The shared state snapshot must have zero .claude/ paths and no actionable
-    open findings (a brand-new empty scaffold's `type-unused` macro excepted).
+    """The shared state snapshot must propose no .claude/ path and carry no
+    actionable open finding (a brand-new empty scaffold's `type-unused` macro
+    excepted).
 
     v005 logging model (CONFIG § Log files): two artifacts under <logs>, no
     per-run files. The snapshot here comes from the DIRECT build_state_index
     run (audit.py refreshes it only under --apply; a detect-only run writes
     nothing). A fresh scaffold is already compliant, so the snapshot must:
-      - name no path under .claude/ (proposing to touch kit files is the
-        stale-install / dot-dir-scan failure this guards against), and
+      - name no path under .claude/ outside ## Detector status and
+        ## Near-duplicate (proposing to touch kit files is the stale-install /
+        dot-dir-scan failure this guards against; a skip reason naming the
+        daemon's own index path is a diagnostic, and a fresh install by
+        definition has no index.db for it to name — so what is asserted there is
+        that the skip is RECORDED), and
       - carry no open finding except the inherent empty-vault `type-unused`
         (every canonical type has zero members in a just-created vault). Any
         other finding — a stray-folder on the scaffold's own subfolders, a
         would-move, a missing-frontmatter — means the install is not pristine.
+        Detector-status rows (`near-duplicate-skipped` and its truncation twin)
+        are not findings at all: build_state_index routes them to their own
+        section, because reporting how a detector RAN proposes nothing to act
+        on. `near-duplicate-skipped` fires on EVERY fresh install.
     """
     snap = _snapshot_path(tmp_vault)
     if not snap.exists():
@@ -283,15 +315,46 @@ def _assert_clean_audit(tmp_vault: Path) -> None:
 
     text = snap.read_text(encoding="utf-8")
 
-    # (c1) Zero .claude/ paths anywhere in the snapshot. Match both slash styles.
-    claude_hits = [
-        ln.strip() for ln in text.splitlines()
-        if ".claude/" in ln or ".claude\\" in ln
-    ]
+    # (c1) The kit never PROPOSES touching its own files: no row outside the
+    #      diagnostic sections may name a path under .claude/. Match both slash
+    #      styles.
+    #
+    #      ## Detector status and ## Near-duplicate are exempt, and the exemption
+    #      is the honest reading rather than a loosened gate. The near-duplicate
+    #      detector reads the vault-search daemon's own embeddings out of
+    #      .claude/vault-search/data/index.db. A fresh install HAS no index.db —
+    #      that is what "fresh" means — so the detector skips and records where
+    #      the index would have been. Asserting that path is absent would be
+    #      asserting a state a fresh install cannot reach. What the fresh install
+    #      owes instead is the RECORD: when the detector skips, the snapshot says
+    #      so in ## Detector status, out of ## Open findings, with no fallback
+    #      similarity substituted.
+    exempt_sections = {"## Detector status", "## Near-duplicate"}
+    section = ""
+    claude_hits: list[str] = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s.startswith("## "):
+            section = s
+            continue
+        if section in exempt_sections:
+            continue
+        if ".claude/" in s or ".claude\\" in s:
+            claude_hits.append(s)
+
+    # The skip, when it happens, is recorded — never silently dropped.
+    nd_skipped = "(skipped — " in text
+    skip_recorded = "near-duplicate-skipped" in _section_body(text, "## Detector status")
+    skip_ok = skip_recorded if nd_skipped else True
+
     _record(
-        "fresh-install: snapshot has zero .claude/ paths",
-        not claude_hits,
-        "none" if not claude_hits else f"{len(claude_hits)} hit(s): {claude_hits[0][:80]}",
+        "fresh-install: snapshot proposes no .claude/ path (daemon-absent skip recorded)",
+        not claude_hits and skip_ok,
+        "none"
+        if not claude_hits and skip_ok
+        else (f"{len(claude_hits)} hit(s): {claude_hits[0][:80]}" if claude_hits
+              else "near-duplicate skipped but no near-duplicate-skipped row in "
+                   "## Detector status"),
     )
 
     # (c2) No actionable open finding. `type-unused` is inherent to an empty

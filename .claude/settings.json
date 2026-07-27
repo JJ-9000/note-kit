@@ -5,7 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python ./.claude/hooks/load-rules.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/load-rules.py\"",
+            "shell": "bash"
           }
         ]
       }
@@ -16,7 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python ./.claude/hooks/session-start-context.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.py\"",
+            "shell": "bash"
           }
         ]
       }
@@ -27,7 +29,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python ./.claude/hooks/config-sync.py",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/config-sync.py\"",
+            "shell": "bash",
             "timeout": 60
           }
         ]

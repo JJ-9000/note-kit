@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, setIcon, Platform, Notice } from "obsidian";
 import { typeClass } from "./settings";
 import { toneVars } from "./palette";
-import { applyScreenShift, isApproved, isUnreviewed, makeDeferredRender, pickGateName } from "./kitShared";
+import { applyScreenShift, gateTieCount, isApproved, isUnreviewed, makeDeferredRender, pickGateName } from "./kitShared";
 import { attachHold, attachKeyActivate } from "./holds";
 import * as queueWrites from "./queueWrites";
 import { CHECKBOX_RE, HEADING_RE, SKIP_MARK_RE, EXEC_MARK_RE } from "./queueWrites";
@@ -36,6 +36,10 @@ interface Entry {
 	/** The gate is already approved while members are still drafts: the set is
 	 * done deciding and waits on the filing-agent, not the user. */
 	awaitingFiling?: boolean;
+	/** Count of same-rank gate candidates when the set has NO resolved gate (two
+	 * 00- covers → pickGateName returns none). Surfaced as a quiet "N gates" note
+	 * so the tie is visible rather than a silently-downgraded fold (B6). */
+	gateTie?: number;
 }
 
 interface RowOpts {
@@ -83,8 +87,10 @@ export interface Decision {
 	options: DecisionOption[];
 }
 
-/** Fallback archive root when neither CONFIG nor a root-folder name resolves one. */
-const ARCHIVE_FALLBACK = "99-Archive";
+/** Fallback archive root when neither CONFIG nor a root-folder name resolves one.
+ * The plain-scheme name, matching rootRank's archive default (decorator.ts) and
+ * the /^archive$/i folder probe in archiveRoot — not the legacy numeric prefix. */
+const ARCHIVE_FALLBACK = "Archive";
 const BUCKET_CAP = 50;
 
 /** Gate-member unfolds, keyed by gate file path — so reviewing a set's children
@@ -93,6 +99,16 @@ const BUCKET_CAP = 50;
  * the nowExpandedGroups pattern minus the persistence: shared by the main and
  * sidebar twins, reset only by an app restart. */
 const expandedGates = new Set<string>();
+
+/** The text of an option that was just re-opened from a resolved decision (a
+ * committed fill-in unchecked, whose placeholder the write consumed). The shared
+ * decision card auto-opens that one option in its inline editor, pre-filled with
+ * the committed response, so the value stays editable after a fill-in is undone
+ * (B5). Set by the uncheck handlers, consumed once by the next render. */
+let reopenEditText: string | null = null;
+export function markReopenEdit(text: string): void {
+	reopenEditText = text;
+}
 
 /** A loose file (or folder) dropped in the outbox folder — queued work in file
  * form, surfaced as a Queue row. `open` is what a click opens: the file itself,
@@ -171,6 +187,10 @@ export class NowView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		// Tear down any in-flight popover observers + fallback timers (each finish()
+		// splices itself out) so nothing survives the closed view.
+		for (const cleanup of this.popoverCleanups.slice()) cleanup();
+		this.popoverCleanups = [];
 		this.contentEl.empty();
 	}
 
@@ -237,6 +257,11 @@ export class NowView extends ItemView {
 
 	/** Last rendered page's signature (renderSig) — the no-change bail. */
 	private lastSig: string | null = null;
+
+	/** Teardown callbacks for in-flight stampPopover observers + their fallback
+	 * timers, so none survives the view closing (onClose runs them). Each entry
+	 * removes itself when its own observer fires or its fallback elapses. */
+	private popoverCleanups: (() => void)[] = [];
 
 	/** Cheap digest of everything the page actually shows. Equal signatures
 	 * mean a rebuild would paint the identical page — so the broad event
@@ -347,6 +372,11 @@ export class NowView extends ItemView {
 		// Active projects / areas.
 		if (active.length) {
 			c.createDiv("nkui-now-divider");
+			// OD1 (decided 2026-07-25): the dot/title fade normalizes over the FULL
+			// active MODEL — every active entry, read here BEFORE renderBucket slices
+			// the rendered rows to BUCKET_CAP — so a row's fade is scroll- and
+			// cap-independent (the model-based treatment ruled for it, the cousin of the
+			// B4 weight heat). Range = freshest active (full glow) → oldest (dim floor).
 			const stamps = active.map((e) => e.activity ?? e.file.stat.mtime);
 			// The Active header takes the colour of the top item — under the
 			// type-major order that's the freshest entry of the first CONFIG
@@ -557,17 +587,37 @@ export class NowView extends ItemView {
 		const groups = ["nkui-now-gateslot", "nkui-now-countslot"]
 			.map((cls) => Array.from(scope.querySelectorAll<HTMLElement>(`.${cls}`)))
 			.filter((els) => els.length >= 2);
-		// Phase 1 — clear every width (writes only).
-		for (const els of groups) for (const el of els) el.style.width = "";
-		// Phase 2 — measure every column (reads only; a single layout flush). Exact
-		// sub-pixel width: rounding up widens the box past the text and the slack reads
-		// as an unequal gap beside an 8px neighbour.
-		const widths = groups.map((els) => Math.max(...els.map((el) => el.getBoundingClientRect().width)));
-		// Phase 3 — assign each column its width (writes only). A column measuring 0 (a
-		// hidden background tab) is left natural; onResize re-runs when it's visible.
+		// Measure each column's target from its slots' CHILDREN extent — NOT by
+		// clearing the slot's own width and reading the box back. The pills/counts are
+		// flex:0 0 auto, so they report their true width even while the slot box is
+		// locked wider; the slots carry no padding/border (styles.css), so the children
+		// extent IS the natural slot width. This removes the per-pass clear WRITE that
+		// forced a reflow every time, and the measure no longer depends on the lock —
+		// so an unchanged pass (same content + geometry) writes nothing (guard below)
+		// and costs no reflow. Reads still precede writes (one flush).
+		const contentWidth = (el: HTMLElement): number => {
+			let left = Infinity;
+			let right = -Infinity;
+			for (const kid of Array.from(el.children)) {
+				const r = kid.getBoundingClientRect();
+				if (r.left < left) left = r.left;
+				if (r.right > right) right = r.right;
+			}
+			return right > left ? right - left : 0;
+		};
+		// Phase 1 — measure every column's target content width (reads only; one flush).
+		// Exact sub-pixel: rounding up would widen the box past the text and the slack
+		// reads as an unequal gap beside an 8px neighbour.
+		const widths = groups.map((els) => Math.max(...els.map(contentWidth)));
+		// Phase 2 — assign each column its target, writing ONLY a CHANGED width. A
+		// column measuring 0 (a hidden background tab, or an all-empty group) is left
+		// natural; onResize re-runs when it's visible. Because the target comes from the
+		// children (never a cleared box), a re-measure of the SAME content produces the
+		// SAME target, the guard matches the locked width, and the write is skipped.
 		groups.forEach((els, i) => {
 			if (widths[i] <= 0) return;
-			for (const el of els) el.style.width = `${widths[i].toFixed(2)}px`;
+			const w = `${widths[i].toFixed(2)}px`;
+			for (const el of els) if (el.style.width !== w) el.style.width = w;
 		});
 	}
 
@@ -608,6 +658,7 @@ export class NowView extends ItemView {
 				onPickFilled: (raw, filled) => this.pickOptionFilled(path, raw, filled),
 				onAcknowledge: () => this.acknowledge(path, d),
 				onAddOption: (text) => this.addOption(path, d, text),
+				onEditOption: (raw, next) => this.updateOptionText(path, d, raw, next),
 				fade: true,
 			});
 		}
@@ -631,6 +682,9 @@ export class NowView extends ItemView {
 			checkbox: {
 				checked: true,
 				onChange: async () => {
+					// Re-open the pick as editable: a committed fill-in's placeholder is
+					// consumed, so mark it for the card to pre-fill on the next render (B5).
+					markReopenEdit(picked.text);
 					await this.setItemChecked(path, picked.text, false);
 					await this.reloadAndRender();
 				},
@@ -773,8 +827,14 @@ export class NowView extends ItemView {
 		cnt.createSpan({ cls: "nkui-now-count-digit", text: String(count) });
 		// The count is a square pill (§ GG): a real type colour fills it inline; a
 		// colour-less section (Decide / Queue / Waiting) takes the muted neutral pill.
-		if (color) cnt.style.background = color;
-		else cnt.addClass("nkui-now-count-neutral");
+		// Route the background AND its contrast ink through the same toneVars tokens
+		// on the pill itself, so the surface and its --nkui-pill-ink always composite
+		// as a pair (Lane B pill-ink handoff) — the ink no longer depends on an
+		// ancestor carrying the tone set.
+		if (color) {
+			cnt.style.background = color;
+			for (const [k, v] of Object.entries(toneVars(color))) cnt.style.setProperty(k, v);
+		} else cnt.addClass("nkui-now-count-neutral");
 		gh.createSpan({ cls: "nkui-now-group-title", text: label });
 		// Notification pip (§ GG): a populated section that is NOT the settled
 		// Waiting group carries a dot at the head's right edge while collapsed —
@@ -1007,14 +1067,39 @@ export class NowView extends ItemView {
 		if (!type) return;
 		const color = this.colorFor(type);
 		if (!color) return;
-		window.setTimeout(() => {
+		// Stamp the first un-stamped hover-popover the instant it is inserted — a
+		// MutationObserver, not an 80ms guess at when the core creates it. The
+		// idempotency guard (nkui-typed) sits on the POPOVER, the element that gets
+		// (re)built, so a re-created popover re-stamps (Guard Decorations on the
+		// Rebuilt Element).
+		const stamp = (): boolean => {
 			const pops = Array.from(document.body.querySelectorAll<HTMLElement>(".popover.hover-popover"));
 			const pop = pops[pops.length - 1];
-			if (!pop || pop.classList.contains("nkui-typed")) return;
+			if (!pop || pop.classList.contains("nkui-typed")) return false;
 			pop.addClass("nkui-typed");
 			pop.addClass(typeClass(type));
 			pop.style.setProperty("--nkui-type-color", color);
-		}, 80);
+			return true;
+		};
+		if (stamp()) return; // already present — no observer needed
+		// The observer AND its fallback timer are tracked so onClose can tear them
+		// down — neither may outlive the view. They also self-remove the moment they
+		// fire: the stamp landing, or the fold-clock window elapsing with no popover
+		// (a cancelled hover).
+		let fallback = 0;
+		let obs: MutationObserver;
+		const finish = (): void => {
+			obs?.disconnect();
+			window.clearTimeout(fallback);
+			const i = this.popoverCleanups.indexOf(finish);
+			if (i >= 0) this.popoverCleanups.splice(i, 1);
+		};
+		obs = new MutationObserver(() => {
+			if (stamp()) finish();
+		});
+		this.popoverCleanups.push(finish);
+		obs.observe(document.body, { childList: true });
+		fallback = window.setTimeout(finish, unrollMaxMs());
 	}
 
 	/** Single tap on a gate row (Needs or Waiting): unfold the gated member files
@@ -1092,7 +1177,9 @@ export class NowView extends ItemView {
 			box.remove();
 		};
 		box.addEventListener("transitionend", detach, { once: true });
-		window.setTimeout(detach, 600);
+		// Fallback for a hidden pane that fires no transitionend — on the token clock
+		// (--nkui-unroll-max, the fold's ceiling), not an off-token literal.
+		window.setTimeout(detach, unrollMaxMs());
 	}
 
 	/** Stamp an element with its type tint — --nkui-row-color plus the derived
@@ -1178,7 +1265,10 @@ export class NowView extends ItemView {
 			// small pills kept getting mis-pressed on a phone). `nkui-row-hold`
 			// marks it for the stylesheet's whole-row hold fill.
 			row.addClass("nkui-row-hold");
-			const peekable = e.isGate && !!e.setFiles?.length;
+			// Key the peek on MEMBERSHIP, not on gate resolution: a folded set with no
+			// resolved gate (a same-rank tie) still has member files, so it must unfold
+			// on tap and cascade its hold like any gated set (B6).
+			const peekable = !!e.setFiles?.length;
 			const hint = e.isGate
 				? "Hold to approve the gate — approving it approves the rest of the set. Tap to peek at the set; tap the title to open it."
 				: "Hold to approve this draft (reviewed: true). Tap to open.";
@@ -1214,6 +1304,17 @@ export class NowView extends ItemView {
 			if (e.setCount && !e.isGate) {
 				const n = cslot.createSpan({ cls: "nkui-now-setcount", text: `+${e.setCount}` });
 				n.setAttr("aria-label", `${e.setCount} more in this set`);
+			}
+
+			// A same-rank gate tie: name it in the row rather than downgrade silently.
+			// The set still unfolds and holds (peekable keys on membership above); the
+			// note tells the user why no single gate leads it (B6).
+			if (e.gateTie) {
+				const tieNote = `${e.gateTie} gates`;
+				const tie = set.createSpan({ cls: "nkui-now-gatetie", text: tieNote });
+				const tieAria = `${e.gateTie} same-rank covers — no single gate; fix the naming to set one`;
+				tie.setAttr("aria-label", tieAria);
+				tie.setAttr("title", tieAria);
 			}
 
 			// The gate file is the one document to actually read — approving it
@@ -1292,6 +1393,14 @@ export class NowView extends ItemView {
 	private async pickOptionFilled(path: string, rawText: string, filledText: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (f instanceof TFile) await queueWrites.pickOptionFilled(this.app.vault, f, rawText, filledText);
+		await this.reloadAndRender();
+	}
+
+	/** Rewrite one decision option's text in place (tap-to-edit), keeping its
+	 * checkbox state; located by the decision's heading then the option text. */
+	private async updateOptionText(path: string, d: Decision, oldText: string, newText: string): Promise<void> {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (f instanceof TFile) await queueWrites.updateOption(this.app.vault, f, d, oldText, newText);
 		await this.reloadAndRender();
 	}
 
@@ -1537,6 +1646,11 @@ export class NowView extends ItemView {
 			const gate = gateName ? roots.find((m) => m.entry.file.name === gateName)?.entry ?? null : null;
 			const gateMember = gate ? members.find((m) => m.entry === gate) : undefined;
 			const count = members.length;
+			// OD2 (decided 2026-07-25): pickGateName now tie-breaks same-rank candidates
+			// deterministically, so a two-00- container RESOLVES to a gate. Keep the tie
+			// VISIBLE regardless — the "N gates" note flags the naming to fix — by
+			// carrying the count on whichever head this container folds to.
+			const tie = gateTieCount(roots.map((m) => m.entry.file.name), cname);
 
 			// A resolvable gate with tag-alongs folds to one row carrying "+N".
 			// Approved → Waiting (with its member files for un-approve); a draft →
@@ -1552,6 +1666,7 @@ export class NowView extends ItemView {
 						.filter((m) => m.entry !== gate)
 						.map((m) => m.entry.file)
 						.sort((a, b) => a.path.localeCompare(b.path)),
+					gateTie: tie >= 2 ? tie : undefined,
 				};
 				if (gateMember?.approved) waiting.push({ ...head, awaitingFiling: true });
 				else needs.push(head);
@@ -1572,12 +1687,17 @@ export class NowView extends ItemView {
 			// folder lists each. Either way a draft needs you, an approved one waits.
 			if (members.some((m) => m.depth >= 3)) {
 				members.sort((a, b) => a.depth - b.depth || a.entry.file.path.localeCompare(b.entry.file.path));
+				// Reuse the container's tie count (computed above): with the OD2 tie-break
+				// a same-rank contest now resolves a gate above, so this branch is the
+				// genuine no-cover fold — tie is 0 for it — but keep the label for
+				// robustness if pickGateName ever declines to resolve (B6).
 				// Build a fresh head (don't mutate the shared collected entry) — matches
 				// the gate branch and keeps the source entry reusable.
 				const head: Entry = {
 					...members[0].entry,
 					setCount: count - 1,
 					setFiles: members.slice(1).map((m) => m.entry.file),
+					gateTie: tie >= 2 ? tie : undefined,
 				};
 				if (members[0].approved) waiting.push({ ...head, awaitingFiling: true });
 				else needs.push(head);
@@ -1927,6 +2047,9 @@ export interface DecisionCardOpts {
 	onAcknowledge: () => void | Promise<void>;
 	/** Append a proposed option; omit to hide the add-option box (queue view). */
 	onAddOption?: (text: string) => void;
+	/** Rewrite an option's text in place (tap-to-edit). Omit to leave options
+	 * read-only. Both surfaces wire it through queueWrites.updateOption. */
+	onEditOption?: (rawText: string, newText: string) => void | Promise<void>;
 	/** Soften the card before a write re-renders it into its resolved row, so the
 	 * pick reads as a transition rather than a snap (For You only). */
 	fade?: boolean;
@@ -1947,7 +2070,59 @@ export function renderDecisionCard(list: HTMLElement, d: Decision, o: DecisionCa
 			return;
 		}
 		card.addClass("is-resolving");
-		window.setTimeout(() => void write(), 78);
+		// The resolve fade beat rides the settle token clock, not an off-token literal.
+		window.setTimeout(() => void write(), settleMs());
+	};
+
+	/** Swap an option's text span for a live editor seeded with its raw text —
+	 * Enter saves through onEditOption (the host rewrites the line and re-renders),
+	 * Esc/blur cancels back to the text. Mirrors editMachineItem; the checkbox is
+	 * held inert while editing so a stray tick can't fire mid-edit. */
+	const startOptEdit = (
+		row: HTMLElement,
+		cb: HTMLInputElement,
+		opt: DecisionOption,
+		textSpan: HTMLElement
+	): void => {
+		if (!o.onEditOption || row.querySelector(".nkui-now-qedit-field")) return;
+		const onEdit = o.onEditOption;
+		textSpan.hide();
+		cb.disabled = true;
+		const ta = row.createEl("textarea", {
+			cls: "nkui-now-qaddinput nkui-now-qedit-field",
+			attr: { rows: "1" },
+		});
+		ta.value = opt.text;
+		ta.addEventListener("input", () => autoGrow(ta));
+		window.setTimeout(() => {
+			autoGrow(ta);
+			ta.focus();
+			ta.setSelectionRange(ta.value.length, ta.value.length);
+		}, 0);
+		let done = false;
+		const restore = (): void => {
+			ta.remove();
+			cb.disabled = false;
+			textSpan.show();
+		};
+		const finish = (saveIt: boolean): void => {
+			if (done) return;
+			done = true;
+			const v = ta.value.trim();
+			// A real change re-renders the card via the host write; otherwise restore.
+			if (saveIt && v && v !== opt.text) void onEdit(opt.text, v);
+			else restore();
+		};
+		ta.addEventListener("keydown", (ev) => {
+			if (ev.key === "Enter" && !ev.shiftKey) {
+				ev.preventDefault();
+				finish(true);
+			} else if (ev.key === "Escape") {
+				ev.preventDefault();
+				finish(false);
+			}
+		});
+		ta.addEventListener("blur", () => finish(true));
 	};
 
 	if (d.title) {
@@ -1998,12 +2173,16 @@ export function renderDecisionCard(list: HTMLElement, d: Decision, o: DecisionCa
 		const fm = opt.text.match(/REPLACE-WITH-([A-Z0-9-]+)/);
 		if (fm) {
 			const [pre, post] = opt.text.split(fm[0], 2);
-			if (pre.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
-			const fill = row.createEl("input", {
+			// The label / input / trailing-label trio lives in its own flex child so
+			// it can wrap within itself on a narrow pane WITHOUT wrapping the row and
+			// stranding the checkbox above the text (B3 trio nesting).
+			const wrap = row.createSpan("nkui-now-fillwrap");
+			if (pre.trim()) wrap.createSpan({ cls: "nkui-now-opttext", text: plainText(pre) });
+			const fill = wrap.createEl("input", {
 				cls: "nkui-now-fillin",
 				attr: { type: "text", placeholder: fm[1].toLowerCase().replace(/-/g, " ") },
 			});
-			if (post && post.trim()) row.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
+			if (post && post.trim()) wrap.createSpan({ cls: "nkui-now-opttext", text: plainText(post) });
 			const submit = (): void => {
 				const v = fill.value.trim();
 				if (!v) {
@@ -2024,7 +2203,28 @@ export function renderDecisionCard(list: HTMLElement, d: Decision, o: DecisionCa
 			continue;
 		}
 		cb.addEventListener("change", () => commit(() => o.onPick(opt.text)));
-		row.createSpan({ cls: "nkui-now-opttext", text: plainText(opt.text) });
+		const textSpan = row.createSpan({ cls: "nkui-now-opttext", text: plainText(opt.text) });
+		// Tap-to-edit: an option row carries no edit affordance otherwise (desktop
+		// escapes to raw markdown, mobile can't). Tapping the text opens the inline
+		// editor (B5). A committed fill-in that was just unchecked re-opens as a plain
+		// option whose placeholder the write consumed — auto-open its editor here,
+		// pre-filled with the response, so the value stays editable (B5 reopen).
+		if (o.onEditOption) {
+			textSpan.setAttr("role", "button");
+			textSpan.setAttr("title", "Tap to edit this option");
+			textSpan.addEventListener("click", (ev) => {
+				ev.stopPropagation();
+				startOptEdit(row, cb, opt, textSpan);
+			});
+			if (reopenEditText !== null && opt.text === reopenEditText) {
+				// Consume the marker on the matching option either way (no staleness);
+				// auto-open only a single-option decision — a fill-in or lone specified
+				// outcome, where re-editing the value is the point. A multiple-choice
+				// re-open stays a plain pick.
+				reopenEditText = null;
+				if (single) startOptEdit(row, cb, opt, textSpan);
+			}
+		}
 	}
 
 	// Add-option input — a machine-queue-style way to propose another option.
@@ -2038,11 +2238,32 @@ export function renderDecisionCard(list: HTMLElement, d: Decision, o: DecisionCa
 		cls: "nkui-now-qaddinput",
 		attr: { type: "text", placeholder: single ? "Add an option…" : "Add another option…" },
 	});
+	const submitOpt = (): void => {
+		const v = input.value.trim();
+		if (!v) return;
+		input.value = "";
+		onAdd(v);
+	};
+	// A "+" submit beside the input, mirroring renderAddTaskBox: Enter is
+	// unreliable on mobile (the soft-keyboard return inserts a newline), so the
+	// button is the reliable commit there (B5). preventDefault on pointerdown keeps
+	// the tap from stealing focus / suppressing the click on some mobile webviews.
+	const submitBtn = add.createEl("button", { cls: "nkui-now-qaddsubmit" });
+	setIcon(submitBtn, "plus");
+	submitBtn.setAttr("aria-label", "Add option");
+	submitBtn.addEventListener("pointerdown", (ev) => ev.preventDefault());
+	const fireOpt = (ev: Event): void => {
+		ev.preventDefault();
+		submitOpt();
+		if (Platform.isMobile) input.blur();
+		else input.focus();
+	};
+	if (Platform.isMobile) submitBtn.addEventListener("pointerup", fireOpt);
+	else submitBtn.addEventListener("click", fireOpt);
 	input.addEventListener("keydown", (ev) => {
 		if (ev.key === "Enter" && input.value.trim()) {
 			ev.preventDefault();
-			onAdd(input.value.trim());
-			input.value = "";
+			submitOpt();
 		}
 	});
 }
@@ -2064,6 +2285,16 @@ function settleMs(): number {
 	const v = parseFloat(raw);
 	if (!Number.isFinite(v) || v <= 0) return 170;
 	// "170ms" parses to 170; a bare seconds value ("0.17s") scales up.
+	return raw.endsWith("ms") ? v : v < 10 ? v * 1000 : v;
+}
+
+/** The stylesheet's --nkui-unroll-max token in ms — the fold's longest duration,
+ * read live so the fold-detach fallback stays on the token clock. Falls back to
+ * the shipped 480ms when unset (the stylesheet not yet injected). */
+function unrollMaxMs(): number {
+	const raw = getComputedStyle(document.body).getPropertyValue("--nkui-unroll-max").trim();
+	const v = parseFloat(raw);
+	if (!Number.isFinite(v) || v <= 0) return 480;
 	return raw.endsWith("ms") ? v : v < 10 ? v * 1000 : v;
 }
 

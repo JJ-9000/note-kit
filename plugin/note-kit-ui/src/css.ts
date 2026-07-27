@@ -1,6 +1,6 @@
 import { NoteKitUiSettings, TypeStyle, typeClass } from "./settings";
 import { toneVars } from "./palette";
-import { armDelayMs } from "./holds";
+import { armDelayMs, closeOfferFor, HOLD_MS } from "./holds";
 import { ICON_CONTROLS, encodeSvgDataUri, normalizeOverrideSvg } from "./icons";
 
 /** Serialize a type colour + its derived sub-tones as CSS declarations. */
@@ -28,14 +28,15 @@ export function buildDynamicCss(s: NoteKitUiSettings, typeStyles: TypeStyle[]): 
 	const out: string[] = [];
 
 	// The configured hold duration drives the fill animation (paired with
-	// configureHolds in main.ts); the close-offer keeps the shipped 5x ratio.
+	// configureHolds in main.ts); the close-offer runs through the shared
+	// closeOfferFor authority (holds.ts) so the 5x ratio lives in one place.
 	// The fill only starts after holds.ts's arm delay (so a tap never flashes
 	// it), so --nkui-hold is the REMAINDER — the visible sweep, never under
 	// the 100ms armDelayMs guards (one source of truth: the delay constant
 	// lives in holds.ts).
-	const hold = Number.isFinite(s.holdMs) && s.holdMs > 0 ? s.holdMs : 395;
+	const hold = Number.isFinite(s.holdMs) && s.holdMs > 0 ? s.holdMs : HOLD_MS;
 	const fill = Math.max(100, hold - armDelayMs(hold));
-	out.push(`:root { --nkui-hold: ${fill}ms; --nkui-count: ${Math.round(hold * 5)}ms; }`);
+	out.push(`:root { --nkui-hold: ${fill}ms; --nkui-count: ${closeOfferFor(hold)}ms; }`);
 
 	if (s.hideFolderArrows) {
 		// Hide the collapse chevron. Folders still toggle on title click.

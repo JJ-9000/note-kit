@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type NoteKitUiPlugin from "./main";
+import { HOLD_MS } from "./holds";
 import { ICON_CONTROLS, encodeSvgDataUri, normalizeOverrideSvg } from "./icons";
 
 /** One note-type rule (feature c). `type` matches the frontmatter `type` value. */
@@ -103,8 +104,8 @@ export interface NoteKitUiSettings {
 	 * path stays visible, so the mode is always exitable. */
 	minimalistMode: boolean;
 	/** Animation speed multiplier. The live CSS token --nkui-speed-user divides
-	 * animation durations by this value (default 1.0; higher = faster). Range
-	 * 0.5–2.0. Persisted and re-applied on load. */
+	 * animation durations by this value (shipped default 1.1; 1.0 = real-time;
+	 * higher = faster). Range 0.5–2.0. Persisted and re-applied on load. */
 	animSpeed: number;
 
 	/** Inter-element margin multiplier. The live CSS token --nkui-margin-scale
@@ -229,8 +230,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// The author's settled placement — content sits noticeably above true centre.
 	nowVerticalBias: -30,
 	paletteMigrated: false,
-	// 610ms settled as the comfortable commit (the author's tuned hold).
-	holdMs: 610,
+	// The single hold source (holds.ts HOLD_MS = 610ms, the author's tuned commit).
+	holdMs: HOLD_MS,
 	solidIcons: true,
 	largeMouths: true,
 	// Sharp stays the kit default — rounded is the opt-in iOS look (the author
@@ -243,7 +244,8 @@ export const DEFAULT_SETTINGS: NoteKitUiSettings = {
 	// On by default — the iPhone-style interface font is part of the kit look.
 	interfaceFont: true,
 	minimalistMode: false,
-	// 1.0 = real-time (default); the CSS token --nkui-speed-user divides durations.
+	// 1.1 = the shipped default (a touch faster than 1.0 = real-time); the CSS token
+	// --nkui-speed-user divides animation durations by this value.
 	animSpeed: 1.1,
 	// 1.0 = default inter-element margins; --nkui-margin-scale multiplies them (0 = touching).
 	marginScale: 1,

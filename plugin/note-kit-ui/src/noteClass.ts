@@ -71,9 +71,12 @@ export class NoteClassApplier {
 	private clear(el: HTMLElement): void {
 		const stale = Array.from(el.classList).filter((c) => c.startsWith("nkui-type-"));
 		for (const c of stale) el.classList.remove(c);
-		for (const v of ["--nkui-type-color", "--nkui-ts", "--nkui-tm", "--nkui-tk"]) {
-			el.style.removeProperty(v);
-		}
+		// Clear the type colour and EVERY derived tone token — iterate the toneVars
+		// keys so a token added later (--nkui-tb, --nkui-tbr, --nkui-pill-ink, …) is
+		// covered without a hand-maintained list. Otherwise the newer tokens linger
+		// on a tab header across type changes and unload.
+		el.style.removeProperty("--nkui-type-color");
+		for (const k of Object.keys(toneVars("#000000"))) el.style.removeProperty(k);
 	}
 
 	private forEachLeaf(fn: (view: MarkdownView, tab: HTMLElement | undefined) => void): void {

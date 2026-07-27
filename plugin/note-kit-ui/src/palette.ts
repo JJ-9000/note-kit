@@ -191,6 +191,51 @@ export function autoColor(index: number): string {
 	return hex(hslToRgb([(index * 137.508) % 360, 0.6, 0.55]));
 }
 
+/** Relative luminance (WCAG) of an sRGB colour, 0 (black) … 1 (white). */
+function relLuminance([r, g, b]: Rgb): number {
+	const lin = (c: number): number => {
+		const s = c / 255;
+		return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+	};
+	return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** WCAG contrast ratio between two luminances (order-independent). */
+function contrast(l1: number, l2: number): number {
+	const hi = Math.max(l1, l2);
+	const lo = Math.min(l1, l2);
+	return (hi + 0.05) / (lo + 0.05);
+}
+
+/** A hue-true DARK ink for a light tinted surface: same hue, saturation eased
+ * down, lightness dropped to a low fixed floor — so lightness (not hue) carries
+ * the contrast, the inverse of the lightening tones above. Near-black of the
+ * surface's own hue, legible on any high-luminance pill. */
+function darkInk(rgb: Rgb): string {
+	const [h, s] = rgbToHsl(rgb);
+	return hex(hslToRgb([h, Math.min(s, 0.35), 0.16]));
+}
+
+/** The pill-ink token for a tinted pill of colour `hexStr`. Measured against the
+ * pill's own surface luminance: a surface where the bright `--text-on-accent` ink
+ * clears 4.5:1 keeps that bright ink; a surface too light for it (the near-white
+ * type defaults — index, idea, voice) takes a hue-true dark ink, but only when the
+ * dark ink actually reads better, so a borderline mid-tone is never made worse.
+ * Contrast comes from lightness in both directions
+ * (Format-UI-Tinted-Text-Lightens-for-Contrast, inverse case). */
+function pillInk(hexStr: string): string {
+	const rgb = hexToRgb(hexStr);
+	const bright = "var(--text-on-accent, #fff)";
+	if (!rgb) return bright;
+	const surface = relLuminance(rgb);
+	const cBright = contrast(surface, 1); // vs white
+	if (cBright >= 4.5) return bright;
+	const dark = darkInk(rgb);
+	const dRgb = hexToRgb(dark);
+	const cDark = dRgb ? contrast(surface, relLuminance(dRgb)) : 0;
+	return cDark > cBright ? dark : bright;
+}
+
 /** A hue-preserving tone of `hex`: lightness shifted by `dL` (capped so it never
  * washes to white), saturation scaled by `sMul`. Hue is untouched. */
 export function tone(hexStr: string, dL: number, sMul = 1): string {
@@ -227,5 +272,10 @@ export function toneVars(hexStr: string): Record<string, string> {
 		// even on darker types (blue). Same hue, a touch less saturation so the
 		// high-lightness tone doesn't glare; capped by tone() at 0.82.
 		"--nkui-tbr": tone(hexStr, dark ? 0.34 : -0.3, 1.1),
+		// Contrast ink for a pill/highlight filled with this exact colour: the
+		// bright on-accent ink where the surface can carry it, a hue-true dark ink
+		// where it can't (the near-white type defaults). Paired with the surface so
+		// the two always composite legibly (Contrast Ink over Light Type Colours).
+		"--nkui-pill-ink": pillInk(hexStr),
 	};
 }

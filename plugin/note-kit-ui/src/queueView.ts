@@ -5,6 +5,7 @@ import {
 	autoGrow,
 	isOpenDecision,
 	isResolvedDecision,
+	markReopenEdit,
 	parseDecisions,
 	parseQueueItems,
 	plainText,
@@ -351,6 +352,7 @@ export class QueueView extends ItemView {
 				onPick: (text) => this.pickOption(text),
 				onPickFilled: (raw, filled) => this.pickOptionFilled(raw, filled),
 				onAcknowledge: () => this.acknowledge(d),
+				onEditOption: (raw, next) => this.updateOption(d, raw, next),
 			});
 		}
 		for (const d of resolved) this.renderResolvedDecision(list, d);
@@ -369,6 +371,9 @@ export class QueueView extends ItemView {
 		if (!picked) return;
 		const label = d.title ? `${plainText(d.title)} — ${plainText(picked.text)}` : plainText(picked.text);
 		const restore = async (): Promise<void> => {
+			// Re-open the pick as editable (B5): mark it so the card pre-fills the
+			// committed response, whose fill-in placeholder the write consumed.
+			markReopenEdit(picked.text);
 			await this.setChecked(picked.text, false);
 			await this.reloadAndRender();
 		};
@@ -402,6 +407,13 @@ export class QueueView extends ItemView {
 	private async pickOptionFilled(rawText: string, filledText: string): Promise<void> {
 		const f = this.file();
 		if (f) await queueWrites.pickOptionFilled(this.app.vault, f, rawText, filledText);
+		await this.reloadAndRender();
+	}
+
+	/** Rewrite one decision option's text in place (tap-to-edit), keeping its state. */
+	private async updateOption(d: Decision, oldText: string, newText: string): Promise<void> {
+		const f = this.file();
+		if (f) await queueWrites.updateOption(this.app.vault, f, d, oldText, newText);
 		await this.reloadAndRender();
 	}
 

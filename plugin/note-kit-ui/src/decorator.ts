@@ -241,7 +241,9 @@ export class ExplorerDecorator {
 		// weight sorting, ordering off) — re-sort through the patched hook, which
 		// reads floatEnabled live and yields native order when ordering is off.
 		this.resortExplorer();
-		this.decorateAll();
+		// Settings-refresh path: flush so a token change (rounded mode, radius)
+		// repaints immediately. The ordinary event-driven decorateAll stays unflushed.
+		this.decorateAll(true);
 	}
 
 	// ── setup ────────────────────────────────────────────────────────────────
@@ -503,9 +505,14 @@ export class ExplorerDecorator {
 		this.redraw();
 	}
 
-	private decorateAll(): void {
+	/** A full decoration + counts pass. `flush` forces the synchronous style-flush
+	 * (offsetHeight) inside decorateRendered — needed ONLY on the settings-refresh
+	 * path, where a token change (rounded mode, radius) must repaint at once. The
+	 * ordinary event-driven pass leaves it false so a routine redraw never forces a
+	 * layout on the virtualized explorer. */
+	private decorateAll(flush = false): void {
 		this.redrawBurstStart = 0; // a full pass ran — close the burst window
-		this.decorateRendered();
+		this.decorateRendered(flush);
 		void this.updateCounts();
 	}
 
@@ -528,12 +535,13 @@ export class ExplorerDecorator {
 			c.querySelectorAll<HTMLElement>(".nav-folder-children").forEach((cc) =>
 				this.applyFolderStyles(cc)
 			);
-			// Item 1 — force a style-flush after re-stamping all attributes so the
-			// browser repaints the new border-radius immediately (e.g. when rounded
-			// mode toggles). Reading offsetHeight is a minimal forced reflow. Gated
-			// to flush=true (the decorateAll / settings-refresh path) — the
-			// scroll-settle pass calls decorateRendered(false), so a routine settled
-			// scroll no longer forces a synchronous layout on the virtualized list.
+			// Force a style-flush after re-stamping all attributes so the browser
+			// repaints the new border-radius immediately (e.g. when rounded mode
+			// toggles). Reading offsetHeight is a minimal forced reflow. Gated to the
+			// SETTINGS-REFRESH path only: refresh() calls decorateAll(true); every
+			// other decorateAll (the event-driven redraw) and the scroll-settle pass
+			// (decorateRendered(false)) leave it unflushed, so no ordinary pass forces
+			// a synchronous layout on the virtualized list.
 			if (flush) void c.offsetHeight; // eslint-disable-line @typescript-eslint/no-unused-expressions
 		}
 	}
@@ -1046,6 +1054,11 @@ export class ExplorerDecorator {
 		let n = looseDrafts;
 		for (const [container, count] of draftsByContainer) {
 			const members = roots.get(container) ?? [];
+			// OD2 knock-on (accepted 2026-07-25): pickGateName now tie-breaks same-rank
+			// candidates deterministically, so a two-00- set RESOLVES a gate here too.
+			// A tie-set whose resolved gate is approved therefore counts as
+			// awaiting-filing and correctly drops out of the inbox attention pill —
+			// where before the tie → null gate kept its drafts in the count.
 			const gate = pickGateName(members.map((m) => m.name), container);
 			const awaitingFiling = !!gate && (members.find((m) => m.name === gate)?.approved ?? false);
 			if (!awaitingFiling) n += count;
@@ -1337,24 +1350,51 @@ export class ExplorerDecorator {
 		return this.weightValue(this.plugin.app.metadataCache.getCache(path)?.frontmatter);
 	}
 
-	/** Per-folder weight heat: each weighted FILE row gets
-	 * `--nkui-weight-heat` scaled linearly against the heaviest sibling present
+	/** The heaviest `weight` among a folder's markdown children, read from the
+	 * vault MODEL (TFolder.children + metadataCache) rather than the DOM. The
+	 * explorer is virtualized, so a DOM-only max is the max of the *visible*
+	 * siblings and re-normalizes as you scroll; the model max is the whole folder's
+	 * and never moves. `anyChildPath` is any row's path — its parent folder is the
+	 * sibling set. Root-level rows (no parent) resolve to the vault root. */
+	private folderModelMaxWeight(anyChildPath: string | null): number {
+		if (!anyChildPath) return 0;
+		const slash = anyChildPath.lastIndexOf("/");
+		const parentPath = slash >= 0 ? anyChildPath.slice(0, slash) : "";
+		const folder = parentPath
+			? this.plugin.app.vault.getAbstractFileByPath(parentPath)
+			: this.plugin.app.vault.getRoot();
+		if (!(folder instanceof TFolder)) return 0;
+		let max = 0;
+		for (const c of folder.children) {
+			if (!(c instanceof TFile)) continue;
+			const w = this.weightOfPath(c.path);
+			if (w > max) max = w;
+		}
+		return max;
+	}
+
+	/** Per-folder weight heat: each weighted FILE row gets `--nkui-weight-heat`
+	 * scaled linearly against the heaviest weighted sibling in the folder MODEL
 	 * (max = 1), so the stylesheet can tint most-to-least like the Active list.
-	 * Unweighted rows lose the variable. Folder rows never carry heat. */
+	 * Scaling against the model max (not the visible rows) keeps a file's heat
+	 * scroll-independent on the virtualized explorer. Unweighted rows lose the
+	 * variable. Folder rows never carry heat. */
 	private applyWeightHeat(items: HTMLElement[]): void {
 		const rows: { title: HTMLElement; w: number }[] = [];
-		let max = 0;
+		let anyPath: string | null = null;
 		for (const it of items) {
 			const title = it.querySelector<HTMLElement>(
 				":scope > .nav-file-title, :scope > .nav-folder-title"
 			);
 			if (!title) continue;
-			const w = it.classList.contains("nav-file")
-				? this.weightOfPath(title.getAttribute("data-path") ?? "")
-				: 0;
+			const path = title.getAttribute("data-path") ?? "";
+			if (!anyPath && path) anyPath = path;
+			const w = it.classList.contains("nav-file") ? this.weightOfPath(path) : 0;
 			rows.push({ title, w });
-			if (w > max) max = w;
 		}
+		// Model max first; fall back to the visible max only if the folder can't be
+		// resolved (defensive — a resolved folder always yields a max ≥ each row's w).
+		const max = this.folderModelMaxWeight(anyPath) || rows.reduce((m, r) => (r.w > m ? r.w : m), 0);
 		for (const { title, w } of rows) {
 			if (w > 0 && max > 0) {
 				const heat = String(Math.round((w / max) * 1000) / 1000);

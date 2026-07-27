@@ -332,6 +332,9 @@ export default class NoteKitUiPlugin extends Plugin {
 		document.body.removeClass("nkui-nested-boxes");
 		document.body.removeClass("nkui-rounded");
 		document.body.removeClass("nkui-minimal");
+		// applyBodyClasses adds nkui-font (the bundled-Inter route); strip it too, or
+		// unloading leaves the interface/text fonts routed to Inter until a restart.
+		document.body.removeClass("nkui-font");
 		document.body.removeClass("nkui-skim-min-done");
 		document.body.removeClass("nkui-skim-condense");
 		document.body.removeClass("nkui-skim-tier-readable");

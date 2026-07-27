@@ -91,14 +91,25 @@ export class ConfigView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		// React to CONFIG changing under us (a hand-edit, sync_config, an agent).
-		// adapter writes don't fire vault `modify` (CONFIG isn't a vault TFile), so
-		// the raw-file watcher below is the reliable trigger; this catches the rare
-		// case CONFIG is also surfaced as a tracked file in some setups.
+		// This vault `modify` catches the case CONFIG is surfaced as a tracked TFile,
+		// but adapter writes (sync_config, agents) DON'T fire it — so the focus
+		// re-reads below are the reliable trigger, keeping an open grid current.
 		this.registerEvent(
 			this.app.vault.on("modify", (f) => {
 				if (f.path === CONFIG_PATH) this.scheduleRender();
 			})
 		);
+		// Re-read on focus so an external adapter write appears without reopening the
+		// view: when this leaf becomes active, and when the Obsidian window regains
+		// focus (an edit made while alt-tabbed away). Guarded to the LOCKED state and
+		// a changed file, so a mid-edit grid is never clobbered and an unchanged file
+		// never re-renders.
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (leaf === this.leaf) void this.refreshIfChanged();
+			})
+		);
+		this.registerDomEvent(window, "focus", () => void this.refreshIfChanged());
 		// Re-stamp the narrow-pane class when the leaf is dragged between docks.
 		this.registerEvent(
 			this.app.workspace.on("layout-change", () => {
@@ -106,6 +117,24 @@ export class ConfigView extends ItemView {
 			})
 		);
 		await this.reloadAndRender();
+	}
+
+	/** Re-read CONFIG and re-render only when it actually changed on disk and the
+	 * grid is locked — the focus-time refresh that closes the "stale until reopen"
+	 * gap without disturbing a mid-edit (unlocked) grid or flickering on every focus. */
+	private async refreshIfChanged(): Promise<void> {
+		if (this.unlocked) return; // never clobber pending edits
+		let raw: string;
+		try {
+			raw = await this.app.vault.adapter.read(CONFIG_PATH);
+		} catch {
+			return;
+		}
+		if (raw === this.rawText) return; // nothing changed — no re-render
+		this.rawText = raw;
+		this.parsed = parseConfig(raw);
+		this.edits.clear();
+		this.render();
 	}
 
 	async onClose(): Promise<void> {
@@ -325,11 +354,23 @@ export class ConfigView extends ItemView {
 		btn.setAttr("aria-label", "Press and hold to unlock CONFIG editing");
 		attachHold(btn, {
 			keyHold: true,
-			onCommit: () => {
-				this.unlocked = true;
-				this.render();
-			},
+			onCommit: () => void this.unlockFresh(),
 		});
+	}
+
+	/** Unlock editing onto CURRENT content: re-read the file first, so the grid the
+	 * user edits reflects any external write (sync_config, an agent) since the last
+	 * render — the lock never releases onto a stale grid. */
+	private async unlockFresh(): Promise<void> {
+		try {
+			this.rawText = await this.app.vault.adapter.read(CONFIG_PATH);
+			this.parsed = parseConfig(this.rawText);
+		} catch {
+			// Keep the last good copy — an unreadable file leaves the current grid.
+		}
+		this.edits.clear();
+		this.unlocked = true;
+		this.render();
 	}
 
 	/** The save bar (shown while unlocked): a hold-to-save commit plus a cancel

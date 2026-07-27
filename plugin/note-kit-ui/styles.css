@@ -69,8 +69,12 @@ body {
 	   --bold-weight (often 700–800) that reads as too heavy on the washed surface;
 	   a semibold step down keeps emphasis legible without shouting. Tunable. */
 	--nkui-bold-weight: 600;
-	--nkui-hold: 303ms; /* press-and-hold commit fill (approve gate / approve all) */
-	--nkui-count: 1517ms; /* close-offer depleting window */
+	/* CSS static fallbacks DERIVED from HOLD_MS (holds.ts, the single hold source):
+	   --nkui-hold = the fill = HOLD_MS − arm delay (610 − 120 = 490); --nkui-count =
+	   HOLD_MS × 5 (3050). css.ts emits the LIVE values from the Hold-duration setting
+	   on load, overriding these — the fallbacks only cover the pre-emission window. */
+	--nkui-hold: 490ms; /* press-and-hold commit fill (approve gate / approve all) */
+	--nkui-count: 3050ms; /* close-offer depleting window */
 	/* Base (×1) durations — the shipped feel. The live token each rule reads is
 	   the base divided by the speed multiplier, so default 1.0 reproduces the
 	   shipped values byte-for-byte. */
@@ -581,7 +585,7 @@ body.nkui-rounded .nav-file-title[data-nkui-reviewed="false"]::after {
 	padding-inline: var(--nkui-gap-2xs);
 	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: var(--nkui-draft-color);
-	color: var(--text-on-accent, #fff);
+	color: var(--nkui-pill-ink, var(--text-on-accent, #fff));
 	font-size: var(--font-ui-smaller, 11px);
 	font-weight: var(--font-semibold, 600);
 	font-variant-numeric: tabular-nums;
@@ -851,10 +855,10 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	border-radius: var(--nkui-radius);
 	cursor: pointer;
 	user-select: none;
-	/* Open-head grow ANIMATES — the band's block step eases on the slow grow
-	   clock instead of snapping. Inline padding/margins are state-identical
-	   (open changes padding-BLOCK only), so nothing moves horizontally. */
-	transition: padding var(--nkui-grow) var(--nkui-ease);
+	/* Open-head padding step is INSTANT (Lane D): padding is a layout property, so
+	   transitioning it re-lays-out the head each frame. The block-step carries no
+	   motion meaning of its own — the fold below is the section's animation — so
+	   the animation is dropped rather than restated. */
 }
 /* Resting hover (collapsed head) — the SAME faint wash the file-explorer rows
    take on hover. A real-type section washes in its own section (type) colour at
@@ -903,17 +907,17 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 .nkui-now-foldwrap {
 	display: grid;
 	grid-template-rows: 1fr;
-	/* ONE shared clock for BOTH animated properties: the height collapse and the
-	   veil resolve to the same --nkui-unroll duration and the same curve, so the
-	   fold reads as a single motion — never height-then-fade as two steps. */
+	/* Compositable fold (Lane D): only OPACITY animates, on the one-clock
+	   --nkui-unroll (still scaled by --nkui-rows). The space-collapse below
+	   (grid-template-rows 1fr⇄0fr) is INSTANT — grid-template-rows is a layout
+	   property, so transitioning it re-lays-out the pane every frame (the choppy
+	   fold). The content fades as the section opens; the collapse snaps. */
 	--nkui-unroll: clamp(
 		var(--nkui-unroll-min),
 		calc(var(--nkui-rows, 6) * var(--nkui-row-ms)),
 		var(--nkui-unroll-max)
 	);
-	transition:
-		grid-template-rows var(--nkui-unroll) var(--nkui-ease),
-		opacity var(--nkui-unroll) var(--nkui-ease);
+	transition: opacity var(--nkui-unroll) var(--nkui-ease);
 }
 .nkui-now-group.is-collapsed .nkui-now-foldwrap {
 	grid-template-rows: 0fr;
@@ -948,8 +952,8 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	text-transform: capitalize;
 	letter-spacing: -0.01em;
 	color: var(--text-normal);
-	/* The open-step size change eases on the grow clock — no snap. */
-	transition: font-size var(--nkui-grow) var(--nkui-ease);
+	/* Open-step title size is INSTANT (Lane D): font-size is a layout property; the
+	   size snaps, and the fold carries the section's motion. */
 }
 /* § GG: the count is a square pill — type colour set inline, on-accent digit —
    sized by state: SMALL while collapsed, growing to the open size when the
@@ -976,16 +980,14 @@ body.nkui-type-tint .nkui-queue .nkui-tinted:hover {
 	   round rather than stadium — the shape logic, kept; the rounding stays opt-in. */
 	border-radius: var(--nkui-radius-pill, var(--nkui-radius));
 	background: var(--text-faint);
-	color: var(--text-on-accent, #fff);
+	color: var(--nkui-pill-ink, var(--text-on-accent, #fff));
 	font-size: var(--font-ui-smaller, 12px);
 	font-weight: 700;
 	font-variant-numeric: tabular-nums;
 	line-height: 1;
-	/* Collapsed→open size step eases on the grow clock. */
-	transition:
-		height var(--nkui-grow) var(--nkui-ease),
-		min-width var(--nkui-grow) var(--nkui-ease),
-		font-size var(--nkui-grow) var(--nkui-ease);
+	/* Collapsed→open size step is INSTANT (Lane D): height / min-width / font-size
+	   are layout properties. The size snaps; the pill's only animation is the
+	   hover lift (transform, defined below). */
 }
 /* A colour-less section (Decide / Queue / Waiting fall back to the bare accent)
    takes the muted neutral pill rather than a type colour. */
@@ -1207,6 +1209,17 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	color: var(--nkui-tm, var(--text-muted));
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
+}
+/* "N gates" — a folded set whose gate name is a same-rank tie (two 00- covers),
+   so no single gate resolved. Surfaced in the row rather than silently
+   downgrading the fold (B6); italic muted, the gate/setcount vocabulary. The
+   text itself carries the state — no added bar. */
+.nkui-now-gatetie {
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--nkui-tm, var(--text-muted));
+	font-weight: 600;
+	font-style: italic;
+	white-space: nowrap;
 }
 /* The gate trio — wait note, +N, pill — in measured slot columns, packed to the
    right edge with the constant-width gate pill OUTERMOST: the pill anchors the
@@ -1449,7 +1462,12 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 
 .nkui-now-optrow {
 	display: flex;
-	flex-wrap: wrap;
+	/* No flex-wrap: line-breaking placed any option whose text exceeded one line
+	   onto the next flex line, stranding the checkbox alone above the text. The
+	   text now wraps INSIDE its own item (.nkui-now-opttext is flex: 1 1 auto;
+	   min-width: 0), so the checkbox stays on the first line. The fill-in trio
+	   (label / input / trailing) breaks inside its own nested flex child
+	   (.nkui-now-fillwrap), never by wrapping the row. */
 	align-items: flex-start;
 	gap: var(--nkui-gap-s);
 	padding: var(--nkui-pad-y-tight) calc(var(--nkui-row-inset) + var(--nkui-gap-s)) var(--nkui-pad-y-tight) var(--nkui-row-inset);
@@ -1469,6 +1487,23 @@ body.nkui-anim .nkui-now-group:not(.is-collapsed) > .nkui-now-group-head .nkui-n
 	min-width: 0;
 	cursor: pointer;
 	color: var(--text-normal);
+}
+/* The fill-in trio (leading label / input / trailing label) lives in its own
+   flex child so it can break within itself on a narrow pane WITHOUT wrapping the
+   whole option row — the checkbox stays on the first line (B3). */
+.nkui-now-fillwrap {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--nkui-gap-s);
+}
+/* Inline option editor — a tap on an option's text swaps it for this field
+   (B5 tap-to-edit). It fills the row like the text it replaces. */
+.nkui-now-optrow .nkui-now-qedit-field {
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 /* Drifted item — no options to pick; the row sends you to the queue to read it. */
@@ -2932,16 +2967,16 @@ body.is-mobile .nkui-cols > .nkui-col-meta > * + * {
 body.nkui-anim .nkui-now-gatemembers {
 	grid-template-rows: 0fr;
 	opacity: 0;
-	/* Same one-clock contract as the section foldwrap: height and veil share
-	   --nkui-unroll, so the peek unrolls as one motion. */
+	/* Same compositable fold as the section foldwrap (Lane D): only OPACITY
+	   animates on --nkui-unroll; the grid-template-rows space-collapse is INSTANT
+	   (no per-frame layout). foldGateMembers waits the opacity transitionend
+	   before detaching the box. */
 	--nkui-unroll: clamp(
 		var(--nkui-unroll-min),
 		calc(var(--nkui-rows, 1) * var(--nkui-row-ms)),
 		var(--nkui-unroll-max)
 	);
-	transition:
-		grid-template-rows var(--nkui-unroll) var(--nkui-ease),
-		opacity var(--nkui-unroll) var(--nkui-ease);
+	transition: opacity var(--nkui-unroll) var(--nkui-ease);
 }
 body.nkui-anim .nkui-now-gatemembers.is-open {
 	grid-template-rows: 1fr;
@@ -4881,8 +4916,9 @@ body.nkui-skim:not(.nkui-skim-condense) .markdown-preview-view .nkui-skim-hidden
 	opacity: 0;
 	overflow: hidden;
 	pointer-events: none;
-	transition: max-height var(--nkui-unroll-max) var(--nkui-ease),
-		opacity var(--nkui-fade) var(--nkui-ease);
+	/* Compositable collapse (Lane D): only OPACITY animates; the max-height:0
+	   collapse is INSTANT (max-height is a layout property). */
+	transition: opacity var(--nkui-fade) var(--nkui-ease);
 }
 
 /* ── Icons settings — a small live glyph preview beside each control row,

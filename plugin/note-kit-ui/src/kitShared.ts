@@ -12,15 +12,50 @@ import type { NoteKitUiSettings } from "./settings";
  * set's gate is its session log, not a 00- cover). Two candidates of the same
  * rank resolve to none — no guessing. Names carry their extension; only the
  * folder-note rank strips a trailing `.md` before the basename compare.
+ *
+ * OD2 (decided 2026-07-25): a same-rank tie among the distinguished-cover ranks
+ * (two `00-` covers, two date-named files) resolves DETERMINISTICALLY to the
+ * lexicographically-first basename — a stable, explainable key, so the gate never
+ * flickers between renders and the same file is always the gate. The tie stays
+ * VISIBLE through `gateTieCount` (the UI's "N gates" note), which flags the naming
+ * to fix. A lone root is still the gate outright; only the sub-ranks tie-break.
  */
 export function pickGateName(names: string[], containerName: string): string | null {
 	const one = (xs: string[]): string | null => (xs.length === 1 ? xs[0] : null);
+	/** The lexicographically-first name by UTF-16 CODE UNIT (`<`), not localeCompare
+	 * — a byte-stable order identical on every host, since locale-aware collation
+	 * varies by platform ICU (desktop vs mobile). Returns the sole candidate when
+	 * there is exactly one. */
+	const first = (xs: string[]): string | null =>
+		xs.length ? xs.reduce((a, b) => (b < a ? b : a)) : null;
 	return (
 		one(names) ??
-		one(names.filter((n) => /^00[-_ ]/.test(n))) ??
-		one(names.filter((n) => n.replace(/\.md$/i, "") === containerName)) ??
-		one(names.filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n)))
+		first(names.filter((n) => /^00[-_ ]/.test(n))) ??
+		first(names.filter((n) => n.replace(/\.md$/i, "") === containerName)) ??
+		first(names.filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n)))
 	);
+}
+
+/** How many same-rank gate candidates tie when pickGateName resolves to none —
+ * two `00-` covers, two folder-notes, two date-named files. Walks the same rank
+ * ladder pickGateName uses: the first sub-rank (00-, folder-note, date) with a
+ * lone candidate resolves the gate (returns 0, no tie); the first with two or more
+ * is the tie and its count is returned. A set with several plain peers and no
+ * distinguished cover at any rank is not a "gates" tie (returns 0) — that is the
+ * ordinary no-gate case. Used only to LABEL the tie; gate resolution stays with
+ * pickGateName ("no guessing"). */
+export function gateTieCount(names: string[], containerName: string): number {
+	if (names.length <= 1) return 0;
+	const subRanks = [
+		names.filter((n) => /^00[-_ ]/.test(n)),
+		names.filter((n) => n.replace(/\.md$/i, "") === containerName),
+		names.filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n)),
+	];
+	for (const r of subRanks) {
+		if (r.length === 1) return 0; // a distinguished cover resolves — no tie
+		if (r.length >= 2) return r.length; // same-rank tie
+	}
+	return 0; // no distinguished cover at any rank — the ordinary no-gate fold
 }
 
 /** A draft awaiting review: the tri-state `reviewed` reads false (the boolean or

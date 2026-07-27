@@ -2,11 +2,15 @@
  * section approve-all, undo) runs through attachHold so the arming rules — the
  * fill, the swallowed tap, the keyboard shortcut — stay identical everywhere. */
 
-/** Shipped press-and-hold duration (ms). The LIVE value is the "Hold duration"
- * setting — main.ts calls configureHolds(settings.holdMs) on load and on every
- * save, and css.ts emits the matching --nkui-hold so the fill animation always
- * tracks the configured commit time. */
-export const HOLD_MS = 395;
+/** The ONE shipped press-and-hold duration (ms) — the single source of truth for
+ * hold timing. The settings default (settings.ts holdMs) IS this constant; the
+ * close-offer (closeOfferFor / closeOfferMs) derives from it; and the CSS static fallbacks
+ * (--nkui-hold / --nkui-count in styles.css :root) mirror it by hand. The LIVE
+ * value is the "Hold duration" setting — main.ts calls configureHolds(settings.holdMs)
+ * on load and every save, and css.ts emits the matching --nkui-hold / --nkui-count
+ * from it, overriding the static fallbacks. (Was three disagreeing literals — 395
+ * here, 610 in settings, 303 in the CSS fallback; unified to the tuned 610.) */
+export const HOLD_MS = 610;
 
 /** Arm delay (ms) between the press and the VISIBLE hold (`is-holding`, the
  * fill): a quick tap releases inside this window and never flashes the fill.
@@ -22,10 +26,17 @@ export function armDelayMs(holdMs: number): number {
 	return Math.max(0, Math.min(HOLD_ARM_DELAY_MS, holdMs - 100));
 }
 
-/** "close tab?" offer countdown (ms) — the hold fill run in reverse (see
- * main.ts injectCloseButton and the .nkui-close-offer transitions). Scales
- * with the configured hold (5x) so the pair keeps its shipped ratio. */
-export const CLOSE_OFFER_MS = 1517;
+/** The close-offer countdown is this many times the hold — the ONE place the
+ * ratio lives, shared by closeOfferMs() (the live value) and css.ts's --nkui-count
+ * emission, so the "close tab?" window always tracks the commit fill. */
+export const CLOSE_OFFER_RATIO = 5;
+
+/** The close-offer countdown (ms) for a given hold duration — the single close-
+ * offer timing authority (see main.ts injectCloseButton, the .nkui-close-offer
+ * transitions, and css.ts's --nkui-count). */
+export function closeOfferFor(holdMs: number): number {
+	return Math.round(holdMs * CLOSE_OFFER_RATIO);
+}
 
 let liveHoldMs = HOLD_MS;
 
@@ -34,10 +45,10 @@ export function configureHolds(ms: number): void {
 	liveHoldMs = Number.isFinite(ms) && ms > 0 ? ms : HOLD_MS;
 }
 
-/** The live "close tab?" countdown — 5x the configured hold, matching the
- * shipped 303/1517 ratio. */
+/** The live "close tab?" countdown — the configured hold run through the shared
+ * ratio (closeOfferFor), matching css.ts's --nkui-count emission. */
 export function closeOfferMs(): number {
-	return Math.round(liveHoldMs * 5);
+	return closeOfferFor(liveHoldMs);
 }
 
 /** When any hold last committed (module-level — shared across every hold).

@@ -91,6 +91,35 @@ export async function setChecked(vault: Vault, file: TFile, text: string, checke
 	});
 }
 
+/** Rewrite one decision option's text in place, keeping its checkbox state.
+ * Located by the decision's heading, then the matching option text within its
+ * block — so an edit lands on the right option even when the same text appears
+ * under another heading, and even if line numbers shifted since the read. */
+export async function updateOption(vault: Vault, file: TFile, d: Decision, oldText: string, newText: string): Promise<void> {
+	const line = collapseToLine(newText);
+	await processLines(vault, file, (lines) => {
+		let i = 0;
+		if (d.title) {
+			for (; i < lines.length; i++) {
+				const hm = lines[i].match(HEADING_RE);
+				if (hm && hm[2] === d.title) {
+					i++;
+					break;
+				}
+			}
+			if (i >= lines.length) return;
+		}
+		for (; i < lines.length; i++) {
+			if (lines[i].match(HEADING_RE)) break; // out of this decision's block
+			const m = lines[i].match(CHECKBOX_RE);
+			if (m && m[4] === oldText) {
+				lines[i] = `${m[1]}${m[2]}${m[3]}${line}${m[5]}`;
+				return;
+			}
+		}
+	});
+}
+
 /** Approve a fill-in option: replace its placeholder text and check it in one write. */
 export async function pickOptionFilled(vault: Vault, file: TFile, rawText: string, filledText: string): Promise<void> {
 	await processLines(vault, file, (lines) => {

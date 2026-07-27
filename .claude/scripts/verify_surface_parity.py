@@ -189,8 +189,10 @@ LICENSED_PAIRS: list[LicensedPair] = [
     ),
     LicensedPair(
         "code-canon-personal-row", "CONFIG.md",
-        "e3b0c44298fc1c14", "515d984df991e237",
-        "Code-canon registry — one row for this install's own relocated tree",
+        "e3b0c44298fc1c14", "96d0b58211230003",
+        "Code-canon registry — this install's own rows for its relocated tree "
+        "and for the trees its asset-repo migration created under "
+        "`<user-home>/repos`",
     ),
     LicensedPair(
         "install-placeholder-fill", "vault-search/config.yaml",

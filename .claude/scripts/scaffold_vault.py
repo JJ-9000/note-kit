@@ -76,6 +76,12 @@ from pathlib import Path
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent
 
+# A scaffold reads this drop's own CONFIG: a machine-level override from
+# another install would redirect the parse outside the drop. Scrubbed before
+# the config_variables import reads them.
+for _var in ("NOTE_KIT_CONFIG", "NOTE_KIT_VAULT_ROOT"):
+    os.environ.pop(_var, None)
+
 sys.path.insert(0, str(_SCRIPTS_DIR))
 from config_variables import (  # noqa: E402
     FOLDER_ROUTING,

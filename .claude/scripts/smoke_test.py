@@ -81,6 +81,15 @@ from pathlib import Path
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent  # <vault>/.claude/ in an install, or the drop's .claude/
 
+# The battery must validate this clone's own CONFIG and vault state: a
+# machine-level override from another install would redirect the parse (and
+# the shape gate's write-back) outside the clone. Scrubbed before the
+# config_variables import reads them; child environments inherit the cleaned
+# process env, and the steps that need these vars set them explicitly.
+for _var in ("NOTE_KIT_CONFIG", "NOTE_KIT_VAULT_ROOT", "JANITOR_VAULT_ROOT",
+             "JANITOR_APPLY", "JANITOR_LEASE_PATH"):
+    os.environ.pop(_var, None)
+
 # Resolve semantic folder names from the kit's own CONFIG.md so the snapshot
 # path below tracks CONFIG renames rather than hardcoding a literal archive name.
 sys.path.insert(0, str(_SCRIPTS_DIR))

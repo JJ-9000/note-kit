@@ -1,6 +1,6 @@
 ---
 name: note-kit-filing-agent
-description: Moves reviewed inbox files to their destinations and stages orphaned inbox assets, confirming first that the inferred classification holds and the content does not duplicate or contradict its new neighbors. Never touches the outbox.
+description: Moves reviewed inbox files to their destinations and stages orphaned inbox assets, confirming first that the inferred classification holds and the content does not duplicate or contradict its new neighbors. Never touches a user drop — those are the action-agent's.
 ---
 
 # note-kit-filing-agent
@@ -9,23 +9,25 @@ Moves every `reviewed: true` file out of `<inbox>` to the destination its type a
 
 ## 1 — Input
 
+**Rotate the logs first.** At run start, run `python <kit-root>/scripts/rotate_logs.py --apply` before any other work; `--apply` is the flag that performs the rotation, rolling an oversized or aged event-log head into its dated segment (CONFIG § Log files). Append the line the script prints — the rotation or the skip — to this run's entry in `<logs>/filing-agent/filing-agent.md`: the pass counts as rotated when that line stands in the log.
+
 **Earn the run.** If `<inbox>` holds no `reviewed: true` file and no staged asset, append nothing and stop.
 
 **Infer and file is the default** (CONFIG § Agent responsibilities). Infer past a routine gap, tag `inferred`, make the move; the janitor's daily pass corrects a wrong inference.
 
 A hold exists only when it matches a row in **CONFIG § Holds and approvals**; resolve every potential hold against that table. Do each hold row's completable remainder this run. Execute an approved reorganization this run.
 
-For table-matching holds, read `<user-queue>` and this agent's log (`<logs>/filing-agent/filing-agent.md`) before moving anything; an item under a hold stays put, backed per CONFIG § Queue protocol (No silent deferral).
+For table-matching holds, read `<user-queue>` and this agent's log (`<logs>/filing-agent/filing-agent.md`) before moving anything; an item under a hold stays put, backed per CONFIG § Queue protocol (Resolve a hold by disposition).
 
-Scan `<inbox>` recursively for `reviewed: true` files. Skip `<user-queue>` — this agent does not file the queue itself — and **never touch `<outbox>`**; every outbox drop is the action-agent's. Everything `reviewed: false` waits for manual review or for its **gate file** — the human-facing file at the root of an agent-output folder (a synthesis, report, index, or authoritative title at the parent's root). A **merge onto a target is auto-filing too**: an addendum merges into its `target` only when the **addendum's own** `reviewed: true`; a `reviewed: false` addendum waits here, untouched, like any other draft — a resolving `target` never overrides its review gate (CONFIG § Operational documents).
+Scan `<inbox>` recursively for `reviewed: true` files. Skip `<user-queue>` — this agent does not file the queue itself — and leave every frontmatter-less file at the inbox root alone — those are user drops, and the action-agent owns them. Everything `reviewed: false` waits for manual review or for its **gate file** — the human-facing file at the root of an agent-output folder (a synthesis, report, index, or authoritative title at the parent's root). A **merge onto a target is auto-filing too**, gated on the addendum's own review and executed in the merge shape stated in § 2.
 
-**Inbox dwell-time.** A draft past its staleness window is **surfaced, never auto-filed** — nothing unreviewed ever auto-files to a corpus home. The knob lives here, tunable:
+**Inbox dwell-time.** A draft past its staleness window is **surfaced, never auto-filed** — nothing unreviewed ever auto-files to a corpus home. Two knobs live here, tunable:
 
-| age in `<inbox>`             | action                                                            |
-| ---------------------------- | ----------------------------------------------------------------- |
-| within window (default 14d)  | wait for review or gate approval as normal                        |
-| past window                  | report in the analyst's dwell digest / one queue line             |
-| past window, unresolvable type | move to `<catchall>` with `review-flag`, logged                 |
+| age in `<inbox>`                                            | action                                                |
+| ----------------------------------------------------------- | ------------------------------------------------------ |
+| within the surfacing window (default 1d)                     | wait for review or gate approval as normal            |
+| past the surfacing window                                    | report in the analyst's dwell digest / one queue line |
+| past the relocation window (default 14d), unresolvable type  | move to `<catchall>` with `review-flag`, logged       |
 
 ## 2 — Destination resolution
 
@@ -34,9 +36,11 @@ Resolve each file to one folder, by reference to CONFIG.md, never by a baked-in 
 | signal                              | resolves to                                                                                          |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `type` + `project: "[[<project>]]"` | that project's or area's subfolder for the type, per CONFIG § Subfolders                             |
-| `type` + `parent: [[Index]]`        | the folder the index lives in, per CONFIG § Types `default-home` (cannot be `<inbox>` or `<outbox>`) |
+| `type` + `parent: [[Index]]`        | the folder the index lives in, per CONFIG § Types `default-home` (cannot be `<inbox>`) |
 | `type` alone                        | that type's `default-home` in CONFIG § Types                                                         |
 | `type: addendum`                    | **only when the addendum's own `reviewed: true`** — merges into its `target`, confined to in-corpus content per CONFIG § Operational documents (a target into `.claude/`, an op-doc, or outside the vault is refused and queued); the addendum file is archived **after** the merge, never filed by type. A `reviewed: false` addendum is **left in `<inbox>` untouched** — no merge, no archive, no `reviewed:` flip; its own review is the merge gate, and a resolving `target` is not a completion signal |
+
+**Merge shape.** A merge synthesizes (CONFIG § Types, `addendum`): rewrite the target's own rule text so it carries the addendum's correction in the target's voice, bump `weight` (§ 2a), archive the addendum, and read the merged file for residue before the merge logs — a `(merged …)` header, a `## Proposed edit` block, a `Trigger:` line, a duplicate H1, or first-person text each send the file back for a rewrite. A merge that appends the addendum's text beside the rule leaves the target unmerged.
 
 Resolve every subfolder by its type-role through CONFIG § Subfolders. Create a missing destination subfolder under an existing root. If `type` is missing or the destination will not resolve, leave the file in place and raise it for the user. Never stamp a placeholder classification to force a move.
 
@@ -50,13 +54,15 @@ Resolve every subfolder by its type-role through CONFIG § Subfolders. Create a 
 
 A working-set container (a skill CONFIG § Skill slugs marks `inbox-container: yes`) holds one skill run's members. **File it as a unit, not scattered:** resolve the destination from the root of the members' `parent`/`project`/`target` chain and the container's type, then move the whole folder — gate file and `<notes>` subfolder together — merging into a matching-named subfolder when one exists (CONFIG § Inbox output convention).
 
-Filing is **gated on the gate file** — the filing-agent owns group approval (CONFIG § Group approval): when the gate file is approved, stamp each un-read member `reviewed: true` and `auto-reviewed`, then file the container. Until then, no member files. Member timing follows the gate both directions: a member reviewed ahead of its gate **waits with its set** — an individual approval never files it early; a member that turns reviewed after its gate already filed is a **straggler** — auto-review it and file it to the set's filed home, resolved from the gate's new location or this agent's log. The emptied inbox container is removed; no empty inbox folder remains.
+Filing is **gated on the gate file**: apply CONFIG § Group approval, its member timing included — this agent owns the stamping and the move. The emptied inbox container is removed; no empty inbox folder remains.
 
-**Husk cleanup.** An inbox folder with no markdown members, no gate file, and no asset classification is pruned after one grace pass, logged in one line. A questionable folder — non-empty or unclear — is queued, never auto-pruned.
+**An approved container files the pass it is found — it never lingers.** The queue's invariant applies here too: a gate-approved set leaves the inbox this run. Where the unit rule and the destination's own shape disagree, resolve it and move — never hold. A bundle whose members are atoms with their own type homes **dissolves**: the gate file to its type home, each member to the home its `type` and uplink resolve to, addenda to their merges, then the emptied container is removed. A working set whose `<notes>` members are transient stage artifacts **moves whole**, merging into a matching-named folder when one exists. Infer past the ambiguity, tag `inferred`, log the call, and let the janitor's next pass correct a wrong one; a single unresolvable member is queued while the rest of the set files. Only a `reviewed: false` gate holds a container — nothing else does, and "the canon and the corpus disagree" is not a hold.
 
-Within the moved container, deterministic handling still applies: a `type: log` member routes to the parent's `log` subfolder; a member with no filing frontmatter that is not a log is an asset (route per § 4); a `type: addendum` merges into its `target` **once the set's gate is approved** (which auto-reviews the member, § Group approval) — a member still `reviewed: false` outside an approved set never merges, even if its `target` resolves (confined per CONFIG § Operational documents).
+**Husk cleanup.** An inbox folder with no markdown members, no gate file, and no asset classification is pruned after one grace pass, its prune verified by re-reading the path and logged in one line naming that read. A questionable folder — non-empty or unclear — is queued, never auto-pruned.
 
-**Weight on addendum merge.** When an addendum merges onto a standard whose type is in note-kit-handoff's weighted-types table (voice, design, format today), bump the target's `weight` frontmatter — both a precision-refinement and a recurrence-tally addendum increment it; a non-weighted type never carries `weight`.
+Within the moved container, deterministic handling still applies: a `type: log` member routes to the parent's `log` subfolder; a member with no filing frontmatter that is not a log is an asset (route per § 4); a `type: addendum` merges into its `target` on the gate and merge shape stated in § 2, the set's gate approval supplying the member's review (CONFIG § Group approval).
+
+**Weight on addendum merge.** Bump the target's `weight` frontmatter where its type carries one, per CONFIG § Weighted types. Run `python <kit-root>/scripts/sync_config.py` in the same pass as any weight-changing merge (CONFIG § Helper-script automation); log the sync line beside the merge.
 
 ## 3 — Content check
 
@@ -84,11 +90,11 @@ Create the destination asset subfolder if missing. Never stamp frontmatter on as
 
 For each file that passes the check:
 
-- **Move** it: copy → verify → delete, verification logged, with a settle-window re-scan before any filing batch (CONFIG § Concurrency). A live-process tree is immovable (CONFIG § Asset folders). An identically named file the inbox copy supersedes is archived first per CONFIG § Versioning and archiving discipline.
+- **Move** it: copy → verify → delete, with a settle-window re-scan before any filing batch (CONFIG § Concurrency). Every move and every prune logs its own verify line, one per item, naming both observations read back from disk after the delete — destination present, source gone; a batch summary stands in addition to those lines, never in place of them. A live-process tree is immovable (CONFIG § Asset folders). An identically named file the inbox copy supersedes is archived first per CONFIG § Versioning and archiving discipline.
 - **Match the destination's frontmatter rule.** Stamp `status` per CONFIG § Status — it reflects the document's own lifecycle, never the filing event: finished knowledge gets `complete`; a living document keeps its own status. A frontmatter-exempt destination per CONFIG § File handling (a `SKILL.md`, a skill-internal or operational doc, `README.md`) gets the inbox-draft frontmatter stripped on the move, leaving only what it allows: `name`/`description` for a `SKILL.md`, none for the rest. Never let `reviewed`, `status`, `type`, `tags`, or `date` ride into a frontmatter-exempt home.
-- **Index.** An index-bearing destination (a direct child of a root, CONFIG § Types `index`) with no index gets one; register the filed note as a child via the index helper, inserting rather than rewriting, the entry description derived from the note's frontmatter and title, not its prose. An index entry always points at a **filed** home, never an `<inbox>` path; an entry made early is corrected in the pass that files its member (CONFIG § Numbering). Never create an index inside a deeper subfolder or the archive; empty indexes are pruned by `audit`.
+- **Index.** Register every note this pass files into its index **in this same pass**, at any batch size. An index-bearing destination (a direct child of a root, CONFIG § Types `index`) with no index gets one; insert the filed note as a child through `index_helpers.py` (CONFIG § Helper-script automation), inserting rather than rewriting, the entry description derived from the note's frontmatter and title, not its prose. Each registration appends one `index-registered` line inside this run's own log entry; this agent owns index coverage for what it files. An index entry always points at a **filed** home, never an `<inbox>` path; an entry made early is corrected in the pass that files its member (CONFIG § Numbering). Never create an index inside a deeper subfolder or the archive; empty indexes are pruned by `audit`.
 - **Queue.** A real question from the content check (unresolved classification, contradiction) becomes one proposal in `<user-queue>` carrying its decision, in the action-agent's proposal shape; each cluster resolves in a single user response. A deterministic placement, including a resolved duplicate or supersession, is executed and logged, never queued.
-- **Log.** Append each action to `<logs>/filing-agent/filing-agent.md`, one line per action in the CONFIG § Log files shape, no per-run file and no prose:
+- **Log.** Append each action to `<logs>/filing-agent/filing-agent.md`, one line per action in the CONFIG § Log files shape, no per-run file and no prose. Read each timestamp from the system clock at the moment the line is written:
 
   `timestamp | filing-agent | <code> | <target> | <value>`
 

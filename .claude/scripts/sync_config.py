@@ -63,76 +63,88 @@ _KIT_ROOT = _SCRIPTS_DIR.parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
 # ---------------------------------------------------------------------------
-# Shape gate — config_shape validates (and safely repairs) CONFIG.md BEFORE
-# config_variables parses it, so a repaired separator row or restored pipe is
-# what the parsers below actually read. A refusal (unsafe drift: missing
-# required row/column, duplicate token, unparseable literal) aborts the sync
-# with the corrector's file:line report.
+# Shape gate + config load are deferred to main()
 # ---------------------------------------------------------------------------
+# config_shape validates (and safely repairs) CONFIG.md BEFORE config_variables
+# parses it, so a repaired separator row or restored pipe is what the parsers
+# actually read. Both the shape run (which may WRITE a repair) and the
+# config_variables import (which parses CONFIG) run inside main(), never at
+# module import — so `import sync_config` is side-effect-free: it neither parses
+# CONFIG nor mutates it. `import config_shape` is itself side-effect-free (it
+# reads CONFIG only when run() is called).
 import config_shape  # noqa: E402
+import frontmatter_helpers as _fh  # noqa: E402
 
-_shape_report = config_shape.run(config_shape.default_config_path())
-for _r in _shape_report.repairs:
-    print(f"[config-shape] REPAIR  {_r}")
-if not _shape_report.ok:
-    for _r in _shape_report.refusals:
-        print(f"[config-shape] REFUSE  {_r}", file=sys.stderr)
-    print(
-        "ERROR: sync aborted — CONFIG.md failed the shape check "
-        f"({len(_shape_report.refusals)} unsafe drift(s)). Fix CONFIG.md and re-run.",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+# Names bound by _load_config_variables() at the head of main(), after the shape
+# gate. Declared here so the module-level `def`s that read them resolve at call
+# time (every such caller runs after the loader).
+FILE_HANDLING = None
+TYPES: dict = {}
+FOLDER_ROUTING: dict = {}
+SUBFOLDERS: dict = {}
+_CONFIG_TEXT = ""
+_CONFIG = None
+_ARCHIVE_FOLDER = ""
+_folder_by_semantic = None
+_parse_table = None
+token_path = None
+resolve_vault_root = None
 
-# Import after sys.path is updated
-from config_variables import (  # noqa: E402
-    FILE_HANDLING,
-    TYPES,
-    FOLDER_ROUTING,
-    SUBFOLDERS,
-    _folder_by_semantic,
-    _CONFIG_TEXT,
-    _parse_table,
-    token_path,
-)
-
-# Use the SAME CONFIG.md config_variables resolved (honors the NOTE_KIT_CONFIG
-# override), not a second hardcoded kit-root path, so the hash and the parsed
-# tables come from one source.
-from config_variables import _CONFIG as _CONFIG  # noqa: E402
-_ARCHIVE_FOLDER = _folder_by_semantic("archive")
+# Sync targets, set in main() once a vault root resolves.
+_CLAUDE_MD = _AGENTS_MD = _SYNC_LOG = None
 
 
-def _detect_installed_vault_root() -> Path | None:
-    """Detect the installed layout from this script's own location.
+def _load_config_variables() -> None:
+    """Import config_variables (which parses CONFIG.md) and bind the names the
+    generators use as module globals.
 
-    Installed, the kit root IS a vault's `.claude/` directory, so the vault
-    root is its parent — recognized by the vault archive sitting there (the
-    sync log's destination root). The kit-source checkout shares the `.claude`
-    name but its parent is a repo with no archive, so it is deliberately not
-    detected; bare runs there must name a target via --vault-root or
-    NOTE_KIT_VAULT_ROOT.
+    Deferred out of module import so `import sync_config` never triggers a CONFIG
+    parse or a config_shape repair write; main() calls it only AFTER the shape
+    gate has run, so the parsers read the shape-repaired CONFIG (the documented
+    "shape validates before config_variables parses" ordering).
     """
-    if _KIT_ROOT.name == ".claude":
-        candidate = _KIT_ROOT.parent
-        if (candidate / _ARCHIVE_FOLDER).is_dir():
-            return candidate
-    return None
+    global FILE_HANDLING, TYPES, FOLDER_ROUTING, SUBFOLDERS
+    global _folder_by_semantic, _CONFIG_TEXT, _parse_table, token_path
+    global _CONFIG, _ARCHIVE_FOLDER, resolve_vault_root
+    from config_variables import (
+        FILE_HANDLING,
+        TYPES,
+        FOLDER_ROUTING,
+        SUBFOLDERS,
+        _folder_by_semantic,
+        _CONFIG_TEXT,
+        _parse_table,
+        token_path,
+        _CONFIG,
+        resolve_vault_root,
+    )
+    _ARCHIVE_FOLDER = _folder_by_semantic("archive")
 
 
-def _vault_root_from_env() -> Path | None:
-    raw = os.environ.get("NOTE_KIT_VAULT_ROOT")
-    return Path(raw) if raw else None
+def _safe_vault_root(cli_root: Path | None) -> Path | None:
+    """Vault root tolerant of an unparseable CONFIG.
 
-
-def _resolve_vault_root(cli_root: Path | None) -> Path | None:
-    """Vault root, in priority order: --vault-root, env var, installed layout."""
+    Prefers the shared resolver; falls back to the CLI arg, env vars, then the
+    installed layout when config_variables cannot import (a shape refusal can
+    leave CONFIG unparseable). Used only for the refusal artifact — the happy
+    path calls resolve_vault_root directly.
+    """
+    try:
+        from config_variables import resolve_vault_root as _rvr
+        r = _rvr(cli_root)
+        if r is not None:
+            return Path(r)
+    except Exception:
+        pass
     if cli_root is not None:
-        return cli_root
-    env_root = _vault_root_from_env()
-    if env_root is not None:
-        return env_root
-    return _detect_installed_vault_root()
+        return Path(cli_root)
+    for var in ("NOTE_KIT_VAULT_ROOT", "JANITOR_VAULT_ROOT"):
+        raw = os.environ.get(var)
+        if raw:
+            return Path(raw)
+    if _KIT_ROOT.name == ".claude":
+        return _KIT_ROOT.parent
+    return None
 
 
 def _resolve_targets(vault_root: Path) -> tuple[Path, Path, Path]:
@@ -140,8 +152,8 @@ def _resolve_targets(vault_root: Path) -> tuple[Path, Path, Path]:
 
     The orientation pair lives at ``<vault-root>/.claude/`` and the sync log
     under the vault's archive. There is no pathless fallback: callers must
-    resolve a vault root first (see ``_resolve_vault_root``) so the log can
-    never land outside a vault.
+    resolve a vault root first (see ``resolve_vault_root``) so the log can never
+    land outside a vault.
     """
     vault_root = vault_root.resolve()
     claude_md = vault_root / ".claude" / "CLAUDE.md"
@@ -150,22 +162,32 @@ def _resolve_targets(vault_root: Path) -> tuple[Path, Path, Path]:
     return claude_md, agents_md, sync_log
 
 
+def _refusal_sync_log_path(cli_root: Path | None) -> Path | None:
+    """The Sync-Log path resolved WITHOUT parsing CONFIG.
+
+    A shape refusal can leave CONFIG unparseable, so the refusal artifact must
+    not depend on config_variables parsing. Uses the CONFIG-driven ``<logs>``
+    location when config_variables imports, else the CONFIG-default
+    ``Archive/Logs``.
+    """
+    root = _safe_vault_root(cli_root)
+    if root is None:
+        return None
+    logs_rel = "Archive/Logs"
+    try:
+        from config_variables import token_path as _tp, _folder_by_semantic as _fbs
+        logs_rel = _tp("logs", f"{_fbs('archive')}/Logs")
+    except Exception:
+        pass
+    return root.resolve() / Path(logs_rel) / "Sync-Log.md"
+
+
 _NO_VAULT_ROOT_ERROR = (
     "No vault root resolved. Pass --vault-root, set NOTE_KIT_VAULT_ROOT, or run "
     "the copy installed at <vault>/.claude/scripts/ (detected by the vault "
     f"archive folder beside the kit root). Kit root: {_KIT_ROOT}. "
     "Refusing to write a sync log outside a vault."
 )
-
-# Default (import-time) targets honor the env var and the installed-layout
-# detection so importers and the session-end hook pick up an installed layout
-# without extra wiring. Left as None when unresolvable — main() re-resolves
-# with the CLI arg and errors out cleanly if a vault root still can't be found.
-_IMPORT_VAULT_ROOT = _resolve_vault_root(None)
-if _IMPORT_VAULT_ROOT is not None:
-    _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG = _resolve_targets(_IMPORT_VAULT_ROOT)
-else:
-    _CLAUDE_MD = _AGENTS_MD = _SYNC_LOG = None
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -223,6 +245,38 @@ _PIPE_SYNC_START = (
 )
 _PIPE_SYNC_END = "<!-- /note-kit:sync pipeline-protocol -->"
 _PIPELINE_SKILLS = ("note-kit-research", "note-kit-review", "note-kit-verify-claims")
+
+# Resident standards: the highest-weight voice/design/format standard notes,
+# distilled into a marker-bounded `## Resident standards` block in
+# CLAUDE.md/AGENTS.md and into the hook-injected RULES.md, so the standards
+# apply as a draft is written instead of being searched for mid-task. Ranked by
+# each note's `weight` (which the handoff/analyst recurrence process bumps), so
+# the resident set tracks the standards that actually keep getting violated. N
+# is a constant here, not a CONFIG knob, to keep this clear of the config-shape
+# gate; promote it to CONFIG § when a second consumer needs it.
+_RESIDENT_TOP_N_PER_AXIS = 5
+_STANDARD_TYPES = ("voice", "design", "format")
+_AXIS_LABELS = (("voice", "Voice"), ("design", "Design"), ("format", "Format"))
+_RESIDENT_ANCHOR = "## Resident standards"
+_RESIDENT_SYNC_START = (
+    "<!-- note-kit:sync resident-standards — auto-generated from the "
+    "highest-weight standard notes; do not edit between these markers -->"
+)
+_RESIDENT_SYNC_END = "<!-- /note-kit:sync resident-standards -->"
+_RESIDENT_NOTE = (
+    "_The highest-weight standards on each axis, loaded so they apply without a "
+    "lookup. Top 5 per axis by `weight`; regenerated by sync_config — bump a "
+    "standard's weight to raise it._"
+)
+
+# A weighted standard note may carry an optional one-line `trigger:` frontmatter
+# field: the note's own heaviest operative trigger — the when-this-happens detail
+# its headline sentence leaves buried in the body. Where the field is present, the
+# resident block renders it as a subordinate second line under that standard's
+# entry, so the actionable detail is injected alongside the headline instead of
+# waiting for a lookup. A note without the field keeps its single-line entry.
+_RESIDENT_TRIGGER_PREFIX = "  - ↳ "
+_FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)
 
 # ---------------------------------------------------------------------------
 # Section replacement
@@ -391,47 +445,238 @@ def _build_rules_orientation_block() -> str:
     return _RULES_SYNC_START + "\n" + _SYNC_NOTE + "\n\n" + bullets + "\n" + _RULES_SYNC_END
 
 
-def _build_rules_md() -> str:
+def _build_rules_md(resident_inner: str = "") -> str:
     """The generated RULES.md the cadence hook injects: each rule's reminder
-    cell, falling back to the full rule text where the cell is empty."""
+    cell, falling back to the full rule text where the cell is empty, then the
+    resident-standards block so the highest-weight standards ride every prompt
+    injection alongside the rules."""
     bullets = "\n".join(
         f"- {(r['reminder'].strip() or r['rule'].strip())}" for r in _rules_rows()
     )
-    return _RULES_MD_NOTICE + "\n# Always-on rules\n\n" + bullets + "\n"
+    out = _RULES_MD_NOTICE + "\n# Always-on rules\n\n" + bullets + "\n"
+    if resident_inner:
+        out += "\n" + _RESIDENT_ANCHOR + "\n\n" + resident_inner + "\n"
+    return out
 
 
-def _sync_rules_md(vault_root: Path) -> str:
+def _sync_rules_md(vault_root: Path, resident_inner: str = "") -> str:
     """Write the generated RULES.md. Returns written | unchanged."""
     rules_path = vault_root.resolve() / ".claude" / "RULES.md"
-    body = _build_rules_md()
+    body = _build_rules_md(resident_inner)
     if rules_path.exists() and rules_path.read_text(encoding="utf-8") == body:
         return "unchanged"
-    rules_path.write_text(body, encoding="utf-8")
+    _fh.write_text(rules_path, body)
     return "written"
+
+
+# ---------------------------------------------------------------------------
+# Resident standards — distill the highest-weight standard notes
+# ---------------------------------------------------------------------------
+
+def _frontmatter(text: str) -> dict[str, str]:
+    """Parse the top-level scalar keys of a note's YAML frontmatter.
+
+    Deliberately shallow: only `key: value` lines with a non-empty value are
+    read (type, weight, reviewed), which is all the resident scan needs. List
+    blocks (tags) are skipped without error.
+    """
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return {}
+    fm: dict[str, str] = {}
+    for line in m.group(1).splitlines():
+        km = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line)
+        if km and km.group(2).strip():
+            fm[km.group(1)] = km.group(2).strip()
+    return fm
+
+
+def _fm_trigger(fm: dict[str, str]) -> str:
+    """The note's optional one-line `trigger:`, unquoted.
+
+    Surrounding YAML quotes are stripped so an author can quote a trigger holding
+    a colon without the quote marks reaching the injected block. A missing or
+    empty field yields "", which renders the standard's entry as a single line
+    exactly as it did before the field existed.
+    """
+    raw = fm.get("trigger", "").strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+        raw = raw[1:-1].strip()
+    return raw
+
+
+def _title_and_directive(text: str) -> tuple[str, str]:
+    """The note's H1 title and the first sentence of its first body paragraph.
+
+    Standard notes are authored directive-first (the opening sentence IS the
+    instruction), so that sentence is the resident one-liner. Returns ("", "")
+    when no H1 or paragraph is found.
+    """
+    body = _FRONTMATTER_RE.sub("", text, count=1).lstrip("\n")
+    title = ""
+    para: list[str] = []
+    in_fence = False
+    for line in body.splitlines():
+        s = line.strip()
+        # Skip fenced code: a Format-<Type> note is one template code block, so
+        # its H1 and lead line live inside the fence and are not the standard.
+        if s.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if not title:
+            if s.startswith("# "):
+                title = s[2:].strip()
+            continue
+        if not para:
+            if s and not s.startswith("#"):
+                para.append(s)
+            continue
+        if not s or s.startswith("#"):
+            break
+        para.append(s)
+    paragraph = " ".join(para)
+    cut = paragraph.find(". ")
+    directive = paragraph if cut == -1 else paragraph[: cut + 1]
+    return title, directive
+
+
+def _resident_skip_dirs() -> set[str]:
+    """Directory names the standards scan never descends into: tooling and
+    history, plus the non-canonical staging trees — archive holds superseded
+    copies, the inbox holds unreviewed drafts and user drops."""
+    names = {".history", ".obsidian", ".redteam", ".claude", "__pycache__"}
+    for semantic in ("archive", "inbox"):
+        try:
+            names.add(_folder_by_semantic(semantic))
+        except Exception:
+            pass
+    return names
+
+
+def _scan_weighted_standards(
+    vault_root: Path,
+) -> tuple[list[tuple[float, str, str, str, str]], int]:
+    """Every canonical standard note carrying a numeric `weight`, as
+    (weight, title, directive, axis, trigger), plus the count of notes skipped
+    for not being valid UTF-8. `trigger` is the note's optional one-line
+    `trigger:` field and is "" where the note carries none. Skips the
+    draft/superseded/tooling trees and any note explicitly `reviewed: false`.
+
+    A non-UTF-8 note is skipped and counted through the strict-decode-or-None
+    primitive instead of raising UnicodeDecodeError — which would crash the whole
+    sync before any Sync-Log entry while the PostToolUse hook swallows the error
+    silently."""
+    skip = _resident_skip_dirs()
+    found: list[tuple[float, str, str, str, str]] = []
+    skipped_nonutf8 = 0
+    for path in vault_root.rglob("*.md"):
+        if any(part in skip for part in path.parts):
+            continue
+        try:
+            raw_text = _fh.read_text_or_none(path)
+        except OSError:
+            continue
+        if raw_text is None:
+            skipped_nonutf8 += 1
+            continue
+        # read_text_or_none preserves on-disk newlines (byte-exact); the
+        # frontmatter/paragraph regexes below expect LF, so normalize the way
+        # Path.read_text would have — keeping the resident output byte-identical.
+        text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+        fm = _frontmatter(text)
+        axis = fm.get("type")
+        if axis not in _STANDARD_TYPES:
+            continue
+        if fm.get("reviewed", "").lower() == "false":
+            continue
+        raw = fm.get("weight")
+        if raw is None:
+            continue
+        try:
+            weight = float(raw)
+        except ValueError:
+            continue
+        title, directive = _title_and_directive(text)
+        if title and directive:
+            found.append((weight, title, directive, axis, _fm_trigger(fm)))
+    return found, skipped_nonutf8
+
+
+def _resident_inner(standards: list[tuple[float, str, str, str, str]]) -> str:
+    """The resident digest grouped by axis (voice/design/format), each axis its
+    top-N by weight. Grouping keeps every axis represented — a global ranking
+    lets a high-weight axis crowd the others out. Ties break by title so the
+    output is stable run to run.
+
+    A standard carrying a `trigger:` gets a second, subordinate line under its
+    entry holding that trigger verbatim; a standard without one renders as the
+    single headline line it always did."""
+    sections: list[str] = []
+    for axis_key, axis_label in _AXIS_LABELS:
+        ranked = sorted(
+            (s for s in standards if s[3] == axis_key),
+            key=lambda r: (-r[0], r[1]),
+        )[:_RESIDENT_TOP_N_PER_AXIS]
+        if not ranked:
+            continue
+        lines: list[str] = []
+        for _w, t, d, _a, trigger in ranked:
+            lines.append(f"- **{t}** — {d}")
+            if trigger:
+                lines.append(_RESIDENT_TRIGGER_PREFIX + trigger)
+        bullets = "\n".join(lines)
+        sections.append(f"**{axis_label}**\n\n{bullets}")
+    if not sections:
+        return _RESIDENT_NOTE + "\n\n_No weighted standards found yet._"
+    return _RESIDENT_NOTE + "\n\n" + "\n\n".join(sections)
+
+
+def _build_resident_block(standards: list[tuple[float, str, str, str, str]]) -> str:
+    """The marker-bounded `## Resident standards` block for CLAUDE.md/AGENTS.md."""
+    return (
+        _RESIDENT_SYNC_START + "\n" + _resident_inner(standards) + "\n" + _RESIDENT_SYNC_END
+    )
 
 
 # ---------------------------------------------------------------------------
 # Sync-log helpers
 # ---------------------------------------------------------------------------
 
-def _config_hash() -> str:
-    raw = _CONFIG.read_bytes()
-    return hashlib.sha256(raw).hexdigest()[:12]
+def _config_hash(config_path: Path | None = None) -> str:
+    """First 12 hex of the CONFIG.md sha256. Defaults to the loaded ``_CONFIG``;
+    an explicit path lets the shape-refusal artifact hash CONFIG before
+    config_variables (and thus ``_CONFIG``) is loaded."""
+    path = config_path if config_path is not None else _CONFIG
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]
 
 
-def _ensure_sync_log() -> None:
-    """Create the sync log with header if it does not exist."""
-    if not _SYNC_LOG.exists():
-        _SYNC_LOG.parent.mkdir(parents=True, exist_ok=True)
-        _SYNC_LOG.write_text(
-            "# Sync Log\n\nAppend-only sync log. Each H2 is one run.\n\n",
-            encoding="utf-8",
-        )
+_SYNC_LOG_HEADER = "# Sync Log\n\nAppend-only sync log. Each H2 is one run.\n\n"
+
+
+def _ensure_sync_log(log_path: Path) -> None:
+    """Create the sync log with its header if absent (safe LF write)."""
+    if not log_path.exists():
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _fh.write_text(log_path, _SYNC_LOG_HEADER)
+
+
+def _append_sync_log(log_path: Path, entry: str) -> None:
+    """Append one entry with ``open(..., "a")`` — never read-all/rewrite-all.
+
+    Ends the O(n^2) growth and the concurrent-run clobber race of the old
+    read-then-rewrite: existing bytes are untouched, and the append is LF
+    (``newline="\\n"``) per the deploy newline canon.
+    """
+    _ensure_sync_log(log_path)
+    with open(log_path, "a", encoding="utf-8", newline="\n") as fh:
+        fh.write(entry)
 
 
 def _last_log_hash() -> str | None:
     """Return the config-hash from the most recent log entry, or None."""
-    if not _SYNC_LOG.exists():
+    if _SYNC_LOG is None or not _SYNC_LOG.exists():
         return None
     text = _SYNC_LOG.read_text(encoding="utf-8")
     matches = list(re.finditer(r"config-hash:\s*([0-9a-f]{12})", text))
@@ -445,7 +690,6 @@ def _append_log_entry(
     errors: list[str],
     no_changes: bool,
 ) -> None:
-    _ensure_sync_log()
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if no_changes:
         entry = f"## {ts} — no changes since previous run (config-hash: {cfg_hash})\n\n"
@@ -464,20 +708,35 @@ def _append_log_entry(
             "",
         ]
         entry = "\n".join(lines) + "\n"
-
-    existing = _SYNC_LOG.read_text(encoding="utf-8")
-    _SYNC_LOG.write_text(existing + entry, encoding="utf-8")
+    _append_sync_log(_SYNC_LOG, entry)
 
 
 def _append_error_log(cfg_hash: str, error: str) -> None:
-    _ensure_sync_log()
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     entry = (
         f"## {ts} — config-hash: {cfg_hash}\n\n"
         f"- Errors: {error}\n\n"
     )
-    existing = _SYNC_LOG.read_text(encoding="utf-8")
-    _SYNC_LOG.write_text(existing + entry, encoding="utf-8")
+    _append_sync_log(_SYNC_LOG, entry)
+
+
+def _append_shape_refusal(log_path: Path, cfg_hash: str, refusals: list[str]) -> None:
+    """Record a shape-gate REFUSE as its own sync-log entry.
+
+    A refused CONFIG otherwise freezes every downstream copy stale and silent —
+    the PostToolUse hook swallows all sync output and exits 0. This entry is the
+    artifact that makes the refusal visible in the ledger the way a normal run's
+    entry is.
+    """
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    lines = [
+        f"## {ts} — config-shape REFUSED (config-hash: {cfg_hash})",
+        "",
+        "- Shape check refused; sync aborted — downstream copies left unchanged.",
+    ]
+    lines += [f"- REFUSE: {r}" for r in refusals]
+    lines.append("")
+    _append_sync_log(log_path, "\n".join(lines) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -503,20 +762,22 @@ def _count_table_rows(body: str) -> int:
     return rows
 
 
-def _sync_file(md_path: Path, default_header: str) -> tuple[bool, bool]:
-    """Write both synced blocks into md_path. Returns (changed, found).
+def _sync_file(md_path: Path, default_header: str, resident_body: str) -> tuple[bool, bool]:
+    """Write the synced blocks into md_path. Returns (changed, found).
 
-    Two marker-bounded blocks are written: the session-start Types table under
-    ``## Session-start defaults`` and the scheduled-agents table under
-    ``## Scheduled agents``. Each is replaced independently, so user content
-    around either block is preserved. `found` is True when the session-start
-    block was already present (used for the recovery report).
+    Four marker-bounded blocks are written: the session-start Types table under
+    ``## Session-start defaults``, the scheduled-agents table under
+    ``## Scheduled agents``, the always-on rules under ``## Always-on rules``,
+    and the resident-standards digest under ``## Resident standards``. Each is
+    replaced independently, so user content around any block is preserved.
+    `found` is True when the session-start block was already present (used for
+    the recovery report).
     """
     session_body = _build_session_defaults_table()
     agents_body = _build_scheduled_agents_table()
     rules_body = _build_rules_orientation_block()
     if not md_path.exists():
-        md_path.write_text(default_header, encoding="utf-8")
+        _fh.write_text(md_path, default_header)
     original = md_path.read_text(encoding="utf-8")
 
     updated, session_found = _replace_synced_block(
@@ -528,9 +789,12 @@ def _sync_file(md_path: Path, default_header: str) -> tuple[bool, bool]:
     updated, _rules_found = _replace_synced_block(
         updated, rules_body, _RULES_SYNC_START, _RULES_SYNC_END, _RULES_ANCHOR
     )
+    updated, _resident_found = _replace_synced_block(
+        updated, resident_body, _RESIDENT_SYNC_START, _RESIDENT_SYNC_END, _RESIDENT_ANCHOR
+    )
     changed = updated != original
     if changed:
-        md_path.write_text(updated, encoding="utf-8")
+        _fh.write_text(md_path, updated)
     return changed, session_found
 
 
@@ -573,7 +837,7 @@ def _sync_pipeline_skills(vault_root: Path) -> list[tuple[str, str]]:
             text[: s + len(_PIPE_SYNC_START)] + "\n" + block + "\n" + text[e:]
         )
         if updated != text:
-            path.write_text(updated, encoding="utf-8")
+            _fh.write_text(path, updated)
             results.append((name, "stamped"))
         else:
             results.append((name, "unchanged"))
@@ -613,9 +877,7 @@ def _sync_harness_permissions(vault_root: Path) -> str:
             allow.append(rule)
     if allow == before:
         return "unchanged"
-    settings_path.write_text(
-        json.dumps(data, indent=2) + "\n", encoding="utf-8"
-    )
+    _fh.write_text(settings_path, json.dumps(data, indent=2) + "\n")
     return "written"
 
 
@@ -633,14 +895,61 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # CLI overrides env overrides detection; re-resolve so every downstream
-    # helper (which reads these globals) sees the chosen layout.
-    vault_root = _resolve_vault_root(args.vault_root)
+    # ------------------------------------------------------------------
+    # Shape gate — runs here, not at module import, so `import sync_config`
+    # never mutates CONFIG.md. It precedes the config_variables parse so a
+    # repair lands before the parsers read CONFIG, and a refusal is caught
+    # without a parseable CONFIG.
+    # ------------------------------------------------------------------
+    config_path = config_shape.default_config_path()
+    shape_report = config_shape.run(config_path)
+    for _r in shape_report.repairs:
+        print(f"[config-shape] REPAIR  {_r}")
+    if not shape_report.ok:
+        for _r in shape_report.refusals:
+            print(f"[config-shape] REFUSE  {_r}", file=sys.stderr)
+        # The refusal leaves an artifact: a Sync-Log entry (the log path is
+        # resolvable without parsing CONFIG) so a refused shape does not freeze
+        # every downstream copy stale and silent — the hook swallows all output.
+        log_path = _refusal_sync_log_path(args.vault_root)
+        if log_path is not None:
+            try:
+                _append_shape_refusal(
+                    log_path, _config_hash(config_path), shape_report.refusals
+                )
+            except Exception:
+                pass
+        print(
+            "ERROR: sync aborted — CONFIG.md failed the shape check "
+            f"({len(shape_report.refusals)} unsafe drift(s)). Fix CONFIG.md and re-run.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # CONFIG is shape-clean; parse it now (the first config_variables import,
+    # so the parsers read the shape-repaired file).
+    _load_config_variables()
+
+    # CLI overrides env overrides detection; resolve so every downstream helper
+    # (which reads these globals) sees the chosen layout.
+    vault_root = resolve_vault_root(args.vault_root)
     if vault_root is None:
         print(f"ERROR: {_NO_VAULT_ROOT_ERROR}", file=sys.stderr)
         sys.exit(1)
     global _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG
-    _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG = _resolve_targets(vault_root)
+    _CLAUDE_MD, _AGENTS_MD, _SYNC_LOG = _resolve_targets(Path(vault_root))
+
+    # Resident standards: scan the vault's weighted standard notes once, then
+    # build both forms — the marker-bounded block (CLAUDE.md/AGENTS.md) and the
+    # bare bullet list (RULES.md, the per-prompt hook injection).
+    standards, skipped_standards = _scan_weighted_standards(vault_root)
+    if skipped_standards:
+        # Surface the skip visibly (stdout) so a dropped standard note is never
+        # invisible; the sync still completes and logs its run entry.
+        print(f"  resident-standards: skipped {skipped_standards} "
+              f"non-UTF-8 standard note(s)")
+    resident_block = _build_resident_block(standards)
+    resident_inner = _resident_inner(standards)
 
     cfg_hash = _config_hash()
     recovery: list[str] = []
@@ -666,6 +975,7 @@ def main() -> None:
     claude_changed, claude_found = _sync_file(
         _CLAUDE_MD,
         "# Vault\n\nSession-start primer.\n\n",
+        resident_block,
     )
     if not claude_found:
         recovery.append(f"CLAUDE.md {_SESSION_ANCHOR}")
@@ -673,6 +983,7 @@ def main() -> None:
     agents_changed, agents_found = _sync_file(
         _AGENTS_MD,
         "# Vault\n\nVocabulary primer for sub-agents and fresh runners.\n\n",
+        resident_block,
     )
     if not agents_found:
         recovery.append(f"AGENTS.md {_SESSION_ANCHOR}")
@@ -699,7 +1010,7 @@ def main() -> None:
     # § Rules → generated RULES.md (reminder column, full text where empty)
     # ------------------------------------------------------------------
     try:
-        rules_outcome = _sync_rules_md(vault_root)
+        rules_outcome = _sync_rules_md(vault_root, resident_inner)
     except Exception as exc:
         rules_outcome = "error"
         errors.append(f"rules-md: {exc}")
@@ -747,6 +1058,10 @@ def main() -> None:
             print(f"  pipeline-protocol -> {name}: {outcome}")
         print(f"  harness-permissions -> settings.local.json: {harness_outcome}")
         print(f"  rules -> RULES.md: {rules_outcome}")
+        print(
+            f"  resident-standards: {len(standards)} weighted, "
+            f"top {_RESIDENT_TOP_N_PER_AXIS}/axis resident"
+        )
         if recovery:
             print(f"  Recovered (appended) sections: {recovery}")
         if errors:

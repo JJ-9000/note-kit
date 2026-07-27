@@ -12,11 +12,19 @@ Run:
     python subfolder_housekeeping.py --vault-root <vault>   # apply
     python subfolder_housekeeping.py --vault-root <vault> --dry-run
 
-Invoked inline by audit.py each janitor run; manual invocation supported. Prints
+Invoked by audit.py's janitor pass; manual invocation supported. Prints
 one fixed-field line per action (CONFIG § Log files):
     timestamp | subfolder-housekeeping | <code> | <target> | <value>
 with `timestamp` supplied by the caller (audit) or left as `-` on a manual run,
 so the module never reads the clock itself.
+
+An empty index is archived to `<archive>/<source-path>/<date>-<filename>` (CONFIG
+§ Versioning), never hard-deleted — the never-delete rule holds for the kit's own
+housekeeping. The index delete is a filed-file deletion, so it routes through the
+shared `archive_first.archive_preimage` helper (CONFIG § Helper-script
+automation): the copy is probed onto a free name and hash-verified, and a failure
+raises before the `unlink()`, so the file is never removed with nothing behind it.
+Removing an empty DIRECTORY destroys no content and needs no pre-image.
 """
 
 from __future__ import annotations
@@ -29,34 +37,33 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+from archive_first import ArchiveFirstError, archive_preimage  # noqa: E402
 from config_variables import (  # noqa: E402
     FOLDER_ROUTING,
     is_excluded_dir,
     _folder_by_semantic,
+)
+from frontmatter_helpers import (  # noqa: E402
+    read_text_or_none,
+    split_frontmatter,
 )
 
 # Roots and operational folders that are never pruned even when momentarily empty.
 _PROTECTED_BASENAMES = {row.folder.split("/")[-1] for row in FOLDER_ROUTING.values()}
 
 
-def _is_index(path: Path) -> bool:
-    """A markdown file whose frontmatter declares `type: index`."""
-    if path.suffix.lower() != ".md":
-        return False
-    try:
-        head = path.read_text(encoding="utf-8")[:600]
-    except OSError:
-        return False
-    return "\ntype: index" in ("\n" + head) or head.startswith("type: index")
+def _archive_and_remove(path: Path, vault_root: Path) -> Path:
+    """Write a verified pre-image of `path`, then remove the source.
 
-
-def _index_links(path: Path) -> int:
-    """Count `[[wikilink]]` child links in an index body (its reason to exist)."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return 0
-    return text.count("[[")
+    CONFIG § Versioning applied to an empty index: archive-first, never a hard
+    `unlink()`. The pre-image goes through the shared helper, which probes for a
+    free archive name, copies, hash-verifies, and raises on any failure — so the
+    `unlink()` below runs only once the bytes exist in a second place. Returns
+    the archive destination.
+    """
+    dest = archive_preimage(path, vault_root=vault_root)
+    path.unlink()
+    return dest
 
 
 def _dir_is_empty(path: Path) -> bool:
@@ -94,14 +101,31 @@ def sweep(vault_root: Path, apply: bool) -> list[tuple[str, str, str]]:
             continue
 
         # An index alone in its folder (no siblings, no child links) indexes
-        # nothing — remove it; the now-empty folder is caught on this same pass.
+        # nothing — archive it; the now-empty folder is caught on this same pass.
         children = list(d.iterdir())
         md_children = [c for c in children if c.is_file() and c.suffix.lower() == ".md"]
-        if len(children) == 1 and md_children and _is_index(md_children[0]):
-            if _index_links(md_children[0]) == 0:
-                actions.append(("empty-index", str(md_children[0].relative_to(vault_root)), "removed"))
+        if len(children) == 1 and md_children:
+            only = md_children[0]
+            text = read_text_or_none(only)
+            is_index = text is not None and split_frontmatter(text).get("type") == "index"
+            # No child `[[wikilink]]` means the index has nothing to index.
+            if is_index and text.count("[[") == 0:
+                actions.append(("empty-index", str(only.relative_to(vault_root)), "archived"))
                 if apply:
-                    md_children[0].unlink()
+                    try:
+                        _archive_and_remove(only, vault_root)
+                    except (ArchiveFirstError, OSError) as exc:
+                        # No verified pre-image means no delete: the index keeps
+                        # its place and the sweep reports why, rather than
+                        # removing the only copy or aborting the whole pass.
+                        # The CODE carries `failed` so a caller that classifies
+                        # actions by code (audit.py's ledger split) reads this as
+                        # an open finding, never as a completed archive.
+                        actions[-1] = (
+                            "empty-index-archive-failed",
+                            str(only.relative_to(vault_root)),
+                            str(exc),
+                        )
 
         # An empty subfolder (now possibly emptied above) is pruned.
         if d.exists() and _dir_is_empty(d) and d.name not in _PROTECTED_BASENAMES:

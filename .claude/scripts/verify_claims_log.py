@@ -22,7 +22,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,28 +31,11 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from config_variables import _folder_by_semantic, token_path  # noqa: E402
-
-
-def _resolve_vault_root(cli_root: Path | None, archive: str) -> Path | None:
-    """Vault root, in priority order: --vault-root, env var, installed layout.
-
-    Installed, the kit root IS a vault's `.claude/` directory, so the vault
-    root is its parent — recognized by the vault archive (the log's
-    destination root) sitting there. The kit-source checkout shares the
-    `.claude` name but its parent is a repo with no archive, so it is
-    deliberately not detected.
-    """
-    if cli_root is not None:
-        return cli_root
-    env_root = os.environ.get("NOTE_KIT_VAULT_ROOT")
-    if env_root:
-        return Path(env_root)
-    if _KIT_ROOT.name == ".claude":
-        candidate = _KIT_ROOT.parent
-        if (candidate / archive).is_dir():
-            return candidate
-    return None
+from config_variables import (  # noqa: E402
+    _folder_by_semantic,
+    token_path,
+    resolve_vault_root,
+)
 
 
 def main() -> int:
@@ -76,7 +58,9 @@ def main() -> int:
     if not archive:
         sys.exit("Error: could not resolve the <archive> folder from CONFIG.md.")
 
-    vault_root = _resolve_vault_root(args.vault_root, archive)
+    # The one shared vault-root resolver (config_variables): --vault-root, then
+    # NOTE_KIT_VAULT_ROOT / JANITOR_VAULT_ROOT, then the installed-layout walk-up.
+    vault_root = resolve_vault_root(args.vault_root)
     if vault_root is None:
         sys.exit(
             "Error: no vault root resolved. Pass --vault-root, set "
@@ -97,7 +81,7 @@ def main() -> int:
                f"disputed={args.disputed} unresolved={args.unresolved}")
     line = f"{ts} | verify-claims | run | {args.source} | {outcome}\n"
 
-    with log_path.open("a", encoding="utf-8") as fh:
+    with log_path.open("a", encoding="utf-8", newline="\n") as fh:
         fh.write(line)
 
     print(f"verify-claims run logged: {log_path}")

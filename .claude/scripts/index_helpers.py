@@ -39,14 +39,16 @@ Public API:
 
 Usage from a filing script:
     from index_helpers import add_child_link_to_index, MalformedIndexError
-    added = add_child_link_to_index(Path('References/Houdini-Index.md'), 'New-Note')
+    added = add_child_link_to_index(Path('References/Topic-Index.md'), 'New-Note')
 """
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
-from wikilink_helpers import normalize_link_target, WIKILINK_RE
+from frontmatter_helpers import read_text_strict, split_frontmatter, write_text
+from wikilink_helpers import normalize_link_target
 
 
 # ---- exceptions -------------------------------------------------------------
@@ -65,24 +67,25 @@ _INLINE_LINK_RE = re.compile(r"(?<!!)\[\[([^\[\]]+?)\]\]")
 
 # ---- frontmatter parsing ----------------------------------------------------
 
-def _split_frontmatter(lines: list[str]) -> tuple[int, int]:
-    """Return (fm_start, body_start) line indices.
+def _body_start_index(content: str) -> int:
+    """First body line index (into ``content.split("\\n")``) after any frontmatter.
 
-    fm_start = index of opening '---' (0 if present, else -1 for no FM).
-    body_start = first line after closing '---'.
-
-    Raises MalformedIndexError if opening '---' exists but closing '---' does
-    not appear within the first 200 lines.
+    Delegates the fence detection to the shared frontmatter splitter, then counts
+    the newlines the header span consumes. Raises MalformedIndexError when an
+    opening ``---`` fence has no closing fence: the shared splitter treats that as
+    a bodyless document, but index insertion needs the malformed block flagged
+    (the contract the retired line-scanning `_split_frontmatter` carried).
     """
-    if not lines or lines[0].rstrip() != '---':
-        return -1, 0
-    for i in range(1, min(len(lines), 200)):
-        if lines[i].rstrip() == '---':
-            return 0, i + 1
-    raise MalformedIndexError(
-        "Unclosed frontmatter block: opening '---' found but no closing '---' "
-        "within first 200 lines."
-    )
+    fm = split_frontmatter(content)
+    if fm.has_frontmatter:
+        header = fm.opening + fm.inner + fm.closing
+        return header.count("\n")
+    first = content.splitlines()[:1]
+    if first and first[0].strip() == "---":
+        raise MalformedIndexError(
+            "Unclosed frontmatter block: opening '---' found but no closing '---'."
+        )
+    return 0
 
 
 # ---- add_child_link_to_index ------------------------------------------------
@@ -90,16 +93,25 @@ def _split_frontmatter(lines: list[str]) -> tuple[int, int]:
 def add_child_link_to_index(index_file: Path, child_link: str) -> bool:
     """Insert child_link as a wikilink bullet into the index's top-level list.
 
-    The top-level list is defined as bullet lines (`- [[...]]`) that appear
-    in the body above the first H2 (`##`) heading. If no H2 exists, the entire
-    body is treated as the list zone.
+    The top-level list is the bullet lines (`- [[...]]`) between the note's H1
+    title and the first H2 (`##`) heading. When the body carries no H1, the zone
+    opens at the body start; when it carries no H2, the zone runs to the end.
+    Anchoring on the H1 keeps an inserted link below the title — defining the
+    zone from the body start instead puts every insertion above the heading,
+    which is how four covers came to carry link blocks above their own titles.
+
+    Presence is checked across the WHOLE body, not only the insert zone, so a
+    child already listed under a `##` section (or in a stray block above the
+    title) is never added a second time.
 
     Insertion is in case-insensitive sorted order by basename. Returns True if
     a new line was inserted; False if child_link is already present (idempotent,
     comparison via normalize_link_target — case-insensitive).
 
     Handles edge cases:
-      - Empty file: writes link as first body line.
+      - Missing file: creates it, seeding minimal index frontmatter (type: index,
+        tags, date) so the kit's own created artifact is not flagged
+        `missing-frontmatter`, then the link as the first body line.
       - Frontmatter-only: writes body block below closing '---'.
       - No H2 in body: appends among existing list items (sorted).
       - Link already present (case-insensitive): returns False.
@@ -107,21 +119,41 @@ def add_child_link_to_index(index_file: Path, child_link: str) -> bool:
     """
     index_file = Path(index_file)
     if not index_file.exists():
-        # Empty-file case: create with just the link.
-        index_file.write_text(f"- [[{child_link}]]\n", encoding="utf-8")
+        # Missing-file case: create with seeded minimal frontmatter + the link.
+        date = datetime.now().strftime("%Y-%m-%d")
+        write_text(
+            index_file,
+            "---\n"
+            "type: index\n"
+            "tags:\n"
+            "  - index\n"
+            f"date: {date}\n"
+            "---\n\n"
+            f"- [[{child_link}]]\n",
+        )
         return True
 
-    content = index_file.read_text(encoding="utf-8")
+    content = read_text_strict(index_file)
+    body_start = _body_start_index(content)  # raises MalformedIndexError if unclosed
+    # Split and rejoin on the file's dominant ending so an insertion into a CRLF
+    # index never yields mixed line endings (the inserted line inherits the file's).
+    nl = "\r\n" if "\r\n" in content else "\n"
     had_trailing_newline = content.endswith("\n")
-    lines = content.split("\n")
+    lines = content.split(nl)
     if had_trailing_newline and lines and lines[-1] == "":
         lines.pop()
 
-    _, body_start = _split_frontmatter(lines)  # raises MalformedIndexError if unclosed
-
-    # Find list zone: body lines before first H2
-    h2_idx = None
+    # The zone opens below the H1 title when there is one, so an inserted link
+    # lands under the heading rather than above it.
+    zone_start = body_start
     for i in range(body_start, len(lines)):
+        if re.match(r'^#\s+', lines[i]):
+            zone_start = i + 1
+            break
+
+    # Find list zone end: first H2 at or after the zone start
+    h2_idx = None
+    for i in range(zone_start, len(lines)):
         if re.match(r'^#{2}\s+', lines[i]):
             h2_idx = i
             break
@@ -130,15 +162,16 @@ def add_child_link_to_index(index_file: Path, child_link: str) -> bool:
     # Normalise the incoming basename for comparison
     incoming_stem = normalize_link_target(child_link).lower()
 
-    # Idempotency check: scan zone for any wikilink that normalises to same basename
-    for i in range(body_start, zone_end):
+    # Idempotency check: scan the WHOLE body — a child listed under a `##`
+    # section, or in a block above the title, already counts as registered.
+    for i in range(body_start, len(lines)):
         for m in _INLINE_LINK_RE.finditer(lines[i]):
             if normalize_link_target(m.group(1)).lower() == incoming_stem:
                 return False
 
     # Collect existing bullet lines in the zone
     bullet_indices = [
-        i for i in range(body_start, zone_end)
+        i for i in range(zone_start, zone_end)
         if lines[i].lstrip().startswith('- ') or lines[i].lstrip().startswith('* ')
     ]
 
@@ -156,16 +189,17 @@ def add_child_link_to_index(index_file: Path, child_link: str) -> bool:
             break
         insert_at = bi + 1  # comes after this bullet
 
-    # If zone was empty (no bullets) and body_start < zone_end, insert at body_start
+    # If the zone holds no bullets yet, open the list at the top of the zone
+    # (below the H1 when there is one).
     if not bullet_indices:
-        insert_at = body_start
+        insert_at = zone_start
 
     lines.insert(insert_at, new_line)
 
-    out = "\n".join(lines)
+    out = nl.join(lines)
     if had_trailing_newline:
-        out += "\n"
-    index_file.write_text(out, encoding="utf-8")
+        out += nl
+    write_text(index_file, out)
     return True
 
 
@@ -235,9 +269,12 @@ def insert_into_section(
     if not index_path.exists():
         return False, f"Index not found: {index_path}"
 
-    content = index_path.read_text(encoding="utf-8")
+    content = read_text_strict(index_path)
+    # Split and rejoin on the file's dominant ending so an insertion into a CRLF
+    # index never yields mixed line endings (the inserted line inherits the file's).
+    nl = "\r\n" if "\r\n" in content else "\n"
     had_trailing_newline = content.endswith("\n")
-    lines = content.split("\n")
+    lines = content.split(nl)
     if had_trailing_newline and lines and lines[-1] == "":
         lines.pop()
 
@@ -270,10 +307,10 @@ def insert_into_section(
 
     lines.insert(insert_at, entry_line)
 
-    out = "\n".join(lines)
+    out = nl.join(lines)
     if had_trailing_newline:
-        out += "\n"
-    index_path.write_text(out, encoding="utf-8")
+        out += nl
+    write_text(index_path, out)
     return True, f"inserted into '{section_heading}' at line {insert_at + 1}"
 
 
@@ -284,7 +321,7 @@ def find_best_section(index_path: Path | str, child_type: str) -> str | None:
     index_path = Path(index_path)
     if not index_path.exists():
         return None
-    content = index_path.read_text(encoding="utf-8")
+    content = read_text_strict(index_path)
     headings = {
         m.group(1).strip().lower(): m.group(1).strip()
         for m in re.finditer(r"^#{2,6}\s+(.+?)\s*$", content, re.MULTILINE)

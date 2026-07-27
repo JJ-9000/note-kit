@@ -17,7 +17,9 @@ What it does, given one filed plan:
     2. Write the open remainder (`- [ ]` items + structure) to `<inbox>` as a
        fresh `reviewed: false` draft, so the person re-approves the trimmed plan
        and the filing agent re-files it. This is the "raise to inbox" step.
-    3. Archive the original filed plan (copy-before-delete) so history survives.
+    3. Archive the original filed plan first — copy, hash-verify, then delete —
+       before the changelog and raised draft land, so a copy that fails to
+       verify loses nothing (source kept, no partial changelog/draft/archive).
 
 Stay out of `<inbox>`
 ---------------------
@@ -55,6 +57,7 @@ Run with a plan path to operate (dry-run unless --apply):
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import sys
@@ -62,8 +65,6 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-
-import yaml
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -74,6 +75,13 @@ from config_variables import (  # noqa: E402
     _folder_by_semantic,
     folder_for_wildcard,
     is_excluded_dir,
+    resolve_vault_root,
+)
+from frontmatter_helpers import (  # noqa: E402
+    read_text_or_none,
+    read_text_strict,
+    split_frontmatter,
+    write_text,
 )
 
 
@@ -113,46 +121,12 @@ class BifurcateResult:
 
 
 # ---------------------------------------------------------------------------
-# Frontmatter / body helpers
+# Body / copy helpers  (frontmatter parse/split/edit is frontmatter_helpers)
 # ---------------------------------------------------------------------------
 
-def _split_doc(text: str) -> tuple[str | None, str]:
-    """Return (frontmatter_raw, body). frontmatter_raw is None if absent.
-
-    frontmatter_raw is the text between the `---` fences, without the fences;
-    body is everything after the closing fence, without its leading newline.
-    """
-    if not text.startswith("---"):
-        return None, text
-    lines = text.split("\n")
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            return "\n".join(lines[1:i]), "\n".join(lines[i + 1:])
-    return None, text
-
-
-def _fm_dict(fm_raw: str | None) -> dict:
-    if not fm_raw:
-        return {}
-    try:
-        data = yaml.safe_load(fm_raw)
-        return data if isinstance(data, dict) else {}
-    except yaml.YAMLError:
-        return {}
-
-
-def _set_fm_field(fm_raw: str, key: str, value: str) -> str:
-    """Set `key: value` in a raw frontmatter block, preserving the rest verbatim.
-
-    Replaces the existing line if present, else appends. Operating on the raw
-    text (not a re-dumped dict) keeps wikilink quoting and key order intact.
-    """
-    line = f"{key}: {value}"
-    pattern = re.compile(rf"^{re.escape(key)}:.*$", re.MULTILINE)
-    if pattern.search(fm_raw):
-        return pattern.sub(line, fm_raw, count=1)
-    sep = "" if fm_raw.endswith("\n") or fm_raw == "" else "\n"
-    return f"{fm_raw}{sep}{line}\n"
+def _sha256(path: Path) -> str:
+    """Content hash of a file — the copy-before-delete verify."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def _collapse_blank_runs(text: str) -> str:
@@ -306,9 +280,9 @@ def bifurcate_plan(
             error="plan lives under <inbox>; bifurcate only filed plans",
         )
 
-    text = plan_path.read_text(encoding="utf-8")
-    fm_raw, body = _split_doc(text)
-    fm = _fm_dict(fm_raw)
+    text = read_text_strict(plan_path)
+    fmobj = split_frontmatter(text)
+    fm = fmobj.to_dict()
 
     if str(fm.get("type", "")).strip().lower() != "plan":
         return BifurcateResult(
@@ -316,7 +290,7 @@ def bifurcate_plan(
             error=f"type is {fm.get('type')!r}, not 'plan'",
         )
 
-    completed, kept_lines, open_count = _classify_body(body)
+    completed, kept_lines, open_count = _classify_body(fmobj.body)
     if not completed:
         return BifurcateResult(
             "noop-nothing-done", plan_path, open_count=open_count,
@@ -337,16 +311,18 @@ def bifurcate_plan(
         )
 
     # --- Build the trimmed plan (open items only) -------------------------
-    trimmed_fm = fm_raw or ""
+    # Set the inbox additions on the raw frontmatter block (targeted line
+    # rewrites via the shared helper), keeping key order, comments, and quoting.
     for key, value in FILE_HANDLING.inbox_additions.items():
-        trimmed_fm = _set_fm_field(trimmed_fm, key, value)
+        fmobj.set_field(key, value)
+    trimmed_header = fmobj.opening + fmobj.inner + fmobj.closing
     trimmed_body = _collapse_blank_runs("\n".join(kept_lines))
-    trimmed_text = f"---\n{trimmed_fm.rstrip(chr(10))}\n---\n{trimmed_body}"
+    trimmed_text = trimmed_header + trimmed_body
 
     # --- Build the changelog content -------------------------------------
     entry = _render_changelog_entry(completed, stem, date_str)
     if changelog_path.exists():
-        changelog_text = changelog_path.read_text(encoding="utf-8").rstrip("\n") + "\n" + entry
+        changelog_text = read_text_strict(changelog_path).rstrip("\n") + "\n" + entry
     else:
         changelog_text = _new_changelog_text(stem, fm, date_str) + entry
 
@@ -358,12 +334,26 @@ def bifurcate_plan(
     if dry_run:
         return result
 
-    # --- Write (changelog + inbox draft, then archive the original) ------
-    changelog_path.write_text(changelog_text, encoding="utf-8")
-    inbox_draft.parent.mkdir(parents=True, exist_ok=True)
-    inbox_draft.write_text(trimmed_text, encoding="utf-8")
+    # --- Archive the original FIRST and verify the copy by hash -----------
+    # Archive-first, before any other write (the structured_rewrite discipline):
+    # a copy that fails to verify leaves NO changelog, NO raised draft, and NO
+    # archive residue, and the untouched source lets a clean retry succeed.
     archive_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(plan_path, archive_path)  # copy-before-delete
+    shutil.copy2(plan_path, archive_path)
+    if not archive_path.is_file() or _sha256(archive_path) != _sha256(plan_path):
+        if archive_path.exists():
+            archive_path.unlink()  # remove the corrupt copy — no residue
+        result.status = "aborted"
+        result.error = f"archive copy verify failed; source kept: {archive_path}"
+        result.changelog = None
+        result.inbox_draft = None
+        result.archived = None
+        return result
+
+    # --- Write changelog + raised draft, then remove the archived original -
+    write_text(changelog_path, changelog_text)
+    inbox_draft.parent.mkdir(parents=True, exist_ok=True)
+    write_text(inbox_draft, trimmed_text)
     plan_path.unlink()
     return result
 
@@ -387,8 +377,11 @@ def discover_filed_plans(vault_root: Path) -> list[Path]:
             continue
         if _is_under(p, inbox) or _is_under(p, archive):
             continue
-        fm, _ = _split_doc(p.read_text(encoding="utf-8"))
-        if str(_fm_dict(fm).get("type", "")).strip().lower() == "plan":
+        text = read_text_or_none(p)
+        if text is None:
+            continue  # not valid UTF-8 — skip, never decode lossily
+        fm = split_frontmatter(text).to_dict()
+        if str(fm.get("type", "")).strip().lower() == "plan":
             out.append(p)
     return out
 
@@ -574,6 +567,50 @@ def _run_self_tests() -> None:
         else:
             fail("H discovery included the .claude/ plan")
 
+        # --- Case I: archive-verify failure is atomic — no residue (A1) ---
+        plan_i = plans / "Atomic-Plan.md"
+        plan_i.write_text(
+            "---\ntype: plan\ntags:\n  - demo\ndate: 2026-06-02\n---\n\n# I\n\n"
+            "## Round\n\n- [x] done\n- [ ] open\n",
+            encoding="utf-8",
+        )
+        plan_i_bytes = plan_i.read_bytes()
+        # Force the archive copy's hash to mismatch its source.
+        _orig_sha = globals()["_sha256"]
+        globals()["_sha256"] = (
+            lambda p: _orig_sha(p) + ("|X" if "Atomic-Plan-bifurcated" in str(p) else "")
+        )
+        try:
+            res_i = bifurcate_plan(plan_i, vault, now=fixed_now)
+        finally:
+            globals()["_sha256"] = _orig_sha
+        cl_i = plans / "Atomic-Plan-Changelog.md"
+        draft_i = inbox / "Atomic-Plan.md"
+        # Capture the post-abort state as booleans BEFORE the clean retry, which
+        # legitimately (re)creates the changelog and draft.
+        aborted_ok = res_i.status == "aborted"
+        src_kept = plan_i.exists() and plan_i.read_bytes() == plan_i_bytes
+        no_cl = not cl_i.exists()
+        no_draft = not draft_i.exists()
+        no_arch = not list(archive.glob("Atomic-Plan-bifurcated-*.md"))
+        if not aborted_ok:
+            fail(f"I status={res_i.status} (want aborted on verify fail)")
+        if not src_kept:
+            fail("I source plan not kept byte-identical")
+        if not no_cl:
+            fail("I changelog residue left after aborted verify")
+        if not no_draft:
+            fail("I inbox draft residue left after aborted verify")
+        if not no_arch:
+            fail("I corrupt archive copy left behind (no residue expected)")
+        # A clean retry (real hashing) must succeed with no clobber wedge.
+        res_i2 = bifurcate_plan(plan_i, vault, now=fixed_now)
+        retry_ok = res_i2.status == "bifurcated" and not plan_i.exists()
+        if not retry_ok:
+            fail(f"I clean retry did not succeed: status={res_i2.status}")
+        if aborted_ok and src_kept and no_cl and no_draft and no_arch and retry_ok:
+            print("OK   case I: archive-verify failure atomic (no draft/changelog/archive), clean retry succeeds")
+
     if failures:
         print(f"\n{failures} self-test failure(s).")
         sys.exit(1)
@@ -586,7 +623,13 @@ def _cli(argv: list[str]) -> None:
     if not paths:
         _run_self_tests()
         return
-    vault_root = Path.cwd()
+    vault_root = resolve_vault_root()
+    if vault_root is None:
+        print(
+            "could not resolve vault root; set NOTE_KIT_VAULT_ROOT or run inside a vault",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     for raw in paths:
         res = bifurcate_plan(Path(raw), vault_root, dry_run=not apply)
         mode = "APPLIED" if apply and res.status == "bifurcated" else (

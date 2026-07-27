@@ -1,0 +1,434 @@
+#!/usr/bin/env python3
+"""verify_surface_parity.py
+=============================
+
+Weekly read-only diff of the live kit surface (`<vault>/.claude/`) against the
+template tree (`<areas>/Note-Kit/Assets/note-kit/.claude/`, CONFIG § Code-canon
+registry), emitting `surface-drift` (Note-Kit-Structural-Integrity-Plan,
+Stream A).
+
+The kit once held four simultaneous divergent states — public HEAD, template
+HEAD, template worktree, live — while the three-copy protocol was in force. A
+protocol without a detector re-drifts, so this is the detector: it compares the
+two trees the protocol says are one, and reports what actually differs.
+
+One finding per drifted file, carrying a hunk COUNT rather than the hunks —
+the analyst reads a work list, not a dump. `--verbose` prints the hunk bodies
+for a file under investigation.
+
+Read-only in the strictest sense: it opens files, writes nothing into either
+tree, and its only output is stdout plus an optional findings file outside both.
+
+Licensed divergence
+-------------------
+Some divergence is correct and permanent — an install fills in its own literals
+where the template ships a token. Each such divergence is recorded as ONE KNOWN
+EXACT PAIR: the file it occurs in, the exact template-side content, and the
+exact live-side content, each pinned by a content signature. A hunk is licensed
+only when both of its sides reproduce a recorded pair; every finding names which
+classes it applied:
+
+  whitespace-only              cell padding / inner-run whitespace only
+  sandbox-vault-literal        CONFIG § Folders `<sandbox-vault>` row — the
+                               install's own absolute sandbox path
+  exempt-paths-owner-literal   CONFIG § Asset folders "Exempt paths" — the
+                               install's own owner working folder
+  retired-token-personal-row   CONFIG § Retired tokens data rows — each install
+                               retires its own vocabulary and machine names
+  code-canon-personal-row      CONFIG § Code-canon registry intro and data rows
+                               — the install's own trees under <user-home>/repos
+  install-placeholder-fill     a template `<PLACEHOLDER>` filled with this
+                               install's literal (vault-search/config.yaml)
+
+Pinning the pair is what makes the licence a licence for one divergence rather
+than a blanket pardon for a line. Editing a licensed line changes its signature,
+so the pair stops matching and the hunk reports as drift — a licence covers the
+divergence that was reviewed, never whatever that line later becomes. Genuine
+drift hiding beside a licensed line stays visible for the same reason: the
+opcode that carries both is one hunk, and its signature matches no pair.
+
+When a licensed divergence legitimately changes — CONFIG grows a retired-token
+row, an install moves its sandbox — the pair is RE-RECORDED. `--emit-licensed`
+prints the paste-ready entry for every hunk now reporting as drift.
+
+Signatures rather than the literals themselves: the template copy of this file
+is published, so it carries no install-specific paths or owner names. A signature
+pins the exact content without reproducing it, and is the stricter test of the
+two — it commits to the whole hunk, not to one substring inside it.
+
+Excluded outright
+-----------------
+Per-install GENERATED files — `CLAUDE.md`, `AGENTS.md`, `RULES.md`,
+`settings.local.json` — are regenerated from CONFIG by `sync_config` on each
+install, so a diff of them measures the generator's inputs, not surface drift.
+Machine-local runtime residue (`__pycache__`, `.venv/`, `data/`, `*.pyc`,
+`*.log`, `*.lock`, `*.db*`, `launch.json`, `vocabulary.json`) is not source and
+is skipped the same way.
+
+Usage
+-----
+    # Weekly, as the analyst calls it (alongside rotate_logs.py at run start):
+    python <kit-root>/scripts/verify_surface_parity.py
+
+    # Naming both trees explicitly, e.g. against a worktree:
+    python verify_surface_parity.py --live /path/.claude --template /path/note-kit/.claude
+
+    # Feeding the findings into the next snapshot build:
+    python verify_surface_parity.py --findings-out /tmp/surface.txt
+    JANITOR_VAULT_ROOT=/path/to/Vault python build_state_index.py \
+        --findings /tmp/surface.txt
+
+    # Re-recording a licensed divergence that legitimately changed:
+    python verify_surface_parity.py --verbose --emit-licensed
+
+Exit status: 0 parity, 1 drift found, 2 the check could not run (a tree is
+missing). A run that cannot compare exits 2 rather than reporting parity.
+"""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import hashlib
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import NamedTuple
+
+ACTOR = "verify-surface-parity"
+CODE = "surface-drift"
+
+DEFAULT_TEMPLATE_REL = "Areas/Note-Kit/Assets/note-kit/.claude"
+
+# Per-install GENERATED artifacts — regenerated by sync_config from CONFIG on
+# each install, so their content is an output, not a shared surface.
+GENERATED_PER_INSTALL = {
+    "CLAUDE.md", "AGENTS.md", "RULES.md", "settings.local.json",
+}
+# Machine-local runtime residue: never source, never shared.
+RUNTIME_NAMES = {"launch.json", "vocabulary.json", "daemon.pid"}
+RUNTIME_SUFFIXES = {
+    ".pyc", ".pyo", ".log", ".lock", ".bak", ".pid", ".stackdump", ".tmp",
+    ".db", ".db-wal", ".db-shm",
+}
+SKIP_DIRS = {
+    "__pycache__", ".venv", "venv", "data", "node_modules", ".git", ".mypy_cache",
+    ".pytest_cache", ".ruff_cache", ".history",
+}
+
+SIG_LEN = 16
+
+
+def sig(lines: list[str]) -> str:
+    """Content signature for one side of a hunk.
+
+    Taken over the newline-joined, already-normalized lines, so it is stable
+    across line endings and trailing whitespace and changes the moment the
+    content does. An empty side (a pure insertion or deletion) signs the empty
+    string, which is a real value and pairs like any other.
+    """
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()[:SIG_LEN]
+
+
+class LicensedPair(NamedTuple):
+    """One reviewed divergence, pinned on BOTH sides.
+
+    `target` is the rel path inside the tree or a bare filename; `tmpl_sig` and
+    `live_sig` are `sig()` over that hunk's template-side and live-side lines;
+    `note` says what the divergence is, in terms that name no install literal.
+    """
+    class_id: str
+    target: str
+    tmpl_sig: str
+    live_sig: str
+    note: str
+
+
+# The reviewed divergence set for THIS install, enumerated from the two trees.
+# A hunk is licensed only by an exact (tmpl_sig, live_sig) hit here — one entry
+# licenses one divergence, not the lines it happens to touch. Re-record with
+# `--emit-licensed` when a licensed divergence legitimately changes.
+LICENSED_PAIRS: list[LicensedPair] = [
+    LicensedPair(
+        "sandbox-vault-literal", "CONFIG.md",
+        "5a9a9569d8163a8c", "7519eb757313ca95",
+        "Folders `<sandbox-vault>` row — the template's `<user-home>` token "
+        "filled with this install's own absolute sandbox path",
+    ),
+    LicensedPair(
+        "exempt-paths-owner-literal", "CONFIG.md",
+        "f7566f6123d991bf", "da86df19408e675d",
+        "Asset folders \"Exempt paths\" — the template's generic sentence "
+        "naming this install's own owner working folder",
+    ),
+    LicensedPair(
+        "retired-token-personal-row", "CONFIG.md",
+        "e3b0c44298fc1c14", "fac4a42cc71c838f",
+        "Retired tokens — five rows of vocabulary and machine names this "
+        "install retired, absent from the template",
+    ),
+    LicensedPair(
+        "retired-token-personal-row", "CONFIG.md",
+        "4f1a0882270c2a9a", "7771adc4c6423b0e",
+        "Retired tokens — one install-specific row standing where the "
+        "template carries a different row",
+    ),
+    LicensedPair(
+        "code-canon-personal-row", "CONFIG.md",
+        "4a03d7cc9e892cc3", "4a017950ba81e0c9",
+        "Code-canon registry intro — the closing sentence naming this "
+        "install's own migration plan",
+    ),
+    LicensedPair(
+        "code-canon-personal-row", "CONFIG.md",
+        "e3b0c44298fc1c14", "f93241cc6406c383",
+        "Code-canon registry — two rows for this install's own trees under "
+        "`<user-home>/repos`",
+    ),
+    LicensedPair(
+        "code-canon-personal-row", "CONFIG.md",
+        "e3b0c44298fc1c14", "515d984df991e237",
+        "Code-canon registry — one row for this install's own relocated tree",
+    ),
+    LicensedPair(
+        "install-placeholder-fill", "vault-search/config.yaml",
+        "f0c8427bb2f39b92", "c12743d09989d010",
+        "`<HOME>` filled with this install's model cache path",
+    ),
+    LicensedPair(
+        "install-placeholder-fill", "vault-search/config.yaml",
+        "236643705b31a56d", "bb6ed6301fef4a69",
+        "`<DATA_DIR>` filled with this install's index path",
+    ),
+    LicensedPair(
+        "install-placeholder-fill", "vault-search/config.yaml",
+        "5187243f603498d1", "5e804795ccdc510b",
+        "`<DATA_DIR>` filled with this install's daemon-log path",
+    ),
+]
+
+
+def is_skipped(rel: str) -> bool:
+    parts = rel.split("/")
+    if any(seg in SKIP_DIRS for seg in parts[:-1]):
+        return True
+    name = parts[-1]
+    if name in GENERATED_PER_INSTALL or name in RUNTIME_NAMES:
+        return True
+    suffix = Path(name).suffix.lower()
+    return suffix in RUNTIME_SUFFIXES
+
+
+def collect(root: Path) -> dict[str, Path]:
+    out: dict[str, Path] = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for fname in filenames:
+            p = Path(dirpath) / fname
+            rel = p.relative_to(root).as_posix()
+            if is_skipped(rel):
+                continue
+            out[rel] = p
+    return out
+
+
+def normalized_lines(path: Path) -> list[str] | None:
+    """Newline-normalized, trailing-whitespace-normalized lines, or None when
+    the file does not decode as UTF-8 (compared as bytes instead)."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        text = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return [ln.rstrip() for ln in text.split("\n")]
+
+
+def pairs_for(rel: str) -> list[LicensedPair]:
+    name = rel.split("/")[-1]
+    return [p for p in LICENSED_PAIRS if p.target == rel or p.target == name]
+
+
+def classify_hunks(rel: str, template: list[str], live: list[str]):
+    """Return (unlicensed_hunks, licensed_class_ids, hunk_bodies).
+
+    A hunk is licensed when the change is whitespace-only, or when BOTH of its
+    sides reproduce a pair recorded for this file. A licensed line whose content
+    changed no longer signs to its recorded pair, so it reports as drift.
+    """
+    pairs = pairs_for(rel)
+    sm = difflib.SequenceMatcher(None, template, live, autojunk=False)
+    unlicensed = 0
+    applied: set[str] = set()
+    bodies: list[str] = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        old = template[i1:i2]
+        new = live[j1:j2]
+        # Whitespace-only: the two sides collapse to the same text once inner
+        # runs of whitespace are squeezed. (Trailing whitespace is already gone.)
+        squeeze = lambda ls: [re.sub(r"\s+", " ", x).strip() for x in ls]  # noqa: E731
+        if squeeze(old) == squeeze(new):
+            applied.add("whitespace-only")
+            continue
+        t_sig, l_sig = sig(old), sig(new)
+        match = next((p for p in pairs
+                      if p.tmpl_sig == t_sig and p.live_sig == l_sig), None)
+        if match:
+            applied.add(match.class_id)
+            continue
+        unlicensed += 1
+        bodies.append(
+            f"  @@ template {i1 + 1}-{i2} -> live {j1 + 1}-{j2} "
+            f"(tmpl_sig {t_sig}, live_sig {l_sig}) @@\n"
+            + "\n".join(f"    - {x[:200]}" for x in old)
+            + ("\n" if old and new else "")
+            + "\n".join(f"    + {x[:200]}" for x in new)
+        )
+    return unlicensed, applied, bodies
+
+
+def emit_licensed_entry(rel: str, template: list[str], live: list[str]) -> list[str]:
+    """Paste-ready `LicensedPair(...)` source for each hunk now reporting drift.
+
+    The re-recording path: a reviewer reads the hunk, decides the divergence is
+    correct for this install, and pastes the entry into LICENSED_PAIRS.
+    """
+    out: list[str] = []
+    pairs = pairs_for(rel)
+    sm = difflib.SequenceMatcher(None, template, live, autojunk=False)
+    squeeze = lambda ls: [re.sub(r"\s+", " ", x).strip() for x in ls]  # noqa: E731
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        old, new = template[i1:i2], live[j1:j2]
+        if squeeze(old) == squeeze(new):
+            continue
+        t_sig, l_sig = sig(old), sig(new)
+        if any(p.tmpl_sig == t_sig and p.live_sig == l_sig for p in pairs):
+            continue
+        out.append(
+            f'    LicensedPair(\n'
+            f'        "<class-id>", "{rel}",\n'
+            f'        "{t_sig}", "{l_sig}",\n'
+            f'        "<what this divergence is, naming no install literal>",\n'
+            f'    ),  # template {i1 + 1}-{i2} -> live {j1 + 1}-{j2}'
+        )
+    return out
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Read-only newline-normalized diff of the live .claude "
+                    "surface against the note-kit template tree.",
+    )
+    parser.add_argument("--vault", default=None,
+                        help="Vault root. Defaults to $JANITOR_VAULT_ROOT, then "
+                             "this script's install root, then the cwd.")
+    parser.add_argument("--live", default=None,
+                        help="Live kit root. Defaults to <vault>/.claude.")
+    parser.add_argument("--template", default=None,
+                        help=f"Template kit root. Defaults to "
+                             f"<vault>/{DEFAULT_TEMPLATE_REL}.")
+    parser.add_argument("--findings-out", default=None,
+                        help="Write `code | target | value` lines here, the "
+                             "format build_state_index --findings reads.")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Print the unlicensed hunk bodies under each finding.")
+    parser.add_argument("--emit-licensed", action="store_true",
+                        help="Print a paste-ready LICENSED_PAIRS entry for every "
+                             "hunk reporting drift — the re-record path after a "
+                             "licensed divergence legitimately changes.")
+    args = parser.parse_args()
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    vault_arg = args.vault or os.environ.get("JANITOR_VAULT_ROOT")
+    if vault_arg:
+        vault = Path(vault_arg)
+    else:
+        here = Path(__file__).resolve()
+        vault = (here.parent.parent.parent
+                 if here.parent.name == "scripts" and here.parent.parent.name == ".claude"
+                 else Path.cwd())
+    vault = vault.resolve() if vault.is_dir() else vault
+
+    live_root = Path(args.live) if args.live else vault / ".claude"
+    tmpl_root = Path(args.template) if args.template else vault / DEFAULT_TEMPLATE_REL
+
+    for label, root in (("live", live_root), ("template", tmpl_root)):
+        if not root.is_dir():
+            print(f"{ts} | {ACTOR} | surface-check-blocked | {root} | "
+                  f"{label} tree not found")
+            return 2
+
+    live_files = collect(live_root)
+    tmpl_files = collect(tmpl_root)
+
+    findings: list[tuple[str, str]] = []
+    verbose_bodies: dict[str, list[str]] = {}
+    emit_entries: dict[str, list[str]] = {}
+    licensed_total: set[str] = set()
+
+    for rel in sorted(set(live_files) - set(tmpl_files)):
+        findings.append((rel, "live-only — no template twin"))
+    for rel in sorted(set(tmpl_files) - set(live_files)):
+        findings.append((rel, "template-only — no live twin"))
+
+    compared = 0
+    for rel in sorted(set(live_files) & set(tmpl_files)):
+        compared += 1
+        live_lines = normalized_lines(live_files[rel])
+        tmpl_lines = normalized_lines(tmpl_files[rel])
+        if live_lines is None or tmpl_lines is None:
+            try:
+                if live_files[rel].read_bytes() != tmpl_files[rel].read_bytes():
+                    findings.append((rel, "bytes differ (not UTF-8 text)"))
+            except OSError as exc:
+                findings.append((rel, f"unreadable ({exc})"))
+            continue
+        if live_lines == tmpl_lines:
+            continue
+        unlicensed, applied, bodies = classify_hunks(rel, tmpl_lines, live_lines)
+        licensed_total |= applied
+        if unlicensed == 0:
+            continue
+        note = f"{unlicensed} hunk(s) drift"
+        if applied:
+            note += f"; licensed and excluded: {', '.join(sorted(applied))}"
+        findings.append((rel, note))
+        verbose_bodies[rel] = bodies
+        if args.emit_licensed:
+            emit_entries[rel] = emit_licensed_entry(rel, tmpl_lines, live_lines)
+
+    print(f"{ts} | {ACTOR} | surface-check | {live_root} | "
+          f"{compared} file(s) compared against {tmpl_root}; "
+          f"{len(findings)} drifted; licensed classes applied: "
+          f"{', '.join(sorted(licensed_total)) or 'none'}")
+    for rel, value in findings:
+        print(f"{ts} | {ACTOR} | {CODE} | .claude/{rel} | {value}")
+        if args.verbose:
+            for body in verbose_bodies.get(rel, []):
+                print(body)
+        if args.emit_licensed:
+            for entry in emit_entries.get(rel, []):
+                print(entry)
+
+    if args.findings_out:
+        out = Path(args.findings_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"{CODE} | .claude/{rel} | {value}" for rel, value in findings]
+        out.write_text("\n".join(lines) + ("\n" if lines else ""),
+                       encoding="utf-8", newline="\n")
+        print(f"{ts} | {ACTOR} | findings-written | {out} | {len(lines)} line(s)")
+
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

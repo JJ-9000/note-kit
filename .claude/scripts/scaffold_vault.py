@@ -9,7 +9,7 @@ Produces:
     plus the on-demand subfolders the skills write into first
     (<inbox-assets> and <logs>, both resolved from the CONFIG token table).
   - The two queue files, seeded with worked example items a new user can check
-    off or delete: <machine-queue> (<outbox>/Machine-Queue.md, a user->AI
+    off or delete: <machine-queue> (<inbox>/Machine-Queue.md, a user->AI
     checklist) and <user-queue> (<inbox>/User-Queue.md, one example proposal
     in the canonical proposal shape).
   - Optionally (--with-ui-plugin <dir>): installs the note-kit-ui Obsidian
@@ -42,8 +42,9 @@ Modes:
               are scaffolded *around* the existing kit. Existing settings.json /
               .mcp.json are preserved, never clobbered.
   --upgrade   Refresh an EXISTING install's executable code only. Re-copies
-              scripts/, skills/, scheduled-tasks/, and hooks/ from this kit into
-              <vault>/.claude/, and PRESERVES the user-owned files untouched:
+              scripts/, skills/, scheduled-tasks/, hooks/, and templates/ from
+              this kit into <vault>/.claude/, and PRESERVES the user-owned files
+              untouched:
               CONFIG.md, CLAUDE.md, AGENTS.md, RULES.md, settings.json,
               .mcp.json, and all vault content. Then re-runs sync-config.
               Orientation/rule changes in a new kit version are NOT auto-merged
@@ -62,6 +63,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -81,6 +83,148 @@ from config_variables import (  # noqa: E402
     _folder_by_semantic,
     token_path,
 )
+
+
+# ---------------------------------------------------------------------------
+# Fresh-install copytree filter and daemon-config generation
+# ---------------------------------------------------------------------------
+
+# Names the fresh-install copytree skips when cloning the kit into the new
+# vault's .claude/. Excluding these keeps a fresh install portable and small:
+#   - .venv        the daemon's ~1 GB virtualenv (install_daemon.py rebuilds it)
+#   - data         the daemon's index.db + logs (regenerated on first index)
+#   - __pycache__  compiled bytecode (the interpreter regenerates it)
+#   - any dot-dir  (.history, .trash, .redteam, ...) — machine-local state
+#   - *.log        operational logs
+#   - vault-search/config.yaml   this machine's SUBSTITUTED daemon config,
+#                  carrying absolute paths; a fresh one is written from
+#                  config.yaml.template after the copy.
+_COPYTREE_IGNORE_DIR_NAMES = frozenset({".venv", "data", "__pycache__"})
+_COPYTREE_IGNORE_FILE_SUFFIXES = (".log",)
+
+
+def _kit_copy_ignore(src_dir: str, names: list[str]) -> set[str]:
+    """`shutil.copytree` ignore callback for the fresh-install kit copy.
+
+    Skips the daemon venv/data, bytecode caches, dot-directories, logs, and this
+    machine's substituted `vault-search/config.yaml` (regenerated from the
+    template below), so a fresh install vendors only portable kit files.
+    """
+    base = Path(src_dir)
+    ignored: set[str] = set()
+    for name in names:
+        full = base / name
+        if name in _COPYTREE_IGNORE_DIR_NAMES:
+            ignored.add(name)
+        elif name == "config.yaml" and base.name == "vault-search":
+            ignored.add(name)
+        elif name.startswith(".") and full.is_dir():
+            ignored.add(name)
+        elif name.endswith(_COPYTREE_IGNORE_FILE_SUFFIXES):
+            ignored.add(name)
+    return ignored
+
+
+def _write_fresh_daemon_config(kit_dir: Path, vault: Path) -> None:
+    """Write a fresh `vault-search/config.yaml` from the copied
+    `config.yaml.template`, substituting the NEW vault's paths.
+
+    The machine's own substituted config was excluded from the copy, so this
+    restores a runnable-shaped config carrying this install's root — never the
+    source machine's absolute paths. Substitution routes through the daemon
+    installer's own `_substitute_config` (the established substitution, with its
+    pristine-template and leftover-placeholder guards); `install_daemon.py` on a
+    real daemon install regenerates it with the CONFIG-derived vocabulary. A
+    missing template or installer degrades to a warning — the daemon installer
+    writes the config when the user runs it.
+    """
+    daemon_dir = kit_dir / "vault-search"
+    template = daemon_dir / "config.yaml.template"
+    dest = daemon_dir / "config.yaml"
+    installer = daemon_dir / "install_daemon.py"
+    if not template.exists():
+        print(
+            f"[scaffold] note: no {template.relative_to(vault)} — daemon config "
+            "not generated; run the daemon installer to create it.",
+            file=sys.stderr,
+        )
+        return
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_scaffold_install_daemon", installer
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {installer}")
+        mod = importlib.util.module_from_spec(spec)
+        # Register before exec: a module-level construct that looks itself up in
+        # sys.modules during class creation (e.g. a @dataclass on Python 3.14)
+        # raises AttributeError if the module is not yet registered under its name.
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        mod._substitute_config(
+            template,
+            dest,
+            vault_root=vault.resolve(),
+            home=Path(os.path.expanduser("~")).resolve(),
+            data_dir=(daemon_dir / "data").resolve(),
+            inbox=_folder_by_semantic("inbox"),
+        )
+    except Exception as exc:
+        sys.modules.pop("_scaffold_install_daemon", None)  # never leave a partial module registered
+        print(
+            f"[scaffold] WARNING: could not generate fresh daemon config from "
+            f"{template.name} ({exc}). Run the daemon installer to write it.",
+            file=sys.stderr,
+        )
+
+
+# The three-hook settings.json a fresh install writes when the kit ships no
+# settings.json of its own (a bare public clone). Each command addresses its
+# script through `$CLAUDE_PROJECT_DIR` — the vault root Claude Code exports — and
+# runs under `"shell": "bash"` so the variable expands: the live-proven form. The
+# relative `./.claude/...` form resolved to a doubled path and shipped silently-
+# dead hooks (`vault-hooks-absolute-path`; Kit-Code-Quality-Plan hooks-form
+# decision, 2026-07-24). Module-level so the battery can assert the shipped form.
+_HOOKS = {
+    "hooks": {
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/load-rules.py\"",
+                        "shell": "bash",
+                    }
+                ]
+            }
+        ],
+        "SessionStart": [
+            {
+                "matcher": "startup|resume|clear|compact",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.py\"",
+                        "shell": "bash",
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "Edit|Write|MultiEdit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/config-sync.py\"",
+                        "shell": "bash",
+                        "timeout": 60,
+                    }
+                ]
+            }
+        ],
+    }
+}
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +351,7 @@ def _run_upgrade(vault_root: Path) -> int:
 # --upgrade short-circuits the fresh-vault flow: refresh code, re-sync, exit.
 
 
-def main() -> None:
+def main() -> int | None:
     """Entry point — runs only when invoked as a script, never on import."""
     parser = argparse.ArgumentParser(description="Scaffold a vault from CONFIG.md (real install, in-place, or --clean sandbox).")
     parser.add_argument(
@@ -227,7 +371,7 @@ def main() -> None:
         default=None,
         metavar="VAULT",
         help="Refresh an existing install's executable code (scripts/, skills/, "
-             "scheduled-tasks/, hooks/) from this kit, preserving user-owned files "
+             "scheduled-tasks/, hooks/, templates/) from this kit, preserving user-owned files "
              "(CONFIG.md, CLAUDE.md, AGENTS.md, RULES.md, settings.json, .mcp.json, "
              "and vault content). Then re-runs sync-config.",
     )
@@ -319,7 +463,7 @@ def main() -> None:
     # anything else creates them — so a first asset or log write does not land in
     # a missing directory. Both paths come from the CONFIG § Folders token table
     # (<inbox-assets>, <logs>). (Checkpoints and the 00-Actions drop folder are
-    # retired surfaces: the outbox owns drops, and resume state lives in working
+    # retired surfaces: user drops land at the inbox root, and resume state lives in working
     # sets.)
     _on_demand_dirs = [
         vault / token_path("inbox-assets"),
@@ -357,8 +501,15 @@ def main() -> None:
             "skipping kit copy."
         )
     else:
-        shutil.copytree(_KIT_ROOT, kit_dir, dirs_exist_ok=True)
-        print(f"[scaffold] Kit installed to {kit_dir.relative_to(vault)}/")
+        shutil.copytree(
+            _KIT_ROOT, kit_dir, dirs_exist_ok=True, ignore=_kit_copy_ignore
+        )
+        print(f"[scaffold] Kit installed to {kit_dir.relative_to(vault)}/ "
+              "(daemon venv/data, bytecode, dot-dirs, logs, and the machine's "
+              "config.yaml excluded).")
+        # The machine's substituted config.yaml was excluded from the copy;
+        # write a fresh one carrying THIS install's root from the template.
+        _write_fresh_daemon_config(kit_dir, vault)
 
 
     # ---------------------------------------------------------------------------
@@ -411,39 +562,14 @@ def main() -> None:
 
     # ---------------------------------------------------------------------------
     # 4. .claude/settings.json — wire the three hooks
-    #    A fresh install needs active hooks without hand-pasting JSON. The commands
-    #    are written relative to the vault root (./.claude/hooks/...), matching the
-    #    main README; Claude Code runs hooks with the vault as the working dir.
+    #    A fresh install needs active hooks without hand-pasting JSON. The kit
+    #    ships its own settings.json (copied above), so this fallback writes the
+    #    module-level `_HOOKS` template only when the copy carried none — a bare
+    #    public clone. `_HOOKS` carries the live-proven `$CLAUDE_PROJECT_DIR` +
+    #    `"shell": "bash"` form (see its definition).
     # ---------------------------------------------------------------------------
 
     settings_path = kit_dir / "settings.json"
-    _HOOKS = {
-        "hooks": {
-            "UserPromptSubmit": [
-                {
-                    "hooks": [
-                        {"type": "command", "command": "python ./.claude/hooks/load-rules.py"}
-                    ]
-                }
-            ],
-            "SessionStart": [
-                {
-                    "matcher": "startup|resume|clear|compact",
-                    "hooks": [
-                        {"type": "command", "command": "python ./.claude/hooks/session-start-context.py"}
-                    ]
-                }
-            ],
-            "PostToolUse": [
-                {
-                    "matcher": "Edit|Write|MultiEdit",
-                    "hooks": [
-                        {"type": "command", "command": "python ./.claude/hooks/config-sync.py", "timeout": 60}
-                    ]
-                }
-            ],
-        }
-    }
     if settings_path.exists():
         print(
             f"[scaffold] settings.json already present at "
@@ -486,7 +612,7 @@ def main() -> None:
 
     # ---------------------------------------------------------------------------
     # 5. Seed the two queue files with worked example items (CONFIG § Queue
-    #     protocol): <machine-queue> (<outbox>/Machine-Queue.md — the user
+    #     protocol): <machine-queue> (<inbox>/Machine-Queue.md — the user
     #     writes a checklist; the AI acts on it) and <user-queue>
     #     (<inbox>/User-Queue.md — the AI writes proposals; the user checks
     #     them off). Both paths resolve from the CONFIG token table. The
@@ -499,9 +625,9 @@ def main() -> None:
     inbox_path = vault / inbox_folder
     inbox_path.mkdir(parents=True, exist_ok=True)
 
-    outbox_folder = _folder_by_semantic("outbox")
-    outbox_path = vault / outbox_folder
-    outbox_path.mkdir(parents=True, exist_ok=True)
+    # The machine queue now lives at the inbox root (the outbox folded in);
+    # the inbox is already scaffolded above, so nothing extra to create.
+    queue_folder = _folder_by_semantic("inbox")
     _today = date.today().isoformat()
 
     machine_queue = vault / token_path("machine-queue")
@@ -521,7 +647,7 @@ def main() -> None:
             "- [ ] plan a small first project so I can watch the project workflow run\n",
             encoding="utf-8",
         )
-        print(f"[scaffold] {machine_queue.name} seeded with example items in {outbox_folder}/.")
+        print(f"[scaffold] {machine_queue.name} seeded with example items in {queue_folder}/.")
 
     _notes_sub = next(
         (row.subfolder for row in SUBFOLDERS.values()
@@ -759,6 +885,35 @@ def main() -> None:
     # 7. Output / cleanup
     # ---------------------------------------------------------------------------
 
+    # One folder, one cover. A folder-note cover is the file named after its
+    # folder (§ Numbering also admits a legacy `NN-` prefix), so shipping both
+    # `Format.md` and `01-Format.md` gives one folder two covers — and the
+    # index-vs-disk detector then reads each as the cover and reports the other
+    # as `index-missing`, so a fresh install is born failing its own gate. That
+    # shipped for real; this refuses to seed it again.
+    _dupe_covers: list[str] = []
+    for _folder in sorted(p for p in vault.rglob("*") if p.is_dir()):
+        if any(part.startswith(".") for part in _folder.relative_to(vault).parts):
+            continue
+        _covers = []
+        for f in _folder.glob("*.md"):
+            _stem = f.stem
+            _legacy = (
+                len(_stem) > 3 and _stem[:2].isdigit()
+                and _stem[2] == "-" and _stem[3:] == _folder.name
+            )
+            if _stem == _folder.name or _legacy:
+                _covers.append(f.name)
+        if len(_covers) > 1:
+            _dupe_covers.append(
+                f"{_folder.relative_to(vault).as_posix()}/: {', '.join(sorted(_covers))}"
+            )
+    if _dupe_covers:
+        print("[scaffold] ERROR: a folder may carry only one cover note (§ Numbering);")
+        for _d in _dupe_covers:
+            print(f"[scaffold]   {_d}")
+        return 1
+
     print(f"\nScaffold vault: {vault}")
 
     # Daemon next-steps. The kit ships the vault-search daemon under
@@ -787,4 +942,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Propagate main's status: it returns non-zero when it refuses to seed
+    # (e.g. a folder would receive two cover notes), and a refusal that exits 0
+    # is a refusal nothing downstream can see.
+    sys.exit(main() or 0)

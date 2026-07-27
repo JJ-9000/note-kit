@@ -7,19 +7,28 @@ Shape corrector for CONFIG.md's load-bearing tables. Runs at the head of
 
     python .claude/scripts/config_shape.py [path-to-CONFIG.md] [--check-only]
 
-Validates the four sections every parser depends on against an expected
-skeleton:
+Validates every section a parser depends on against an expected skeleton:
 
-  - § Folders   — the roots table (`wildcard` + `literal` columns present) and
-                  the token table beneath it; every required token defined
-                  exactly once: inbox, outbox, projects, areas, reference,
-                  snippets, archive, user-queue, machine-queue.
-  - § Types     — `type` column present; every type key non-empty and unique.
-  - § Numbering — the legacy-marker table (`marker` column) parseable.
-  - § Rules     — `rule` + `reminder` columns present; every rule non-empty.
+  - § Folders     — the roots table (`wildcard` + `literal` columns present) and
+                    the token table beneath it; every required token defined
+                    exactly once: inbox, projects, areas, reference,
+                    snippets, archive, user-queue, machine-queue.
+  - § Types       — `type` column present; every type key non-empty and unique.
+  - § Numbering   — the legacy-marker table (`marker` column) parseable.
+  - § Rules       — `rule` + `reminder` columns present; every rule non-empty.
+  - § Subfolders  — `subfolder` literal column present; every literal non-empty
+                    and unique (the role column is tolerated under either name).
+  - § Tags        — `tag`/`alias`/`scope`/`description` present; every tag
+                    non-empty and unique.
+  - § Actions     — `action`/`shape`/`authorized-agents`/`description` present;
+                    every action non-empty and unique.
+  - § Skill slugs — `slug`/`inbox-container`/`description` present; every slug
+                    non-empty and unique.
 
 Per row it checks the cell count against the header, the separator row, and
-that literals parse (no unclosed backticks, no empty load-bearing cells).
+that literals parse (no unclosed backticks, no empty load-bearing cells). Every
+parsed table is covered so a lost or added mid-row pipe cannot silently drop a
+routing root, type, tag, action, slug, or subfolder.
 
 Two outcomes, strictly separated:
 
@@ -39,7 +48,9 @@ Two outcomes, strictly separated:
   mid-row merges two cells — unrecoverable); an unclosed backtick; an empty
   load-bearing cell.
 
-Stdlib only. Exit codes: 0 = clean (repairs allowed), 2 = refused.
+Stdlib for validation; the repair write goes through the kit-local
+`frontmatter_helpers` substrate (archive-first, invariant, restore-on-failure,
+`newline="\n"`). Exit codes: 0 = clean (repairs allowed), 2 = refused.
 """
 
 from __future__ import annotations
@@ -54,28 +65,67 @@ from pathlib import Path
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 _KIT_ROOT = _SCRIPTS_DIR.parent
 
+# The repair write goes through the write-safety substrate (archive-first,
+# invariant, restore-on-failure, newline="\n"), not a raw write_text.
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+import frontmatter_helpers as fh  # noqa: E402
+
 # Tokens that must each be defined exactly once across the § Folders roots
 # table (`wildcard` column) and the token table beneath it (`token` column).
 REQUIRED_TOKENS = (
-    "inbox", "outbox", "projects", "areas", "reference", "snippets",
+    "inbox", "projects", "areas", "reference", "snippets",
     "archive", "user-queue", "machine-queue",
 )
 
 # Required columns per checked section's first table. § Folders' token table is
-# located separately by its own header (`token` | `resolves to`).
+# located separately by its own header (`token` | `resolves to`). Every table
+# config_variables parses is checked — a lost or added mid-row pipe in any of
+# them would silently drop a routing root, type, tag, action, slug, or subfolder.
+# Subfolders requires only its literal column (`subfolder`); the role column is
+# tolerated under either name (`type-role`/`type-defaults`), mirroring
+# config_variables._parse_subfolders.
 _SECTION_COLUMNS = {
     "Folders": ("wildcard", "literal"),
     "Types": ("type",),
     "Numbering": ("marker",),
     "Rules": ("rule", "reminder"),
+    "Subfolders": ("subfolder",),
+    "Tags": ("tag", "alias", "scope", "description"),
+    "Actions": ("action", "shape", "authorized-agents", "description"),
+    "Skill slugs": ("slug", "inbox-container", "description"),
+    "Content lifecycle": ("class", "trigger", "destination", "actor", "cadence"),
+    "Status": ("status", "meaning", "set by"),
+    "Retired tokens": ("token", "retired-date", "replacement", "scope"),
+    "Code-canon registry": ("canonical tree", "home", "vault seam note"),
 }
 
-# Columns whose cells must never be empty (load-bearing literals).
+# Columns whose cells must never be empty (load-bearing literals). Kept to each
+# table's primary key — the value a duplicate or a blank would silently drop.
 _NONEMPTY_COLUMNS = {
     "Folders": ("wildcard", "literal"),
     "Types": ("type",),
     "Numbering": ("marker",),
     "Rules": ("rule",),
+    "Subfolders": ("subfolder",),
+    "Tags": ("tag",),
+    "Actions": ("action",),
+    "Skill slugs": ("slug",),
+    "Content lifecycle": ("class",),
+    "Status": ("status",),
+    "Retired tokens": ("token",),
+    "Code-canon registry": ("canonical tree",),
+}
+
+# Primary-key column per checked section whose duplicate would silently overwrite
+# a parsed entry (config_variables keys these dicts by this column). Checked for
+# uniqueness the same way § Types and § Numbering already are. The normalizer
+# matches how config_variables keys each dict.
+_KEY_COLUMNS = {
+    "Tags": ("tag", lambda c: c.strip().lower()),
+    "Actions": ("action", lambda c: c.strip()),
+    "Skill slugs": ("slug", lambda c: c.strip().lower()),
+    "Subfolders": ("subfolder", lambda c: _strip_token(c)),
 }
 
 
@@ -299,18 +349,78 @@ def _strip_token(cell: str) -> str:
     return cell.strip().strip("`").strip().strip("<>").strip()
 
 
+def _dup_check(tbl: _Table, section: str, key_col: str, normalize,
+               report: ShapeReport, where: str) -> None:
+    """Refuse a duplicate primary key — a silent overwrite is a vocabulary shrink.
+
+    `config_variables` keys each parsed table by one column; a second row with
+    the same key overwrites the first, dropping an entry with no report. Mirrors
+    the § Types / § Numbering duplicate checks for the extended tables.
+    """
+    if key_col not in tbl.header:
+        return
+    idx = tbl.header.index(key_col)
+    seen: dict[str, int] = {}
+    for line_idx, cells in tbl.data:
+        if len(cells) != len(tbl.header):
+            continue
+        key = normalize(cells[idx])
+        if not key:
+            continue
+        if key in seen:
+            report.refusals.append(
+                f"{where}:{line_idx + 1}: § {section} duplicate {key_col} "
+                f"{key!r} (first defined line {seen[key]})")
+        else:
+            seen[key] = line_idx + 1
+
+
+def _reemit_reparses(new_text: str) -> bool:
+    """Structural invariant for the repair write: the re-emitted CONFIG re-passes
+    the shape parse (no refusals). Validated on the rewritten text itself via a
+    check-only pass over a temp copy, so a re-emit that broke a table is caught
+    and the archived pre-image restored.
+    """
+    import tempfile
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".md", delete=False, encoding="utf-8", newline="\n"
+        ) as tf:
+            tf.write(new_text)
+            tmp = Path(tf.name)
+        return run(tmp, write=False).ok
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
 def run(config_path: Path, write: bool = True) -> ShapeReport:
     """Validate (and safely repair) one CONFIG.md. Repairs are written back
-    only when `write` is True and no refusal was raised."""
+    only when `write` is True and no refusal was raised — through the
+    write-safety substrate (archive-first, invariant re-parse, restore on
+    failure, ``newline="\\n"``), never a raw platform-default write."""
     report = ShapeReport()
     where = str(config_path)
     if not config_path.is_file():
         report.refusals.append(f"{where}: not found")
         return report
 
-    text = config_path.read_text(encoding="utf-8")
-    had_trailing_newline = text.endswith("\n")
-    lines = text.split("\n")
+    try:
+        text = fh.read_text_strict(config_path)
+    except fh.NonUtf8Error as exc:
+        report.refusals.append(f"{where}: {exc}")
+        return report
+    # Read without newline translation (read_text_strict), then normalize to LF
+    # ONLY for processing and re-emit with the file's existing dominant ending, so
+    # a one-line repair never silently flips every ending. The one-time LF
+    # normalization is its own logged pass (the deploy-verify newline item).
+    crlf = text.count("\r\n")
+    lf_only = text.count("\n") - crlf
+    newline = "\r\n" if crlf > lf_only else "\n"
+    work = text.replace("\r\n", "\n")
+    had_trailing_newline = work.endswith("\n")
+    lines = work.split("\n")
     if had_trailing_newline and lines and lines[-1] == "":
         lines.pop()
 
@@ -411,6 +521,12 @@ def run(config_path: Path, write: bool = True) -> ShapeReport:
                 else:
                     seen_m[marker] = line_idx + 1
 
+        # Extended tables (Tags, Actions, Skill slugs, Subfolders): a duplicate
+        # primary key silently overwrites a parsed entry — refuse it.
+        if usable and section in _KEY_COLUMNS:
+            key_col, normalize = _KEY_COLUMNS[section]
+            _dup_check(tables[0], section, key_col, normalize, report, where)
+
     # Required tokens: each defined exactly once across § Folders' two tables.
     if "Folders" in section_spans:
         for tok in REQUIRED_TOKENS:
@@ -427,7 +543,27 @@ def run(config_path: Path, write: bool = True) -> ShapeReport:
 
     if report.changed and write and report.ok:
         out = "\n".join(lines) + ("\n" if had_trailing_newline else "")
-        config_path.write_text(out, encoding="utf-8")
+        if newline != "\n":
+            out = out.replace("\n", newline)  # restore the file's dominant ending
+        # Standard install: <vault>/.claude/CONFIG.md — the vault root is two up.
+        # Otherwise archive beside the file's own directory.
+        vault_root = (
+            config_path.parent.parent
+            if config_path.parent.name == ".claude"
+            else config_path.parent
+        )
+        try:
+            fh.structured_rewrite(
+                config_path, out,
+                vault_root=vault_root,
+                invariant=_reemit_reparses,
+            )
+        except fh.StructuralInvariantError as exc:
+            # The pre-image has been restored; surface the failure honestly.
+            report.refusals.append(
+                f"{where}: repaired text failed re-parse; original restored "
+                f"({exc})")
+            report.changed = False
 
     return report
 

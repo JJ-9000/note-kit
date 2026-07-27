@@ -23,8 +23,10 @@ Open findings emitted here (snapshot-derivable, deterministic detections):
     drift (bulk re-touches, audit --apply runs) no longer fires: a finding is
     suppressed when >= 10 files share the upstream's mtime (bulk-touch
     signature) and reciprocal pairs (A flags B while B flags A — a real
-    invalidation cannot be mutual) are suppressed as noise. The janitor reads
-    the note against the upstream change and confirms.
+    invalidation cannot be mutual) are suppressed as noise. A design, voice, or
+    format standard upstream never fires: standards evolve additively and their
+    linkers cite the principle, not a spec. The janitor reads the note against
+    the upstream change and confirms.
   - `tag-resolution`  — a `tags:` value `normalize_tag` could neither map to a
     canonical tag nor accept as a plain open-vocabulary tag (a near-miss that is
     not exact, alias, plural, or Levenshtein-1). The janitor routes it.
@@ -40,6 +42,42 @@ Open findings emitted here (snapshot-derivable, deterministic detections):
     at >1 path under one owning root; a version ambiguity. The janitor picks the
     canonical copy (version token, date, or date of related use in a plan/log)
     and archives the rest, queueing only a genuine scope fork.
+  - `status-coherence` — a `status`/`reviewed`/location combination CONFIG
+    § Status does not allow: `status: draft` (unreviewed, in `<inbox>`) on a
+    filed note, or `reviewed: false` outside the inbox. Detect-only; the counts
+    and a bounded sample also render in ## Status coherence.
+  - `claim-verified` / `claim-false` / `claim-unparseable` / `claim-deferred` —
+    the claim check (CONFIG § Log files). A log line asserting a file's state
+    carries `claim: <path> | <expected condition>` in its value cell; this run
+    re-derives the condition FROM DISK. Conditions: `exists`, `absent`,
+    `contains:<literal>`, `hash:<md5-prefix>` (full-file or body md5). A
+    `claim-false` row is the retraction opener. Scope is the event-log HEADS
+    under `<logs>` (one `<dir>/<dir>.md` per log folder — janitor, filing,
+    action, analyst, and the orchestration ledger); rotated segments are
+    history and stay out. An unparseable condition degrades one row
+    (`claim-unparseable`), never the run, and a line stamped at or after this
+    run defers (`claim-deferred`) — a claimant never certifies itself.
+  - `near-duplicate` / `near-duplicate-skipped` / `near-duplicate-truncated` —
+    the redundancy surface's pair flag. Cosine similarity over the vault-search
+    daemon's OWN chunk embeddings (read READ-ONLY out of its index.db
+    `chunk_embeddings`, since the daemon's HTTP surface exposes no pair
+    endpoint), file vector = L2-normalized mean of its chunk vectors, threshold
+    0.85 (tier-2 calibration, 2026-07-25). Cost is bounded to the new/changed
+    files of this run's content-hash delta against the whole corpus, and the
+    report is capped at 20 pairs with a truncation row. When the daemon is not
+    serving the detector SKIPS AND LOGS — no fallback similarity is ever
+    substituted. The pairs also render in ## Near-duplicate as merge candidates
+    for the analyst; nothing acts on them automatically.
+
+Settled conventions
+-------------------
+`<logs>/Conventions.md` (CONFIG § Log files) is the structured suppression
+store: one line per settled convention, `code | scope predicate | evidence |
+date`. A finding matching a row's code AND scope predicate is suppressed at
+detect time and counted in ## Convention store — recorded, never silently
+dropped. A malformed store line is skipped with a warning row in the same
+section. The store replaces the per-case hand patches this script used to
+carry; a new settled convention lands as a store row, not a code edit.
 
 A caller (audit.py) may hand additional, run-scoped findings to fold into the
 same ## Open findings section via --findings, so the snapshot stays the one
@@ -52,6 +90,16 @@ The ## Folder histogram feeds the analyst's cluster detection — per folder,
 total note count, count-by-type, dominant tags, and a maturity split. This
 script provides DATA only; the analyst owns the thresholds. A min-size floor
 (FOLDER_HISTOGRAM_MIN_NOTES) keeps tiny folders out of the histogram.
+
+TWO age series are emitted, labelled by their evidence. ## Folder histogram's
+`maturity` cell reads frontmatter `date` — the date the note CLAIMS, which a
+migration rewrites, so on a migrated corpus it measures migration age.
+## Folder maturity (filesystem) reads the same folders' files from NTFS
+creation time — each file's ARRIVAL in this vault, floored by mtime so a moved
+file keeps the older of the two stamps — and reports days since the NEWEST
+member arrived, because a folder is as settled as its youngest member. A
+maturity gate that needs real dwell time reads that series. Both are present
+every run; neither replaces the other.
 
 The snapshot also carries a `## Content hashes` section — one `path | md5`
 row per vault .md (md5 of the body, frontmatter excluded) — read back on the
@@ -81,6 +129,7 @@ from __future__ import annotations
 import sys
 import os
 import re
+import fnmatch
 import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
@@ -96,9 +145,12 @@ import yaml
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
+from functools import lru_cache
+
 from config_variables import (
     FOLDER_ROUTING,
     TYPES,
+    SKILL_SLUGS,
     CANONICAL_TYPE_KEYS,
     SCAN_EXCLUDE_DIRS,
     ASSET_HOME_DIRS,
@@ -110,6 +162,311 @@ from config_variables import (
 )
 from normalize_type import normalize_type
 from wikilink_helpers import extract_wikilinks
+from frontmatter_helpers import write_text
+
+# ---------------------------------------------------------------------------
+# Shared kit helpers (one implementation, imported by audit.py) — end the
+# duplication the code review flagged (Kit-Code-Quality-Plan § Duplication).
+# `is_hands_off`/`in_asset_folder` carry the janitor's richer semantics
+# (asset-gate-first, vault-root loose-file exemption) so the snapshot builder
+# and the janitor gate every path through the SAME rules; `scope_of` is the one
+# top-level-folder rollup both use for their state-log lines.
+# ---------------------------------------------------------------------------
+
+
+def scope_of(target: str) -> str:
+    """Top-level folder of a vault-relative path, for the count rollup."""
+    t = target.strip()
+    return t.split("/", 1)[0] if "/" in t else (t or "-")
+
+
+_LEGACY_NUM_PREFIX = re.compile(r"^\d{2}-")
+
+
+def is_folder_cover(path: Path) -> bool:
+    """True when `path` is its folder's cover note — the folder-note whose stem
+    equals the containing folder name, OR a legacy `NN-` numbered form of it
+    (CONFIG § Numbering keeps a legacy `00-`/`01-` prefixed cover acting as the
+    folder index). ONLY a folder cover carries the every-child index contract
+    ("only a root carries one"); a curated sub-index living inside a folder does
+    not. The one predicate for all three consumers (index-vs-disk diff, the
+    cover-stale currency gate, and audit's folder-index lookup)."""
+    folder = path.parent.name
+    stem = path.stem
+    if not folder:
+        return False
+    if stem == folder:
+        return True
+    stem_nonum = _LEGACY_NUM_PREFIX.sub("", stem)
+    folder_nonum = _LEGACY_NUM_PREFIX.sub("", folder)
+    return bool(stem_nonum) and stem_nonum in (folder, folder_nonum)
+
+
+@lru_cache(maxsize=None)
+def _dir_is_asset(dir_path_str: str) -> bool:
+    return is_asset_folder(Path(dir_path_str))
+
+
+def in_asset_folder(path: Path, vault_root: Path) -> bool:
+    """True when any ancestor directory below the vault root is a classified
+    asset folder (CONFIG § Asset folders). The FIRST gate on every stamp,
+    normalize, rename, or index decision: nothing inside an asset folder is
+    touched. The walk prunes asset folders on descent; this covers every other
+    entry point (direct path handling, index registration, move targets)."""
+    cur = path if path.is_dir() else path.parent
+    while True:
+        try:
+            cur.relative_to(vault_root)
+        except ValueError:
+            return False
+        if cur == vault_root:
+            return False
+        if _dir_is_asset(str(cur)):
+            return True
+        cur = cur.parent
+
+
+# ---------------------------------------------------------------------------
+# Settled-convention store (CONFIG § Log files) — `<logs>/Conventions.md`
+#
+# One line per settled convention: `code | scope predicate | evidence | date`.
+# A finding whose code matches a row's code AND whose facts satisfy the row's
+# scope predicate is suppressed at detect time and counted, so a class the
+# analyst or janitor settled by evidence stops re-firing every run without a
+# per-case patch in this file.
+#
+# Scope-predicate grammar — clauses joined by ` + ` (all must hold):
+#   path:<glob>[,<glob>…]     the finding's target, matched case-sensitively
+#                             with fnmatch (`*` spans `/`)
+#   scope:<name>[,<name>…]    the target's top-level folder
+#   type:<type>[,<type>…]     the target note's canonical type
+#   cover:true|false          the target is its folder's cover note
+#   in-asset-folder:true|false the target sits inside a classified asset folder
+#   upstream-type:<type>,…    reviewed-stale only: the linked upstream's type
+#   upstream-status:<v>,…     reviewed-stale only: the linked upstream's status
+#   value~<regex>             the finding's value matches the regex
+#   path~<regex> / target~<regex>   the target matches the regex
+# A comma separates alternatives WITHIN a clause (any one satisfies it); the
+# pipe stays the field separator, so a regex uses a character class in place of
+# alternation.
+# ---------------------------------------------------------------------------
+
+_CONVENTION_KEYS = {
+    "path", "target", "scope", "type", "cover", "in-asset-folder",
+    "upstream-type", "upstream-status", "value",
+}
+_PATH_KEYS = {"path", "target"}
+
+
+def parse_convention_predicate(pred: str):
+    """Parse a scope predicate into clauses.
+
+    Returns (clauses, error). `clauses` is a list of (key, op, value) where op
+    is ':' (alternatives list) or '~' (compiled regex). `error` is None on
+    success, or a one-line reason the caller reports as a store warning.
+    """
+    clauses: list[tuple[str, str, object]] = []
+    for part in pred.split(" + "):
+        part = part.strip()
+        if not part:
+            continue
+        if "~" in part and part.split("~", 1)[0].strip().lower() in _CONVENTION_KEYS:
+            key, raw = part.split("~", 1)
+            op = "~"
+        elif ":" in part:
+            key, raw = part.split(":", 1)
+            op = ":"
+        else:
+            return [], f"clause '{part[:40]}' is neither key:value nor key~regex"
+        key = key.strip().lower()
+        raw = raw.strip()
+        if key not in _CONVENTION_KEYS:
+            return [], f"unknown predicate key '{key}'"
+        if not raw:
+            return [], f"predicate key '{key}' has no value"
+        if op == "~":
+            try:
+                clauses.append((key, "~", re.compile(raw)))
+            except re.error as exc:
+                return [], f"bad regex for '{key}': {exc}"
+        else:
+            alts = [a.strip() for a in raw.split(",") if a.strip()]
+            if not alts:
+                return [], f"predicate key '{key}' has no value"
+            clauses.append((key, ":", alts))
+    if not clauses:
+        return [], "empty predicate"
+    return clauses, None
+
+
+_CONVENTION_LABELS = ["code", "scope predicate", "evidence", "date"]
+
+
+def parse_convention_store(text: str) -> tuple[list[dict], list[str]]:
+    """Parse `<logs>/Conventions.md` into rows + warnings.
+
+    The store carries a legal header — prose describing the grammar, then the
+    `code | scope predicate | evidence | date` label row, mirroring the shape of
+    `<logs>/fix-verification.md`. That label row IS the start-of-data marker:
+    everything above it is header and skipped silently, so documenting the store
+    inside the store never costs a warning. A store with no label row is read
+    from its first line, so a bare rows-only file still parses.
+
+    Below the marker a malformed data line is skipped LOUDLY — it returns a
+    warning the caller renders in the snapshot — and never raises, so a
+    hand-edit typo degrades one row instead of the run.
+    """
+    rows: list[dict] = []
+    warnings: list[str] = []
+    lines = text.splitlines()
+    start = 0
+    for i, raw_line in enumerate(lines):
+        if [f.strip().lower() for f in raw_line.split("|")] == _CONVENTION_LABELS:
+            start = i + 1
+            break
+    for lineno, raw_line in enumerate(lines[start:], start + 1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#") or line.startswith("<!--") or line.startswith(">"):
+            continue  # comment
+        if set(line) <= {"-", "|", " ", ":"}:
+            continue  # markdown separator rule
+        fields = [f.strip() for f in line.split("|")]
+        if [f.lower() for f in fields] == _CONVENTION_LABELS:
+            continue  # a repeated label row
+        if len(fields) != 4 or not fields[0] or not fields[1]:
+            warnings.append(
+                f"line {lineno}: expected 4 pipe-separated fields "
+                f"(code | scope predicate | evidence | date), got {len(fields)}: "
+                f"{line[:80]}"
+            )
+            continue
+        code, predicate, evidence, date = fields
+        clauses, err = parse_convention_predicate(predicate)
+        if err:
+            warnings.append(f"line {lineno}: {err} — in `{predicate[:60]}`")
+            continue
+        rows.append({
+            "code": code, "predicate": predicate, "clauses": clauses,
+            "evidence": evidence, "date": date, "line": lineno,
+        })
+    return rows, warnings
+
+
+def convention_matches(row: dict, code: str, target: str, value: str,
+                       ctx: dict) -> bool:
+    """True when a finding falls inside a store row's settled scope."""
+    if row["code"] != code:
+        return False
+    for key, op, expected in row["clauses"]:
+        if key in _PATH_KEYS:
+            hay = target
+        elif key == "scope":
+            hay = scope_of(target)
+        elif key == "value":
+            hay = value or ""
+        else:
+            hay = str(ctx.get(key, "") or "")
+        if op == "~":
+            if not expected.search(hay):
+                return False
+        elif key in _PATH_KEYS:
+            if not any(fnmatch.fnmatchcase(hay, g) for g in expected):
+                return False
+        else:
+            if hay.strip().lower() not in {a.lower() for a in expected}:
+                return False
+    return True
+
+
+def build_hands_off_patterns() -> list[tuple[str, "re.Pattern[str]"]]:
+    """Build regex patterns from FOLDER_ROUTING hands_off_patterns, per folder.
+
+    Inbox skill-container patterns (those using a `<name>` placeholder, e.g.
+    `*-research/`) are expanded only for slugs that are real skill containers
+    (SKILL_SLUGS with inbox_container=True), so a stray inbox subfolder that
+    does not match a known skill slug reaches the unprocessed-content detector
+    rather than being silently exempted.
+    """
+    _container_slugs: set[str] = {
+        slug for slug, row in SKILL_SLUGS.items() if row.inbox_container
+    }
+
+    patterns: list[tuple[str, "re.Pattern[str]"]] = []
+    inbox_folder = _folder_by_semantic("inbox")
+
+    for folder_str, row in FOLDER_ROUTING.items():
+        is_inbox_folder = (folder_str == inbox_folder)
+        for raw_pattern in row.hands_off_patterns:
+            raw = raw_pattern.strip()
+            if not raw:
+                continue
+
+            if is_inbox_folder and "<" in raw and ">" in raw and raw.endswith("/"):
+                folder_prefix = re.escape(folder_str)
+                prefix_part, suffix_part = re.split(r"<[^>]+>", raw, maxsplit=1)
+                suffix_part = suffix_part.rstrip("/")
+                for slug in _container_slugs:
+                    literal = prefix_part + slug + suffix_part
+                    escaped_literal = re.escape(literal).rstrip("/")
+                    regex = rf"^{folder_prefix}/{escaped_literal}/"
+                    try:
+                        patterns.append((raw, re.compile(regex)))
+                    except re.error:
+                        continue
+                continue
+
+            if "<" in raw and ">" in raw:
+                parts = re.split(r"<[^>]+>", raw)
+                escaped = "[^/]+".join(re.escape(p) for p in parts)
+            else:
+                escaped = re.escape(raw)
+            folder_prefix = re.escape(folder_str)
+            if raw == "*":
+                regex = rf"^{folder_prefix}/"
+            elif raw.endswith("/"):
+                regex = rf"^{folder_prefix}/{escaped.rstrip('/')}/"
+            else:
+                regex = rf"^{folder_prefix}/{escaped}(?:/|$)"
+            try:
+                patterns.append((raw, re.compile(regex)))
+            except re.error:
+                continue
+    return patterns
+
+
+def is_hands_off(path: Path, vault_root: Path, patterns) -> bool:
+    """Return True if the path is hands-off (CONFIG § Folders, § Asset folders).
+
+    One predicate for the whole kit, carrying the janitor's richer semantics:
+    - anything inside a classified asset folder — checked FIRST;
+    - any dot-directory segment (`.claude`, `.git`, `.obsidian`, `.trash`);
+    - any LOOSE FILE at the vault root — the user's draft space, moved/renamed/
+      stamped by no pass;
+    - any folder's compiled hands_off_patterns match;
+    - `__pycache__` segments and `*.pyc`.
+    """
+    if in_asset_folder(path, vault_root):
+        return True
+    if any(is_excluded_dir(part) for part in path.parts):
+        return True
+    if path.parent == vault_root and not path.is_dir():
+        return True
+    try:
+        rel = str(path.relative_to(vault_root)).replace("\\", "/")
+    except ValueError:
+        return False
+    for _raw, pat in patterns:
+        if pat.search(rel):
+            return True
+    for part in path.parts:
+        if part == "__pycache__":
+            return True
+    if path.suffix == ".pyc":
+        return True
+    return False
+
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -135,6 +492,17 @@ def main() -> None:
         default=None,
         help="Path to a `code | target | value`-per-line findings file; folded "
              "into the ## Open findings section.",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help="Path to the change-evidence baseline snapshot (the PREVIOUS run's "
+             "Vault-State-Index.md). reviewed-stale and ## Lifecycle events are "
+             "computed against it. Defaults to the output snapshot itself. The "
+             "janitor passes its carried pre-pass baseline here so the persisted "
+             "end-of-run snapshot compares against the previous run, not the "
+             "pre-pass write it just made (double-snapshot fix).",
     )
     args = parser.parse_args()
 
@@ -177,6 +545,14 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "Vault-State-Index.md"
 
+    # The change-evidence baseline for reviewed-stale and ## Lifecycle events:
+    # the previous run's snapshot. Defaults to the output snapshot itself (the
+    # standalone/analyst case), but the janitor passes --baseline pointing at
+    # the snapshot it captured BEFORE its pre-pass overwrote output_path, so the
+    # persisted end-of-run snapshot compares against the previous RUN, not the
+    # seconds-old pre-pass write (double-snapshot fix).
+    baseline_path = args.baseline if args.baseline is not None else output_path
+
     # ---------------------------------------------------------------------------
     # Control files
     # ---------------------------------------------------------------------------
@@ -188,78 +564,18 @@ def main() -> None:
     ]
 
     # ---------------------------------------------------------------------------
-    # Hands-off filtering
+    # Hands-off filtering — bind the shared module-level predicate to this run's
+    # vault root, so the snapshot builder and the janitor gate every path through
+    # the SAME rules (one implementation; ends the audit.py / build_state_index.py
+    # drift the code review flagged). The richer semantics (asset-gate-first,
+    # vault-root loose-file exemption, full-rel-path pattern match) now apply here
+    # too.
     # ---------------------------------------------------------------------------
 
-    # Compiled patterns to skip unconditionally (non-content system dirs)
-    _ALWAYS_SKIP_PARTS = frozenset(["__pycache__", ".git", ".venv"])
-
+    _HANDS_OFF_PATTERNS = build_hands_off_patterns()
 
     def _is_hands_off(path: Path) -> bool:
-        """Return True if path should be skipped per FOLDER_ROUTING hands_off_patterns.
-
-        Pattern semantics (from CONFIG.md):
-          - '*'           matches any path under the folder (skip everything)
-          - '<name>'      matches any single path segment (any folder name)
-          - 'Literal.md'  matches an exact filename
-          - 'prefix/'     matches a subfolder prefix
-
-        Also skips __pycache__, .git, .venv, *.pyc, and every dot-directory
-        (CONFIG § Folders / Scan exclusions — `.claude`, `.obsidian`, `.trash`, …).
-        """
-        # Scan-exclusion: any dot-directory segment (the kit's own `.claude/` install
-        # dir included) is tooling/config, never vault content.
-        if any(is_excluded_dir(part) for part in path.parts):
-            return True
-        # Always-skip system directories
-        for part in path.parts:
-            if part in _ALWAYS_SKIP_PARTS:
-                return True
-        if path.suffix == ".pyc":
-            return True
-
-        # Determine which top-level folder this file lives under
-        try:
-            rel = path.relative_to(VAULT_ROOT)
-        except ValueError:
-            return False
-
-        if not rel.parts:
-            return False
-
-        top_level = rel.parts[0]
-
-        # Look up routing row for this top-level folder
-        routing_row = FOLDER_ROUTING.get(top_level)
-        if routing_row is None:
-            return False
-
-        for pattern in routing_row.hands_off_patterns:
-            pattern = pattern.strip()
-            if not pattern:
-                continue
-
-            # '*' — skip everything under this folder
-            if pattern == "*":
-                return True
-
-            # '<name>' — skip any single segment (any folder name)
-            if pattern == "<name>" or (pattern.startswith("<") and pattern.endswith(">")):
-                # matches a direct child folder
-                if len(rel.parts) >= 2:
-                    return True
-
-            # Exact filename match (e.g. 'User-Queue.md')
-            if path.name == pattern:
-                return True
-
-            # Subfolder prefix match (e.g. 'Sessions/')
-            if pattern.endswith("/"):
-                folder_name = pattern.rstrip("/")
-                if folder_name in rel.parts[1:]:
-                    return True
-
-        return False
+        return is_hands_off(path, VAULT_ROOT, _HANDS_OFF_PATTERNS)
 
 
     # ---------------------------------------------------------------------------
@@ -267,7 +583,6 @@ def main() -> None:
     # ---------------------------------------------------------------------------
 
     _FM_FENCE = re.compile(r"^---\s*$", re.MULTILINE)
-    _WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\[\]]+)\]\]")
 
 
     def _parse_frontmatter(text: str) -> Optional[dict]:
@@ -281,31 +596,6 @@ def main() -> None:
             return data if isinstance(data, dict) else None
         except yaml.YAMLError:
             return None
-
-
-    def _extract_wikilinks_from_text(text: str) -> list[str]:
-        """Return list of bare wikilink basenames (no path/alias/anchor, no embeds)."""
-        results = []
-        seen: set[str] = set()
-        for m in _WIKILINK_RE.finditer(text):
-            interior = m.group(1)
-            # strip path prefix
-            if "/" in interior:
-                interior = interior.rsplit("/", 1)[-1]
-            # strip alias
-            if "|" in interior:
-                interior = interior.split("|", 1)[0]
-            # strip heading anchor
-            if "#" in interior:
-                interior = interior.split("#", 1)[0]
-            interior = interior.strip()
-            if interior.lower().endswith(".md"):
-                interior = interior[:-3]
-            interior = interior.strip()
-            if interior and interior not in seen:
-                seen.add(interior)
-                results.append(interior)
-        return results
 
 
     # ---------------------------------------------------------------------------
@@ -393,22 +683,6 @@ def main() -> None:
             content = index_path.read_text(encoding="utf-8")
             m = re.search(r"Run #(\d+)", content)
             return int(m.group(1)) + 1 if m else 1
-        except OSError:
-            return 1
-
-
-    def _UNUSED_old_run_number(history_path: Path) -> int:
-        """Return the next run number based on lines in history file."""
-        if not history_path.exists():
-            return 1
-        try:
-            content = history_path.read_text(encoding="utf-8")
-            # Count data rows (skip header and separator)
-            data_rows = [
-                line for line in content.splitlines()
-                if line.startswith("|") and not line.startswith("| timestamp") and "---" not in line
-            ]
-            return len(data_rows) + 1
         except OSError:
             return 1
 
@@ -550,6 +824,11 @@ def main() -> None:
 
     # Link graph: outbound wikilinks per file
     outbound_links: dict[str, list[str]] = {}   # rel_path -> [target_basenames]
+    # Reference graph: the same links PLUS `![[…]]` embeds. The link graph reads
+    # navigational edges; the inbound-link map reads REFERENCES, and an embedded
+    # asset (a figure beside its note) is referenced. Kept separate so the graph
+    # metrics (leaf-node, index children) stay on the plain-link reading.
+    reference_links: dict[str, list[str]] = {}  # rel_path -> [target_basenames]
 
     # Frontmatter field presence: per-file record
     fm_records: list[dict] = []   # {rel_path, abspath, fm: dict|None, links: list}
@@ -566,6 +845,11 @@ def main() -> None:
     # are suppressed.
     mtime_counts: dict[int, int] = defaultdict(int)
     file_mtimes: dict[str, float] = {}
+    # Creation time (Windows: st_ctime IS the creation timestamp) — each file's
+    # ARRIVAL in this vault, and the evidence behind ## Folder maturity
+    # (filesystem). mtime moves with every edit, so it reads a long-settled
+    # folder as young; arrival never moves backwards under editing.
+    file_ctimes: dict[str, float] = {}
 
     # Folder × type
     folder_type_counts: dict[tuple[str, str], int] = defaultdict(int)
@@ -655,9 +939,11 @@ def main() -> None:
 
             fm = _parse_frontmatter(text)
 
-            # Wikilinks (outbound)
-            links = _extract_wikilinks_from_text(text)
+            # Wikilinks (outbound) — the kit's one code-aware extractor (fenced
+            # and inline code stripped), replacing the deleted legacy variant.
+            links = extract_wikilinks(text)
             outbound_links[rel] = links
+            reference_links[rel] = extract_wikilinks(text, include_embeds=True)
 
             # Record the absolute path and outbound links alongside the frontmatter
             # so the open-findings detections (reviewed-stale) can stat linked files.
@@ -680,9 +966,11 @@ def main() -> None:
             # Content hash + mtime evidence for reviewed-stale.
             content_hashes[rel] = _body_md5(text)
             try:
-                _mt = path.stat().st_mtime
+                _st = path.stat()
+                _mt = _st.st_mtime
                 file_mtimes[rel] = _mt
                 mtime_counts[int(_mt)] += 1
+                file_ctimes[rel] = _st.st_ctime
             except OSError:
                 pass
 
@@ -749,6 +1037,39 @@ def main() -> None:
     _walk()
 
     # ---------------------------------------------------------------------------
+    # Second age series — filesystem evidence
+    # ---------------------------------------------------------------------------
+    # The ## Folder histogram maturity cell reads frontmatter `date`: the date a
+    # note CLAIMS. A migration rewrites that field across the corpus, so on a
+    # migrated vault the frontmatter series measures migration age and a maturity
+    # gate keyed to it can never fire. This series measures the same folders from
+    # NTFS CREATION time — the arrival date of each file in this vault. mtime is
+    # the wrong evidence for maturity: every edit resets it, so a folder settled
+    # for months reads days old and the gate can never fire on it either.
+    #
+    # Creation time carries one artifact of its own: a whole-tree MOVE recreates
+    # the file, so a filed or reorganized note reads born-today while its mtime
+    # still remembers the content. Arrival therefore takes the EARLIER of the two
+    # stamps — the earliest moment the filesystem can attest the file existed.
+    # That makes the series older-or-equal than the mtime it replaces in every
+    # folder, by construction, instead of trading one young-reading artifact for
+    # another.
+    #
+    # A folder's maturity is days since its NEWEST member arrived — a folder is
+    # as settled as its youngest member. Both series ship every run, each
+    # labelled by its evidence; the analyst picks the one its gate needs.
+    folder_fs_ages_days: dict[str, list[int]] = defaultdict(list)
+    for _rel, _ct in file_ctimes.items():
+        _parts = _rel.split("/")
+        _containing = "/".join(_parts[:-1]) if len(_parts) > 1 else (_parts[0] if _parts else "")
+        _arrival_ts = min(_ct, file_mtimes.get(_rel, _ct))
+        try:
+            _seen = datetime.fromtimestamp(_arrival_ts, tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            continue
+        folder_fs_ages_days[_containing].append(max(0, (now_utc - _seen).days))
+
+    # ---------------------------------------------------------------------------
     # Lifecycle types — count ARCHIVED members. Types whose completed home is
     # the archive (default-home references <archive>: addendum, revision,
     # session, log — plus the journal/addendum/revision lifecycle set) keep
@@ -786,8 +1107,12 @@ def main() -> None:
     # Inbound link counts
     # ---------------------------------------------------------------------------
 
+    # Built from the EMBED-AWARE reference graph: `![[img.png]]` is a reference
+    # to img.png, so an embedded asset carries an inbound count instead of
+    # reading as an orphan. Embeds of .md notes count the same way — a
+    # transcluded note is referenced.
     inbound_counts: dict[str, int] = defaultdict(int)
-    for rel, targets in outbound_links.items():
+    for rel, targets in reference_links.items():
         for target in targets:
             inbound_counts[target] += 1
 
@@ -1066,7 +1391,7 @@ def main() -> None:
     # Previous-run lifecycle events
     # ---------------------------------------------------------------------------
 
-    previous_files = _read_previous_files(output_path)
+    previous_files = _read_previous_files(baseline_path)
     new_files: list[str] = []
     gone_files: list[str] = []
 
@@ -1168,6 +1493,27 @@ def main() -> None:
         )
 
 
+    def _fmt_fs_maturity(arrival_ages: list[int]) -> str:
+        """Render a folder's ARRIVAL profile for ## Folder maturity (filesystem).
+
+        `maturity` leads the cell because it is the gate value: days since the
+        newest member arrived — the smallest arrival age, since a folder is only
+        as settled as its youngest member. `oldest` carries the first arrival for
+        context. Returns '(unmeasured)' when no file in the folder yielded a
+        creation timestamp.
+        """
+        if not arrival_ages:
+            return "(unmeasured)"
+        maturity = min(arrival_ages)
+        oldest = max(arrival_ages)
+        aged = sum(1 for a in arrival_ages if a > AGED_THRESHOLD_DAYS)
+        recent = len(arrival_ages) - aged
+        return (
+            f"maturity:{maturity}d, oldest:{oldest}d, "
+            f"aged(>{AGED_THRESHOLD_DAYS}d):{aged}, recent:{recent}"
+        )
+
+
     folder_hist_rows: list[list[str]] = []
     for folder in sorted(folder_total_counts.keys()):
         total = folder_total_counts[folder]
@@ -1186,6 +1532,45 @@ def main() -> None:
     sections.append(_md_table(
         ["folder", "total-notes", "count-by-type", "top-tags", "maturity"],
         folder_hist_rows,
+    ))
+    sections.append("")
+
+    # --- 5b. Folder maturity, filesystem evidence (the SECOND age series) ---
+    # Same folders, same min-size floor — measured from NTFS creation time (each
+    # file's arrival in this vault) instead of frontmatter `date`. A corpus whose
+    # `date` fields were written by a migration reads uniformly young in
+    # ## Folder histogram; this table reads how long the folder has actually held
+    # its content. `maturity` is days since the NEWEST member arrived: a folder is
+    # as settled as its youngest member, so one fresh drop makes the folder young
+    # again. Neither series replaces the other: a maturity gate names the series
+    # it reads.
+    folder_fs_rows: list[list[str]] = []
+    for folder in sorted(folder_total_counts.keys()):
+        total = folder_total_counts[folder]
+        if total < FOLDER_HISTOGRAM_MIN_NOTES:
+            continue  # same floor as ## Folder histogram, so rows line up
+        folder_fs_rows.append([
+            folder, total, len(folder_fs_ages_days[folder]),
+            _fmt_fs_maturity(folder_fs_ages_days[folder]),
+        ])
+    sections.append("## Folder maturity (filesystem)")
+    sections.append(
+        f"<!-- SECOND age series. Evidence: NTFS creation times; maturity = days "
+        f"since newest arrival. A moved file's creation time is reset by the "
+        f"move, so arrival takes the EARLIER of creation time and mtime — the "
+        f"earliest the filesystem can attest the file existed, never younger "
+        f"than the mtime this series replaces. NOT frontmatter `date` — read "
+        f"this one when maturity means how long the folder has held its content, "
+        f"and ## Folder histogram's `maturity` cell when it means the date a note "
+        f"claims. `maturity` is the gate value (days since the youngest member "
+        f"arrived); `oldest` is the first arrival. Same folder set and same "
+        f"<{FOLDER_HISTOGRAM_MIN_NOTES}-note floor as ## Folder histogram; "
+        f"'aged' = arrived more than {AGED_THRESHOLD_DAYS}d ago. Thresholds stay "
+        f"the analyst's. -->"
+    )
+    sections.append(_md_table(
+        ["folder", "total-notes", "files-measured", "fs-maturity"],
+        folder_fs_rows,
     ))
     sections.append("")
 
@@ -1342,13 +1727,56 @@ def main() -> None:
             return None
 
 
+    # Settled-convention suppression (CONFIG § Log files). Every class an agent
+    # settled by evidence lives as a row in `<logs>/Conventions.md` — code, scope
+    # predicate, evidence, date — read here and applied at detect time, so a
+    # settled class stops re-firing without a hand patch in this file. Each
+    # suppression is COUNTED and reported in ## Convention store.
+    conventions_path = VAULT_ROOT / LOGS_REL / "Conventions.md"
+    convention_rows: list[dict] = []
+    convention_warnings: list[str] = []
+    if conventions_path.is_file():
+        try:
+            convention_rows, convention_warnings = parse_convention_store(
+                conventions_path.read_text(encoding="utf-8", errors="replace")
+            )
+        except OSError as exc:
+            convention_warnings = [f"store unreadable ({exc}); no suppression applied"]
+    convention_hits: dict[int, int] = defaultdict(int)
+
+    def _by_convention(code: str, target: str, value: str = "",
+                       ctx: Optional[dict] = None) -> bool:
+        """True when a settled convention covers this finding (and counts it)."""
+        facts = ctx or {}
+        for i, crow in enumerate(convention_rows):
+            if convention_matches(crow, code, target, value, facts):
+                convention_hits[i] += 1
+                return True
+        return False
+
+    def _cover_flag(rel: str) -> str:
+        """'true' when `rel` is its folder's cover note — the fact the store's
+        `cover:` predicate reads. A vault-root loose file has no folder to cover."""
+        return "true" if (len(rel.split("/")) >= 2 and is_folder_cover(Path(rel))) else "false"
+
     # Findings as (code, target, value) tuples.
     open_findings: list[tuple[str, str, str]] = []
+
+    # status-coherence hits, case -> [rel]. Rendered as counts + a bounded sample
+    # in ## Status coherence and folded into ## Open findings below.
+    status_coherence: dict[str, list[str]] = defaultdict(list)
+    STATUS_COHERENCE_SAMPLE = 8
+    # The three cases, in the order the section reports them.
+    _STATUS_CASES = [
+        "reviewed-true-status-draft-filed",
+        "status-draft-filed",
+        "reviewed-false-filed",
+    ]
 
     # reviewed-stale evidence baseline: the previous snapshot's content hashes.
     # On the first hashed run the baseline is empty, so no reviewed-stale can
     # fire — change evidence has to be observed across two runs.
-    prev_hashes = _read_previous_hashes(output_path)
+    prev_hashes = _read_previous_hashes(baseline_path)
     # Candidates collected as (note_rel, note_stem, target_stem, target_rel);
     # reciprocal pairs are suppressed after the loop.
     stale_candidates: list[tuple[str, str, str, str]] = []
@@ -1388,13 +1816,50 @@ def main() -> None:
                     )
 
         # parent-missing: a typed note that requires an uplink but carries none.
+        # Inbox drafts are skipped in code (the user has not filed them yet); the
+        # settled exemptions — a cover being the root of its own scope, a member
+        # of a hands-off asset folder, the Areas type-home fallback folders —
+        # live as rows in `<logs>/Conventions.md` and suppress here by predicate.
         if canonical_type in _UPLINK_BY_TYPE:
             field = _UPLINK_BY_TYPE[canonical_type]
             val = fm.get(field)
             if not (val is not None and str(val).strip()):
-                # Skip inbox drafts (the user has not filed them yet).
                 if not rel.startswith(INBOX_FOLDER + "/"):
-                    open_findings.append(("parent-missing", rel, field))
+                    _pm_ctx = {
+                        "type": canonical_type or "",
+                        "cover": _cover_flag(rel),
+                        "in-asset-folder": "true" if in_asset_folder(
+                            record["abspath"], VAULT_ROOT) else "false",
+                    }
+                    if not _by_convention("parent-missing", rel, field, _pm_ctx):
+                        open_findings.append(("parent-missing", rel, field))
+
+        # status-coherence: a status/reviewed/location combination CONFIG
+        # § Status does not allow. `draft` means unreviewed IN the inbox, so a
+        # filed note carrying it is a filing that never restamped — the class
+        # that let filed standards sit `status: draft` unseen. `active` covers a
+        # filed standard still gaining weight, so it is coherent anywhere.
+        # Detect-only: counts and a bounded sample render in ## Status coherence.
+        _status = str(fm.get("status") or "").strip().lower()
+        _reviewed_raw = str(fm.get("reviewed")).strip().lower()
+        if not rel.startswith(INBOX_FOLDER + "/"):
+            _case = ""
+            _cover = _cover_flag(rel)
+            if _status == "draft" and _reviewed_raw == "true":
+                _case = "reviewed-true-status-draft-filed"
+            elif _status == "draft":
+                _case = "status-draft-filed"
+            elif _reviewed_raw in ("false", "no", "0"):
+                # CONFIG § Status exempts living state documents: reviewed
+                # governs knowledge content, not live state. A folder cover and
+                # a canonical plan are maintained in place and carry
+                # `reviewed: false` by design, so neither is a coherence defect.
+                if _cover != "true" and canonical_type != "plan":
+                    _case = "reviewed-false-filed"
+            if _case:
+                _sc_ctx = {"type": canonical_type or "", "cover": _cover}
+                if not _by_convention("status-coherence", rel, _case, _sc_ctx):
+                    status_coherence[_case].append(rel)
 
         # reviewed-stale: a reviewed:true note whose linked upstream (plan/spec)
         # CONTENT changed after the note's review. Three evidence gates, so
@@ -1423,7 +1888,22 @@ def main() -> None:
                     except OSError:
                         continue
                     t_fm = _parse_frontmatter(t_text) or {}
-                    if normalize_type(str(t_fm.get("type") or "")) not in _UPSTREAM_TYPES:
+                    t_type = normalize_type(str(t_fm.get("type") or "")) or ""
+                    if t_type not in _UPSTREAM_TYPES:
+                        continue
+                    # Settled conventions about WHICH upstream can stale WHICH
+                    # citer — standards evolve additively, a still-iterating plan
+                    # does not stale a living document — live as store rows keyed
+                    # on upstream-type / upstream-status / type. A suppressed pair
+                    # is dropped alone, so any other changed upstream of the same
+                    # note still fires.
+                    _rs_ctx = {
+                        "type": canonical_type or "",
+                        "cover": _cover_flag(rel),
+                        "upstream-type": t_type,
+                        "upstream-status": str(t_fm.get("status") or "").strip().lower(),
+                    }
+                    if _by_convention("reviewed-stale", rel, target, _rs_ctx):
                         continue
                     # Gate 1 — content actually changed since the last run.
                     prev_hash = prev_hashes.get(t_rel)
@@ -1495,6 +1975,13 @@ def main() -> None:
         for ghost in record.get("helper_links", []):
             if ghost.lower() in all_basenames_lower:
                 continue
+            # Settled conventions about which ghosts are citations rather than
+            # defects — a memory slug in an immutable session log, a ghost inside
+            # an append-only log's quoted evidence — live as store rows keyed on
+            # type and a value regex over the ghost basename.
+            if _by_convention("dangling-link", rel, ghost,
+                              {"type": ctype, "cover": _cover_flag(rel)}):
+                continue
             dangling_findings.append((rank, rel, ghost))
 
     dangling_findings.sort(key=lambda t: (t[0], t[1], t[2]))
@@ -1518,16 +2005,725 @@ def main() -> None:
         except OSError:
             pass
 
+    # =========================================================================
+    # Stream A detector wave (Note-Kit-Structural-Integrity-Plan § Detector
+    # build-out). Each emits findings the janitor repairs or queues. Read-only.
+    # =========================================================================
+
+    def _sa_read(p: Path) -> str:
+        try:
+            return Path(p).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def _sa_body(text: str) -> str:
+        if text.startswith("---"):
+            ff = list(_FM_FENCE.finditer(text))
+            if len(ff) >= 2 and ff[0].start() == 0:
+                return text[ff[1].end():]
+        return text
+
+    def _sa_ymd(s):
+        try:
+            return datetime.strptime(str(s), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return None
+
+    _sa_today = now_utc.date()
+
+    # --- Detector 1: index-vs-disk diff (index-missing / index-drift) + coverage ---
+    # Per index-type note: set-difference of its folder's on-disk direct .md
+    # members against the index's body links. A member absent entirely emits
+    # `index-missing`; a member linked only in the flat preamble (no `## section`)
+    # emits `index-drift` (flat-only). The chapter-coverage % (linked members that
+    # sit under a section) is reported in the ## Index coverage snapshot section, so
+    # coverage is a measured number, never a claim.
+    #
+    # Chaptered means SUBDIVIDED. CONFIG § Types asks a cover to chapter its
+    # children "under clear labels that track these subdivisions and their
+    # purpose", and one catch-all `## Members` holding every child tracks no
+    # subdivision at all — it is the flat list with a heading on top. So a cover
+    # scores chaptered only when TWO OR MORE of its `## ` sections actually carry
+    # members; a single member-bearing section reads flat however many links sit
+    # inside it. Sections that link only outward (`## Related`) subdivide nothing
+    # and are not counted.
+    _H2_LINE_RE = re.compile(r"^## .*$", re.MULTILINE)
+
+    def _links_by_region(body: str) -> tuple[set[str], list[tuple[str, set[str]]]]:
+        """(links before the first `## `, [(heading, links) for each `## ` section])."""
+        heads = list(_H2_LINE_RE.finditer(body))
+        if not heads:
+            return set(extract_wikilinks(body)), []
+        preamble = set(extract_wikilinks(body[: heads[0].start()]))
+        regions: list[tuple[str, set[str]]] = []
+        for i, h in enumerate(heads):
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
+            regions.append((h.group(0).strip(),
+                            set(extract_wikilinks(body[h.end():end]))))
+        return preamble, regions
+
+    index_coverage_rows: list[list] = []
+    _cov_total_linked = 0
+    _cov_total_chaptered = 0
+    for record in fm_records:
+        fm = record.get("fm") or {}
+        if normalize_type(str(fm.get("type") or "")) != "index":
+            continue
+        idx_rel = record["rel_path"]
+        if idx_rel.startswith(INBOX_FOLDER + "/"):
+            continue  # inbox drafts are not yet filed; skip
+        idx_abs = record["abspath"]
+        # The every-child contract is on the FOLDER-NOTE COVER only (CONFIG:
+        # "only a root carries one"). A curated sub-index living inside a folder
+        # (type index but stem != folder name) is NOT diffed — flagging its
+        # unlisted siblings would be a false positive the decided auto-repair
+        # would then act on, destroying curation.
+        if not is_folder_cover(idx_abs):
+            continue
+        idx_folder = idx_abs.parent
+        # An unreadable cover would make _sa_read return "" and read EVERY member
+        # as index-missing; report the read failure as its own finding and skip
+        # the diff for this cover (an empty-but-readable cover still diffs).
+        try:
+            idx_raw = idx_abs.read_bytes()
+        except OSError as exc:
+            open_findings.append(("index-cover-unreadable", idx_rel,
+                                  f"cover read failed ({exc}); diff skipped"))
+            continue
+        flat_links, section_regions = _links_by_region(
+            _sa_body(idx_raw.decode("utf-8", errors="replace")))
+        sectioned_links: set[str] = set()
+        for _h, _links in section_regions:
+            sectioned_links |= _links
+        all_links = flat_links | sectioned_links
+        members = [
+            r for r in fm_records
+            if r["abspath"].parent == idx_folder and r["abspath"] != idx_abs
+        ]
+        member_stems = {r["abspath"].stem for r in members}
+        # The sections that carry members are the cover's real chapters.
+        n_member_sections = sum(
+            1 for _h, links in section_regions if links & member_stems
+        )
+        subdivided = n_member_sections >= 2
+        n_linked = 0
+        n_chaptered = 0
+        for mrec in members:
+            mstem = mrec["abspath"].stem
+            if mstem not in all_links:
+                open_findings.append(("index-missing", mrec["rel_path"],
+                                      f"index:{Path(idx_rel).stem}"))
+            else:
+                n_linked += 1
+                if mstem not in sectioned_links:
+                    open_findings.append(("index-drift", mrec["rel_path"],
+                                          f"index:{Path(idx_rel).stem} flat-only"))
+                elif subdivided:
+                    n_chaptered += 1
+        cov = round(100.0 * n_chaptered / n_linked, 1) if n_linked else 100.0
+        if not n_linked:
+            cov_label = f"{cov}%"          # nothing linked — vacuously covered
+        elif subdivided:
+            cov_label = f"{cov}%"
+        else:
+            cov_label = f"{cov}% (flat)"   # one catch-all section is no subdivision
+        index_coverage_rows.append([idx_rel, len(members), n_linked, n_chaptered,
+                                    n_member_sections, cov_label])
+        _cov_total_linked += n_linked
+        _cov_total_chaptered += n_chaptered
+    index_coverage_overall = (
+        round(100.0 * _cov_total_chaptered / _cov_total_linked, 1)
+        if _cov_total_linked else 100.0
+    )
+
+    # --- Detector 3: living-surface currency (cover-stale) ---
+    # Living surface = the folder-note cover of each <projects>/<areas> root with
+    # status: active. Parse the newest dated state block (both live patterns);
+    # baseline = the newest session date-prefix in the root's Sessions/. Emit
+    # `cover-stale` when the state block trails the newest session by more than the
+    # threshold (default 4 days on an active project). An idle project retaining
+    # "Status as of X" wording is flagged too.
+    #
+    # The date is half the reading. A state block that names a canonical plan,
+    # session, or ledger which no longer exists is stale whatever its own date
+    # says — a purged plan leaves a fresh-dated block citing nothing, and a
+    # date comparison can never see it. So the block's OWN wikilinks are
+    # resolved too, against the same whole-vault basename index the
+    # dangling-link detector uses (Obsidian's case-insensitive resolution), and
+    # an unresolved citation fires `cover-stale` on its own.
+    _STATE_PATTERNS = [
+        re.compile(r"^## State of play [—-] (\d{4}-\d{2}-\d{2})", re.MULTILINE),
+        re.compile(r"\*\*State of play \((\d{4}-\d{2}-\d{2})\)"),
+    ]
+    _NEXT_H2_RE = re.compile(r"^## ", re.MULTILINE)
+    _PARA_BREAK_RE = re.compile(r"\n[ \t]*\r?\n")
+    _COVER_STALE_THRESHOLD_DAYS = 4
+
+    def _newest_state_block(text: str) -> tuple[str, str]:
+        """(date, text) of the NEWEST dated state-of-play block, or ("", "").
+
+        A cover that stacks superseded state sections is read at its current one
+        only. The heading form owns its whole `## ` section; the inline bold form
+        owns its paragraph, so neither over-reads into unrelated prose.
+        """
+        best_date, best_block = "", ""
+        for idx, pat in enumerate(_STATE_PATTERNS):
+            for m in pat.finditer(text):
+                if m.group(1) <= best_date:
+                    continue
+                nxt = _NEXT_H2_RE.search(text, m.end())
+                end = nxt.start() if nxt else len(text)
+                if idx == 1:  # inline bold lead-in — stop at the paragraph break
+                    para = _PARA_BREAK_RE.search(text, m.end())
+                    if para and para.start() < end:
+                        end = para.start()
+                best_date, best_block = m.group(1), text[m.start():end]
+        return best_date, best_block
+
+    for record in fm_records:
+        rel = record["rel_path"]
+        parts = rel.split("/")
+        if len(parts) != 3 or parts[0] not in (PROJECTS_FOLDER, AREAS_FOLDER):
+            continue
+        abspath = record["abspath"]
+        if not is_folder_cover(abspath):
+            continue  # only the folder-note cover (incl. legacy NN- prefixed)
+        fm = record.get("fm") or {}
+        status = str(fm.get("status") or "").strip().lower()
+        cover_text = _sa_read(abspath)
+        cover_date, state_block = _newest_state_block(cover_text)
+        # A dangling canonical citation IS staleness — checked on every cover
+        # that carries a state block, active or not, before the date reading.
+        if state_block:
+            ghosts = sorted(
+                g for g in extract_wikilinks(state_block)
+                if g.lower() not in all_basenames_lower
+            )
+            if ghosts:
+                shown = ", ".join(ghosts[:3]) + (" …" if len(ghosts) > 3 else "")
+                open_findings.append((
+                    "cover-stale", rel,
+                    f"state block ({cover_date}) cites {len(ghosts)} unresolved "
+                    f"link(s): {shown}",
+                ))
+        if status == "active":
+            if not cover_date:
+                continue
+            sess_dir = abspath.parent / "Sessions"
+            sess_dates = []
+            if sess_dir.is_dir():
+                for sp in sess_dir.glob("*.md"):
+                    mm = re.match(r"(\d{4}-\d{2}-\d{2})", sp.stem)
+                    if mm:
+                        sess_dates.append(mm.group(1))
+            if not sess_dates:
+                continue
+            baseline = max(sess_dates)
+            cd, bd = _sa_ymd(cover_date), _sa_ymd(baseline)
+            if cd is None or bd is None:
+                continue
+            gap = (bd - cd).days
+            if gap > _COVER_STALE_THRESHOLD_DAYS:
+                open_findings.append((
+                    "cover-stale", rel,
+                    f"state {cover_date} trails newest session {baseline} by {gap}d",
+                ))
+        else:
+            if re.search(r"Status as of", cover_text):
+                open_findings.append((
+                    "cover-stale", rel,
+                    "idle project retains 'Status as of' wording",
+                ))
+
+    # --- Detectors 4b + 5: run-liveness (missed-cadence) + log-timestamp lint ---
+    # Read each agent ledger once. Detector 5 flags 00:00Z stamps and
+    # out-of-order timestamps (`log-timestamp-suspect`, per-ledger aggregate).
+    # Detector 4b emits `missed-cadence` for an agent participating in the
+    # run-liveness protocol (has >=1 `run-start` line) whose latest run-start is
+    # older than its cadence window. Agents with no run-start line are not yet
+    # participating and are skipped (no false positive before adoption).
+    logs_dir = VAULT_ROOT / LOGS_REL
+    _CADENCE_DAYS = {"janitor-agent": 1, "filing-agent": 1,
+                     "analyst-agent": 7, "action-agent": 1}
+    _sa_ts_re = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?Z?$")
+    if logs_dir.is_dir():
+        for agent_dir in sorted(p for p in logs_dir.iterdir() if p.is_dir()):
+            agent = agent_dir.name
+            ledger = agent_dir / f"{agent}.md"
+            if not ledger.is_file():
+                continue
+            led_rel = str(ledger.relative_to(VAULT_ROOT)).replace("\\", "/")
+            zero_count = 0
+            out_of_order = 0
+            prev_dt = None
+            run_start_dates: list[str] = []
+            for ln in _sa_read(ledger).splitlines():
+                fields = [p.strip() for p in ln.split("|")]
+                if len(fields) < 3:
+                    continue
+                m = _sa_ts_re.match(fields[0])
+                if not m:
+                    continue
+                ymd, hh, mm, ss = m.group(1), m.group(2), m.group(3), m.group(4) or "00"
+                if hh == "00" and mm == "00" and ss == "00":
+                    zero_count += 1
+                try:
+                    dt = datetime.strptime(f"{ymd}T{hh}:{mm}:{ss}", "%Y-%m-%dT%H:%M:%S")
+                    if prev_dt is not None and dt < prev_dt:
+                        out_of_order += 1
+                    prev_dt = dt
+                except ValueError:
+                    pass
+                if fields[2] == "run-start":
+                    run_start_dates.append(ymd)
+            if zero_count or out_of_order:
+                _lt_value = f"zero-stamp:{zero_count} out-of-order:{out_of_order}"
+                if not _by_convention("log-timestamp-suspect", led_rel, _lt_value):
+                    open_findings.append(("log-timestamp-suspect", led_rel, _lt_value))
+            if run_start_dates:
+                latest = max(run_start_dates)
+                latest_d = _sa_ymd(latest)
+                cad = _CADENCE_DAYS.get(agent, 1)
+                if latest_d is not None:
+                    gap = (_sa_today - latest_d).days
+                    if gap > cad:
+                        open_findings.append((
+                            "missed-cadence", led_rel,
+                            f"{agent} last run-start {latest} ({gap}d ago, cadence {cad}d)",
+                        ))
+
+    # --- Status coherence rows (collected in the frontmatter loop above) ---
+    # All three cases roll up the SAME way: one row per folder scope carrying the
+    # case count and up to STATUS_COHERENCE_ROLLUP_SAMPLES sample paths. A
+    # per-file row per hit made this one class most of ## Open findings — a
+    # standing restamp backlog the janitor works in bulk, not file by file. The
+    # scope row names the work and the samples name where to start; the full
+    # counts and the wider sample sit in ## Status coherence.
+    STATUS_COHERENCE_ROLLUP_SAMPLES = 3
+    for _case in _STATUS_CASES:
+        _sc_by_scope: dict[str, list[str]] = defaultdict(list)
+        for _rel in status_coherence.get(_case, []):
+            _sc_by_scope[scope_of(_rel)].append(_rel)
+        for _scope_name, _rels in sorted(_sc_by_scope.items()):
+            _samples = sorted(_rels)[:STATUS_COHERENCE_ROLLUP_SAMPLES]
+            open_findings.append((
+                "status-coherence", _scope_name,
+                f"{_case}:{len(_rels)} (rollup) e.g. " + ", ".join(_samples),
+            ))
+
+    # --- Detector 6: fix-effect verification (fix-verified / fix-unverified) ---
+    # An approved kit fix records its acceptance signal in `<logs>/fix-verification.md`
+    # (one pipe line per fix: `<fix-id> | <signal-type> | <signal-target> | <spec>`).
+    # signal-type: `log-line` (spec appears in the <logs>-relative ledger target),
+    # `finding-absent` (spec finding-code is NOT open this run), or `block-present`
+    # (spec appears in the vault-relative file target). The signal firing logs
+    # `fix-verified`; an absent signal re-raises as `fix-unverified` — a fix that
+    # executed and stayed silently inert is surfaced, not paid for twice. Inert
+    # (no manifest) until the file exists.
+    fixver_path = logs_dir / "fix-verification.md"
+    if fixver_path.is_file():
+        open_codes = {c for c, _t, _v in open_findings}
+        for ln in _sa_read(fixver_path).splitlines():
+            raw = ln.strip()
+            if not raw:
+                continue  # blank line
+            fields = [p.strip() for p in raw.split("|")]
+            # Header / markdown separator rows are not data — skip silently.
+            if fields[0].lower() == "fix-id" or set(raw) <= {"-", "|", " ", ":"}:
+                continue
+            # A malformed data line (too few fields, or an unknown signal-type)
+            # is NOT dropped silently — a silent drop reintroduces the exact
+            # executed-but-inert class this detector exists to catch.
+            if len(fields) < 4 or not fields[0]:
+                open_findings.append((
+                    "fix-manifest-malformed", "fix-verification.md",
+                    f"line has <4 fields: {raw[:80]}",
+                ))
+                continue
+            fix_id, sig_type, sig_target, sig_spec = fields[0], fields[1], fields[2], fields[3]
+            if sig_type == "log-line":
+                verified = sig_spec in _sa_read(logs_dir / sig_target)
+            elif sig_type == "finding-absent":
+                verified = sig_spec not in open_codes
+            elif sig_type == "block-present":
+                verified = sig_spec in _sa_read(VAULT_ROOT / sig_target)
+            else:
+                open_findings.append((
+                    "fix-manifest-malformed", fix_id,
+                    f"unknown signal-type: {sig_type}",
+                ))
+                continue
+            if verified:
+                open_findings.append(("fix-verified", fix_id, f"{sig_type}:{sig_spec}"))
+            else:
+                open_findings.append((
+                    "fix-unverified", fix_id,
+                    f"signal absent — {sig_type}:{sig_spec} (re-raise)",
+                ))
+
+    # --- Detector 6b: claim check (claim-verified / claim-false) ---
+    # CONFIG § Log files, Claim check: a log line asserting a file's state carries
+    # a machine-readable signal in its VALUE cell — `claim: <path> | <expected
+    # condition>`. This run re-derives each such claim FROM DISK and emits
+    # `claim-verified` or `claim-false`; a `claim-false` row is the retraction
+    # opener.
+    #
+    # A claimant never certifies itself, and the boundary that decides this is
+    # the producing RUN, not the clock. The janitor writes its claims and then
+    # invokes this build seconds later within the same pass, so a wall-clock
+    # window admits exactly the claim it was meant to exclude. A claim is
+    # therefore checkable only once its run has CLOSED — a `run-end` (or a
+    # `run-aborted`, which closes a run as truthfully: a crashed pass writes no
+    # further lines) stands AFTER it in the same head — or once it predates the
+    # head's last `run-start`, which settles it to an earlier run. A claim
+    # sitting after the last `run-start` with no closing line is inside a run
+    # still open, and emits `claim-deferred` for the next pass to read.
+    #
+    # A head that emits no `run-start` at all has no open-run region to sit in,
+    # so the boundary rule stays silent there rather than deferring its claims
+    # forever; the run-timestamp window remains as a second, weaker guard for
+    # exactly that case.
+    #
+    # Scan scope: the agent event-log HEADS under <logs> — one `<dir>/<dir>.md`
+    # per log folder, which covers janitor / filing / action / analyst and the
+    # orchestration ledger. Rotated segments (`<agent>-YYYY-MM.md`) are excluded:
+    # a closed segment is history, and re-deriving a months-old claim against
+    # today's disk reports drift that the retraction protocol never asked for.
+    #
+    # Conditions (the prefix decides the read):
+    #   exists              — the path is present on disk
+    #   absent              — the path is not present
+    #   contains:<literal>  — the file is present and its text carries the literal
+    #   hash:<md5-prefix>   — the file's md5 starts with the prefix; both the
+    #                         FULL-file md5 and the frontmatter-excluded BODY md5
+    #                         (the `## Content hashes` column a claimant reads
+    #                         off this very snapshot) satisfy it
+    # An unparseable condition emits `claim-unparseable` and never raises — a
+    # hand-typed claim degrades one row instead of the run.
+    _CLAIM_MAX_PER_LEDGER = 200
+    _CLAIM_HEX = re.compile(r"^[0-9a-f]{4,32}$")
+
+    def _claim_condition_result(abs_path: Path, cond: str):
+        """Re-derive one claim from disk.
+
+        Returns (verdict, observed) where verdict is True (holds), False (does
+        not hold), or None (the condition itself is unparseable — `observed`
+        then carries the reason).
+        """
+        low = cond.strip()
+        low_key = low.lower()
+        if low_key in ("exists", "present"):
+            return abs_path.exists(), ("present" if abs_path.exists() else "not on disk")
+        if low_key in ("absent", "missing"):
+            return (not abs_path.exists()), ("not on disk" if not abs_path.exists() else "present")
+        if low_key.startswith("contains:"):
+            literal = low[len("contains:"):].strip()
+            if not literal:
+                return None, "contains: has no literal"
+            if not abs_path.is_file():
+                return False, "file not on disk"
+            return (literal in _sa_read(abs_path)), (
+                "literal present" if literal in _sa_read(abs_path) else "literal absent"
+            )
+        if low_key.startswith("hash:"):
+            prefix = low[len("hash:"):].strip().lower()
+            if not _CLAIM_HEX.match(prefix):
+                return None, f"hash: prefix is not 4-32 hex chars ({prefix[:16]!r})"
+            if not abs_path.is_file():
+                return False, "file not on disk"
+            full = _file_md5(abs_path)
+            body = None
+            if abs_path.suffix.lower() == ".md":
+                body = _body_md5(_sa_read(abs_path))
+            hits = [h for h in (full, body) if h]
+            if not hits:
+                return False, "file unreadable or above the md5 size cap"
+            ok = any(h.startswith(prefix) for h in hits)
+            return ok, ("full=" + (full or "-")[:12] + " body=" + (body or "-")[:12])
+        return None, f"unknown condition prefix in {cond[:40]!r}"
+
+    if logs_dir.is_dir():
+        for _log_dir in sorted(p for p in logs_dir.iterdir() if p.is_dir()):
+            _head = _log_dir / f"{_log_dir.name}.md"
+            if not _head.is_file():
+                continue
+            _head_rel = str(_head.relative_to(VAULT_ROOT)).replace("\\", "/")
+            _head_lines = _sa_read(_head).splitlines()
+            # Run-boundary map for this head, read once: where runs open and
+            # where they close. `run-aborted` closes as truthfully as `run-end`.
+            _run_open_at: list[int] = []
+            _run_close_at: list[int] = []
+            for _i, _rl in enumerate(_head_lines):
+                _cells = _rl.split("|")
+                if len(_cells) < 3:
+                    continue
+                _mark = _cells[2].strip().lower()
+                if _mark == "run-start":
+                    _run_open_at.append(_i)
+                elif _mark in ("run-end", "run-aborted"):
+                    _run_close_at.append(_i)
+            _last_open = _run_open_at[-1] if _run_open_at else None
+            _last_close = _run_close_at[-1] if _run_close_at else None
+            _seen_claims = 0
+            _deferred = 0
+            _deferred_open = 0
+            for _lineno, _raw in enumerate(_head_lines, 1):
+                _line = _raw.strip()
+                if "claim:" not in _line:
+                    continue
+                # `timestamp | actor | code | target | value` — the value cell is
+                # everything past the fourth pipe, so the claim's own inner pipe
+                # survives the split.
+                _f = _line.split("|", 4)
+                if len(_f) < 5:
+                    continue
+                _val = _f[4].strip()
+                if not _val.lower().startswith("claim:"):
+                    continue  # the token appears in prose, not as the signal
+                _seen_claims += 1
+                if _seen_claims > _CLAIM_MAX_PER_LEDGER:
+                    open_findings.append((
+                        "claim-unparseable", _head_rel,
+                        f"more than {_CLAIM_MAX_PER_LEDGER} claim lines — "
+                        f"remainder not checked this run",
+                    ))
+                    break
+                # Self-certification guard, run-boundary first: the claim is
+                # checkable once a closing line follows it (its run closed), or
+                # once it precedes the head's last run-start (it belongs to an
+                # earlier, settled run). Anything else sits inside an open run.
+                _idx = _lineno - 1
+                _closed_after = _last_close is not None and _last_close > _idx
+                _predates_last_open = _last_open is not None and _idx < _last_open
+                _in_open_run = (_last_open is not None
+                                and not _closed_after
+                                and not _predates_last_open)
+                # Second guard, for a head that emits no run boundaries at all:
+                # a line stamped at or after this run defers to the next pass.
+                _stamped_ahead = False
+                _cm = _sa_ts_re.match(_f[0].strip())
+                if _cm:
+                    _c_ts = (f"{_cm.group(1)}T{_cm.group(2)}:{_cm.group(3)}:"
+                             f"{_cm.group(4) or '00'}")
+                    _stamped_ahead = _c_ts >= ts.rstrip("Z")
+                if _in_open_run or _stamped_ahead:
+                    _deferred += 1
+                    if _in_open_run:
+                        _deferred_open += 1
+                    continue
+                _payload = _val[len("claim:"):].strip()
+                if "|" not in _payload:
+                    open_findings.append((
+                        "claim-unparseable", _head_rel,
+                        f"line {_lineno}: no `<path> | <condition>` separator — "
+                        f"{_payload[:60]}",
+                    ))
+                    continue
+                _cpath, _cond = (s.strip() for s in _payload.split("|", 1))
+                _cpath = _cpath.strip("`").replace("\\", "/").strip()
+                if not _cpath or not _cond:
+                    open_findings.append((
+                        "claim-unparseable", _head_rel,
+                        f"line {_lineno}: empty path or condition — {_payload[:60]}",
+                    ))
+                    continue
+                try:
+                    _cabs = (VAULT_ROOT / _cpath).resolve()
+                    _cabs.relative_to(VAULT_ROOT)
+                except (ValueError, OSError):
+                    open_findings.append((
+                        "claim-unparseable", _head_rel,
+                        f"line {_lineno}: path resolves outside the vault — {_cpath[:60]}",
+                    ))
+                    continue
+                _verdict, _observed = _claim_condition_result(_cabs, _cond)
+                if _verdict is None:
+                    open_findings.append((
+                        "claim-unparseable", _head_rel,
+                        f"line {_lineno}: {_observed}",
+                    ))
+                elif _verdict:
+                    _cv = f"{_cond} | {_head_rel}:{_lineno}"
+                    if not _by_convention("claim-verified", _cpath, _cv):
+                        open_findings.append(("claim-verified", _cpath, _cv))
+                else:
+                    _cf = (f"expected {_cond} — observed {_observed} | "
+                           f"{_head_rel}:{_lineno}")
+                    if not _by_convention("claim-false", _cpath, _cf):
+                        open_findings.append(("claim-false", _cpath, _cf))
+            if _deferred:
+                _why = (f"{_deferred_open} inside an open run"
+                        if _deferred_open == _deferred else
+                        f"{_deferred_open} inside an open run, "
+                        f"{_deferred - _deferred_open} stamped at/after this run")
+                open_findings.append((
+                    "claim-deferred", _head_rel,
+                    f"{_deferred} claim(s) not yet checkable ({_why}) — "
+                    f"a claimant never certifies itself; checked next pass",
+                ))
+
+    # --- Detector 7: near-duplicate pairs (vault-search embeddings) ---
+    # Stream A redundancy surface, tier-2 calibration ruled 2026-07-25: a pair of
+    # notes whose vault-search embedding cosine similarity reaches
+    # NEAR_DUPLICATE_THRESHOLD is flagged for the analyst's merge call. The
+    # embeddings are the daemon's own — there is no hand-rolled similarity here
+    # and no fallback metric: when the daemon is down, the index is stale by
+    # definition, so the detector SKIPS AND LOGS (`near-duplicate-skipped`)
+    # instead of reporting a number nobody can trust.
+    #
+    # Embedding path: the daemon's HTTP surface (server.py) exposes only
+    # /health, /api/session_brief, /api/topology_status and /shutdown — no pair
+    # or raw-embedding endpoint — so the vectors are read straight out of the
+    # daemon's own index.db `chunk_embeddings` (a sqlite-vec vec0 table), opened
+    # READ-ONLY, with /health as the liveness gate. A file's vector is the
+    # L2-normalized mean of its chunk vectors.
+    #
+    # Cost bound: only the files whose body hash is NEW or CHANGED against the
+    # baseline snapshot are compared against the corpus, and the report is capped
+    # at NEAR_DUPLICATE_MAX_PAIRS with an honest truncation line.
+    NEAR_DUPLICATE_THRESHOLD = 0.85
+    NEAR_DUPLICATE_MAX_PAIRS = 20
+    nd_skip_reason: Optional[str] = None
+    nd_pairs: list[tuple[float, str, str]] = []
+    nd_stats: dict[str, object] = {}
+
+    def _nd_daemon_ok(base_url: str) -> tuple[bool, str]:
+        import json as _json
+        import urllib.request as _urlreq
+        try:
+            with _urlreq.urlopen(base_url.rstrip("/") + "/health", timeout=4) as resp:
+                payload = _json.loads(resp.read().decode("utf-8", errors="replace"))
+        except Exception as exc:  # noqa: BLE001 — any failure is "daemon down"
+            return False, f"{type(exc).__name__}: {exc}"
+        status = str(payload.get("status") or "")
+        if status != "ok":
+            return False, f"health status={status!r}"
+        return True, f"pid={payload.get('pid')} db={payload.get('db_size_mb')}MB"
+
+    _vs_dir = VAULT_ROOT / ".claude" / "vault-search"
+    _vs_config = _vs_dir / "config.yaml"
+    if not _vs_config.is_file():
+        nd_skip_reason = f"no vault-search config at `{_vs_config}`"
+    else:
+        try:
+            _vs_cfg = yaml.safe_load(_vs_config.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            _vs_cfg = {}
+            nd_skip_reason = f"vault-search config unreadable ({exc})"
+        if nd_skip_reason is None:
+            _cfg_vault = str(_vs_cfg.get("vault_path") or "").strip()
+            try:
+                _same_vault = (_cfg_vault
+                               and Path(_cfg_vault).resolve() == VAULT_ROOT)
+            except OSError:
+                _same_vault = False
+            if not _same_vault:
+                nd_skip_reason = (f"daemon indexes `{_cfg_vault}`, this run is "
+                                  f"`{VAULT_ROOT}` — corpus mismatch")
+    if nd_skip_reason is None:
+        _host = str(_vs_cfg.get("host") or "127.0.0.1")
+        _port = _vs_cfg.get("port") or 8765
+        _base = f"http://{_host}:{_port}"
+        _ok, _detail = _nd_daemon_ok(_base)
+        if not _ok:
+            nd_skip_reason = f"daemon at {_base} not serving ({_detail})"
+        else:
+            nd_stats["daemon"] = f"{_base} {_detail}"
+    if nd_skip_reason is None:
+        _db_path = Path(str((_vs_cfg.get("index") or {}).get("path")
+                            or (_vs_dir / "data" / "index.db")))
+        if not _db_path.is_file():
+            nd_skip_reason = f"index.db missing at `{_db_path}`"
+        else:
+            try:
+                import sqlite3 as _sqlite3
+                import sqlite_vec as _sqlite_vec
+                import numpy as _np
+            except ImportError as exc:
+                nd_skip_reason = (f"embedding read needs sqlite-vec + numpy in the "
+                                  f"running interpreter ({exc})")
+    if nd_skip_reason is None:
+        try:
+            _conn = _sqlite3.connect(f"file:{_db_path.as_posix()}?mode=ro", uri=True)
+            try:
+                _conn.enable_load_extension(True)
+                _sqlite_vec.load(_conn)
+                _conn.enable_load_extension(False)
+                _sums: dict[str, object] = {}
+                _counts: dict[str, int] = defaultdict(int)
+                for _p, _blob in _conn.execute(
+                    "SELECT f.path, e.embedding FROM chunk_embeddings e "
+                    "JOIN chunks ch ON ch.chunk_id = e.chunk_id "
+                    "JOIN files f ON f.file_id = ch.file_id"
+                ):
+                    _rel_p = str(_p).replace("\\", "/")
+                    # A stale index row (file since deleted or renamed) is not a
+                    # twin — the corpus is this run's walked .md set.
+                    if _rel_p not in content_hashes:
+                        continue
+                    _v = _np.frombuffer(_blob, dtype=_np.float32)
+                    _acc = _sums.get(_rel_p)
+                    _sums[_rel_p] = _v.copy() if _acc is None else (_acc + _v)
+                    _counts[_rel_p] += 1
+            finally:
+                _conn.close()
+        except Exception as exc:  # noqa: BLE001 — a bad read is a skip, not a crash
+            nd_skip_reason = f"index read failed ({type(exc).__name__}: {exc})"
+    if nd_skip_reason is None:
+        _paths = sorted(_sums)
+        if len(_paths) < 2:
+            nd_skip_reason = (f"corpus too small — {len(_paths)} indexed file(s) "
+                              f"present on disk")
+    if nd_skip_reason is None:
+        _M = _np.stack([_sums[p] / max(_counts[p], 1) for p in _paths]).astype(_np.float32)
+        _M /= (_np.linalg.norm(_M, axis=1, keepdims=True) + 1e-12)
+        _pos = {p: i for i, p in enumerate(_paths)}
+        # The delta the snapshot already tracks: NEW (absent from the baseline)
+        # or CHANGED (body hash moved). With no baseline every file is new, so
+        # the first run compares the whole corpus once and says so.
+        _delta = [p for p in _paths
+                  if prev_hashes.get(p) != content_hashes.get(p)]
+        _seen_pairs: set[tuple[str, str]] = set()
+        for _p in _delta:
+            _sims = _M @ _M[_pos[_p]]
+            for _j in _np.nonzero(_sims >= NEAR_DUPLICATE_THRESHOLD)[0]:
+                _q = _paths[int(_j)]
+                if _q == _p:
+                    continue
+                _key = (_p, _q) if _p < _q else (_q, _p)
+                if _key in _seen_pairs:
+                    continue
+                _seen_pairs.add(_key)
+                nd_pairs.append((float(_sims[int(_j)]), _key[0], _key[1]))
+        nd_pairs.sort(key=lambda t: (-t[0], t[1], t[2]))
+        nd_stats.update({
+            "corpus": len(_paths),
+            "delta": len(_delta),
+            "found": len(nd_pairs),
+            "baseline": "present" if prev_hashes else "absent (whole corpus is the delta)",
+        })
+        _nd_total = len(nd_pairs)
+        for _sim, _a, _b in nd_pairs[:NEAR_DUPLICATE_MAX_PAIRS]:
+            _ndv = f"sim {_sim:.3f} | twin: {_b}"
+            if not _by_convention("near-duplicate", _a, _ndv):
+                open_findings.append(("near-duplicate", _a, _ndv))
+        if _nd_total > NEAR_DUPLICATE_MAX_PAIRS:
+            open_findings.append((
+                "near-duplicate-truncated", LOGS_REL + "/Vault-State-Index.md",
+                f"{_nd_total} pairs at >= {NEAR_DUPLICATE_THRESHOLD}; "
+                f"{NEAR_DUPLICATE_MAX_PAIRS} reported this run",
+            ))
+    if nd_skip_reason is not None:
+        open_findings.append((
+            "near-duplicate-skipped", LOGS_REL + "/Vault-State-Index.md",
+            f"{nd_skip_reason} — no fallback similarity was substituted",
+        ))
+
     # Count rollup (code | scope | count) then per-file detail rows, in the kit's
-    # state-log line shape.
-    def _scope_of(target: str) -> str:
-        t = target.strip()
-        return t.split("/", 1)[0] if "/" in t else (t or "-")
-
-
+    # state-log line shape. scope_of is the shared module-level helper.
     finding_counts: dict[tuple[str, str], int] = defaultdict(int)
     for code, target, _v in open_findings:
-        finding_counts[(code, _scope_of(target))] += 1
+        finding_counts[(code, scope_of(target))] += 1
 
     finding_count_lines = [
         f"{ts} | {ACTOR} | {code} | {scope} | {n}"
@@ -1537,6 +2733,71 @@ def main() -> None:
         f"{ts} | {ACTOR} | {code} | {target} | {value or '-'}"
         for code, target, value in open_findings
     ]
+
+    # --- Index coverage (Stream A detector 1) — measured, never a claim ---
+    sections.append("## Index coverage")
+    sections.append(
+        f"<!-- Folder-note COVERS only (stem == folder name, incl. legacy NN- "
+        f"prefixed; curated sub-indexes are not diffed). This measures DIRECT .md "
+        f"FILE coverage of each cover — how many of its folder's direct .md members "
+        f"the cover links, and how many of those are chaptered (under a `## ` "
+        f"section). It is NOT the recursive file-and-folder CONFIG index model "
+        f"(sub-folder members and nested trees are out of scope here — recursive "
+        f"coverage is a recorded later item). Overall chaptered coverage: "
+        f"{index_coverage_overall}% of {_cov_total_linked} linked direct members. "
+        f"CHAPTERED MEANS SUBDIVIDED: a member counts as chaptered only when its "
+        f"cover carries two or more `## ` sections that actually hold members, so a "
+        f"single catch-all section scores 0% and its row reads `(flat)` with "
+        f"member-sections 1. Sections that link only outward (`## Related`) hold no "
+        f"members and are not counted. "
+        f"The index-missing / index-drift findings below carry the per-member detail. -->"
+    )
+    sections.append(_md_table(
+        ["index", "disk-members", "linked", "chaptered", "member-sections",
+         "chapter-coverage"],
+        index_coverage_rows,
+    ))
+    sections.append("")
+
+    # --- Near-duplicate (Stream A redundancy surface) ---
+    sections.append("## Near-duplicate")
+    if nd_skip_reason is not None:
+        sections.append(
+            f"<!-- SKIPPED this run: {nd_skip_reason}. The pair flag reads the "
+            f"vault-search daemon's own embeddings; with the daemon unavailable "
+            f"the index is stale by definition, so the detector logs the skip "
+            f"rather than substituting a fallback similarity. -->"
+        )
+        sections.append(f"(skipped — {nd_skip_reason})")
+    else:
+        _nd_shown = min(len(nd_pairs), NEAR_DUPLICATE_MAX_PAIRS)
+        sections.append(
+            f"<!-- Cosine similarity over the vault-search daemon's chunk "
+            f"embeddings (index.db `chunk_embeddings`, read-only; a file's vector "
+            f"is the L2-normalized mean of its chunk vectors). Threshold "
+            f">= {NEAR_DUPLICATE_THRESHOLD} (tier-2 calibration, 2026-07-25). "
+            f"Compared: {nd_stats.get('delta')} new/changed file(s) against a "
+            f"{nd_stats.get('corpus')}-file corpus; baseline "
+            f"{nd_stats.get('baseline')}. Daemon: {nd_stats.get('daemon')}. "
+            f"Found {len(nd_pairs)} pair(s), showing {_nd_shown} "
+            f"(cap {NEAR_DUPLICATE_MAX_PAIRS}). A pair is a MERGE CANDIDATE for "
+            f"the analyst, never an automatic action. -->"
+        )
+        if nd_pairs:
+            sections.append(_md_table(
+                ["similarity", "file", "twin"],
+                [[f"{s:.3f}", f"`{a}`", f"`{b}`"]
+                 for s, a, b in nd_pairs[:NEAR_DUPLICATE_MAX_PAIRS]],
+            ))
+            if len(nd_pairs) > NEAR_DUPLICATE_MAX_PAIRS:
+                sections.append("")
+                sections.append(
+                    f"Truncated: {len(nd_pairs) - NEAR_DUPLICATE_MAX_PAIRS} further "
+                    f"pair(s) at or above the threshold are not listed this run."
+                )
+        else:
+            sections.append("(no pair reached the threshold)")
+    sections.append("")
 
     # --- 18. Content hashes — the reviewed-stale change-evidence baseline ---
     # One row per vault .md: body md5 (frontmatter excluded). Read back by the
@@ -1550,6 +2811,71 @@ def main() -> None:
         ["path", "body-md5"],
         [[f"`{rel}`", content_hashes[rel]] for rel in sorted(content_hashes)],
     ))
+    sections.append("")
+
+    # --- Status coherence (CONFIG § Status) — counts + a bounded sample ---
+    sections.append("## Status coherence")
+    sections.append(
+        f"<!-- CONFIG § Status: `draft` means unreviewed IN the inbox, so a filed "
+        f"note carrying it is a filing that never restamped; `active` covers a "
+        f"filed standard still gaining weight and is coherent anywhere. Living "
+        f"state documents — folder covers and canonical plans — are exempt from "
+        f"the `reviewed: false` case: reviewed governs knowledge content, not "
+        f"live state (CONFIG § Status). Detect-only — the janitor restamps after "
+        f"reading. TOTAL this run: "
+        f"{sum(len(status_coherence.get(c, [])) for c in _STATUS_CASES)} across "
+        f"{len(_STATUS_CASES)} cases. Sample capped at {STATUS_COHERENCE_SAMPLE} "
+        f"paths per case; ## Open findings carries one rollup row per folder "
+        f"scope per case. -->"
+    )
+    sections.append(_md_table(
+        ["case", "count", f"sample (<={STATUS_COHERENCE_SAMPLE})"],
+        [
+            [case, len(status_coherence.get(case, [])),
+             " \\| ".join(sorted(status_coherence.get(case, []))[:STATUS_COHERENCE_SAMPLE])]
+            for case in _STATUS_CASES
+        ],
+    ))
+    sections.append("")
+
+    # --- Convention store — what the settled conventions suppressed this run ---
+    sections.append("## Convention store")
+    sections.append(
+        "<!-- Settled conventions read from <logs>/Conventions.md (CONFIG § Log "
+        "files): a finding matching a row's code AND scope predicate is suppressed "
+        "at detect time and counted here — recorded, never silently dropped. The "
+        "count is suppressions at the gate, which for reviewed-stale runs per "
+        "citer-and-upstream PAIR, so it reads higher than the findings it would "
+        "have produced (one per stale note). A row whose count stays 0 across runs "
+        "has outlived its evidence; a class that keeps recurring beyond its row "
+        "graduates to CONFIG via the queue. Malformed store lines are skipped and "
+        "listed below the table. -->"
+    )
+    if conventions_path.is_file():
+        sections.append(_md_table(
+            ["code", "scope-predicate", "date", "suppressed-this-run"],
+            [
+                [crow["code"], crow["predicate"], crow["date"], convention_hits.get(i, 0)]
+                for i, crow in enumerate(convention_rows)
+            ],
+        ))
+        sections.append("")
+        sections.append(
+            f"Total suppressed by convention: {sum(convention_hits.values())} "
+            f"across {len(convention_rows)} store rows."
+        )
+    else:
+        sections.append(
+            f"(no store at `{LOGS_REL}/Conventions.md` — suppression inert, "
+            f"every detection reports)"
+        )
+    if convention_warnings:
+        sections.append("")
+        sections.append("\n".join(
+            f"{ts} | {ACTOR} | convention-store-malformed | "
+            f"{LOGS_REL}/Conventions.md | {w}"
+            for w in convention_warnings
+        ))
     sections.append("")
 
     sections.append("## Open findings")
@@ -1574,7 +2900,10 @@ def main() -> None:
     # ---------------------------------------------------------------------------
 
     tmp = output_path.with_suffix(".md.tmp")
-    tmp.write_text(content, encoding="utf-8")
+    # LF-only via the safe-write primitive (never re-expand to CRLF on Windows) —
+    # the snapshot is the highest-visibility generated artifact and the kit's
+    # newline canon is LF everywhere; the atomic os.replace stays.
+    write_text(tmp, content)
     os.replace(tmp, output_path)
 
     print(f"Vault-State-Index.md written: {output_path}")
@@ -1582,6 +2911,10 @@ def main() -> None:
     print(f"  Files walked: {len(md_files_all)} .md + {len(non_md_files)} non-md")
     print(f"  Open findings: {len(open_findings)} "
           f"({len(finding_counts)} distinct code/scope rollups)")
+    print(f"  Suppressed by convention: {sum(convention_hits.values())} "
+          f"across {len(convention_rows)} store rows"
+          + (f", {len(convention_warnings)} malformed store line(s)"
+             if convention_warnings else ""))
 
     # No history file (CONFIG § Log files: two artifacts under <logs>, no per-run
     # files). The append-only event ledgers carry the longitudinal record; the

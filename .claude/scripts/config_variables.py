@@ -19,6 +19,7 @@ FILE_HANDLING : FileHandling
 TYPES         : dict[str, TypeRow]       keyed by canonical type key
 FOLDER_ROUTING: dict[str, RoutingRow]   keyed by folder name string
 SUBFOLDERS    : dict[str, SubfolderRow] keyed by subfolder name
+CONTENT_LIFECYCLE : dict[str, ContentLifecycleRow] keyed by transient class (§ Content lifecycle)
 TAGS          : dict[str, TagRow]       keyed by canonical tag
 ACTIONS       : dict[str, ActionRow]    keyed by action name
 SKILL_SLUGS   : dict[str, SkillSlugRow] keyed by slug
@@ -37,6 +38,15 @@ token_path(token: str, fallback: str | None = None) -> str
                                          vault-relative path for a § Folders
                                          token-table token (`<user-queue>`,
                                          `<logs>`, `<inbox-assets>`, …)
+resolve_vault_root(cli_root=None, ...) -> Path | None
+                                         the one vault-root resolver: cli arg,
+                                         NOTE_KIT_VAULT_ROOT, JANITOR_VAULT_ROOT,
+                                         then an installed-layout walk-up
+
+Module-level surfaces
+---------------------
+PARSE_SKIPS : list[str]                  malformed table rows _parse_table
+                                         skipped, reported not silently dropped
 """
 
 from __future__ import annotations
@@ -106,6 +116,16 @@ class SubfolderRow:
 
 
 @dataclass(frozen=True)
+class ContentLifecycleRow:
+    """One § Content lifecycle class: when it retires, to where, and who moves it."""
+    cls: str
+    trigger: str
+    destination: str
+    actor: str
+    cadence: str
+
+
+@dataclass(frozen=True)
 class TagRow:
     tag: str
     aliases: tuple[str, ...]
@@ -137,19 +157,46 @@ class ConfigLookupError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Skip surface — malformed table rows are reported, never silently dropped
+# ---------------------------------------------------------------------------
+
+# Every malformed row _parse_table skips (cell count disagreeing with the
+# header) is recorded here at import time so a caller can surface it. A silent
+# drop shrinks a parsed vocabulary — a lost tag, action, or slug — which a later
+# fuzzy match can then rewrite to a wrong neighbor; recording the skip makes the
+# shrink visible. The kit's own clean CONFIG.md leaves this empty (the __main__
+# self-test asserts it), and config_shape.py refuses the same rows at sync time.
+PARSE_SKIPS: list[str] = []
+
+
+# ---------------------------------------------------------------------------
 # General-purpose markdown table parser
 # ---------------------------------------------------------------------------
 
-def _parse_table(text: str, section_heading: str, expected_columns: list[str]) -> list[dict]:
+def _parse_table(
+    text: str,
+    section_heading: str,
+    expected_columns: list[str],
+    skips: Optional[list[str]] = None,
+) -> list[dict]:
     """Find an H2 section by exact heading and parse its first markdown table.
 
-    Reads rows from the table until the next H2 heading or EOF. Requires every
+    Reads rows from the header until the table ends — a blank line or a non-pipe
+    line (markdown terminates a table there) — so a section holding more than one
+    table (e.g. § Folders' roots table followed by its token table) yields only
+    the first table's rows, and a recorded skip means a genuinely malformed row
+    inside that table, never a row belonging to a later table. Requires every
     name in `expected_columns` to be PRESENT in the header (a subset check, not
     exact equality) and parses each row against the table's own header, so a
     CONFIG table that gains an extra column — e.g. `## Types` adding
     `default-home` in v005 — still parses: the caller indexes the columns it
     needs by name and ignores the rest. A renamed or removed required column
     still hard-fails. Returns a list of dicts keyed by the actual header names.
+
+    A data row whose cell count disagrees with the header is skipped and the
+    skip is recorded — appended to the module-level PARSE_SKIPS and, when given,
+    to the caller's `skips` list — so the dropped row is reported rather than
+    silently shrinking the parsed vocabulary.
     """
     # Locate the section
     heading_pattern = re.compile(
@@ -203,13 +250,21 @@ def _parse_table(text: str, section_heading: str, expected_columns: list[str]) -
     rows = []
     for line in lines[data_start:]:
         stripped = line.strip()
-        if not stripped:
-            continue
-        if not stripped.startswith("|"):
-            continue
+        if not stripped or not stripped.startswith("|"):
+            # A blank or non-pipe line ends the table (markdown rule); stop here
+            # so a later table in the same section is not swept into this parse.
+            break
         cells = parse_row(stripped)
         if len(cells) != len(header_cells):
-            # Silently skip malformed rows (cell count must match the header)
+            # Skip a malformed row (cell count must match the header), but
+            # report it — never a silent vocabulary shrink.
+            msg = (
+                f"§ {section_heading}: skipped a row with {len(cells)} cell(s) "
+                f"(header has {len(header_cells)}): {stripped!r}"
+            )
+            PARSE_SKIPS.append(msg)
+            if skips is not None:
+                skips.append(msg)
             continue
         rows.append(dict(zip(header_cells, cells)))
 
@@ -340,6 +395,34 @@ def _parse_folders(text: str) -> dict[str, RoutingRow]:
             type_defaults=type_defaults,
             hands_off_patterns=hands_off,
             description=row["description"],
+        )
+    return result
+
+
+def _parse_content_lifecycle(text: str) -> dict[str, ContentLifecycleRow]:
+    """Parse § Content lifecycle into one row per transient class.
+
+    Absent section returns {} — the table is additive canon, so a CONFIG that
+    predates it stays parseable rather than raising.
+    """
+    try:
+        rows = _parse_table(
+            text, "Content lifecycle",
+            ["class", "trigger", "destination", "actor", "cadence"],
+        )
+    except Exception:
+        return {}
+    result: dict[str, ContentLifecycleRow] = {}
+    for row in rows:
+        name = _strip_backticks(row["class"]).strip()
+        if not name:
+            continue
+        result[name] = ContentLifecycleRow(
+            cls=name,
+            trigger=row["trigger"].strip(),
+            destination=row["destination"].strip(),
+            actor=row["actor"].strip(),
+            cadence=row["cadence"].strip(),
         )
     return result
 
@@ -818,6 +901,82 @@ def _folder_by_semantic(needle: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Vault-root resolver
+# ---------------------------------------------------------------------------
+
+def _archive_folder_name() -> str:
+    """The archive folder literal from § Folders, or 'Archive' if unresolvable."""
+    try:
+        return _folder_by_semantic("archive")
+    except ConfigLookupError:
+        return "Archive"
+
+
+def _walk_up_for_vault(start: Path, archive: str) -> Optional[Path]:
+    """Ascend from `start`; return the first vault root recognised on the way.
+
+    A directory is the vault root when it holds both `.claude/` and the archive
+    folder as children; a `.claude` directory whose sibling is the archive folder
+    resolves to its parent. Returns None when no vault root is found by the
+    filesystem root.
+    """
+    try:
+        start = start.resolve()
+    except OSError:
+        return None
+    for d in (start, *start.parents):
+        if (d / ".claude").is_dir() and (d / archive).is_dir():
+            return d
+        if d.name == ".claude" and (d.parent / archive).is_dir():
+            return d.parent
+    return None
+
+
+def resolve_vault_root(
+    cli_root: Optional[Path] = None,
+    *,
+    env: Optional[dict] = None,
+    script_start: Optional[Path] = None,
+    cwd_start: Optional[Path] = None,
+) -> Optional[Path]:
+    """The one vault-root resolver for every kit script.
+
+    Priority order:
+        1. `cli_root` — an explicit `--vault-root` argument.
+        2. `NOTE_KIT_VAULT_ROOT` environment variable.
+        3. `JANITOR_VAULT_ROOT` environment variable (the audit family's var).
+        4. Installed-layout walk-up from this script's location — the kit root is
+           a vault's `.claude/`, so its parent (holding the archive folder) is
+           the vault root.
+        5. Walk-up from the current working directory, so a run from anywhere
+           inside a vault resolves it.
+
+    Returns None when nothing resolves; callers decide whether that is fatal
+    (never silently write outside a vault). The `env`, `script_start`, and
+    `cwd_start` seams exist for testing each source in isolation; they default
+    to `os.environ`, this script's directory, and `Path.cwd()`.
+    """
+    if cli_root is not None:
+        return Path(cli_root)
+
+    env = os.environ if env is None else env
+    for var in ("NOTE_KIT_VAULT_ROOT", "JANITOR_VAULT_ROOT"):
+        raw = env.get(var)
+        if raw:
+            return Path(raw)
+
+    archive = _archive_folder_name()
+    for start in (
+        script_start if script_start is not None else _SCRIPTS_DIR,
+        cwd_start if cwd_start is not None else Path.cwd(),
+    ):
+        found = _walk_up_for_vault(Path(start), archive)
+        if found is not None:
+            return found
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Tag normalization helpers
 # ---------------------------------------------------------------------------
 
@@ -884,6 +1043,7 @@ FOLDER_ROUTING: dict[str, RoutingRow] = _parse_folders(_CONFIG_TEXT)
 NAMED_TOKEN_PATHS: dict[str, str] = _parse_named_token_paths(_CONFIG_TEXT)
 TYPES: dict[str, TypeRow] = _parse_types(_CONFIG_TEXT)
 SUBFOLDERS: dict[str, SubfolderRow] = _parse_subfolders(_CONFIG_TEXT)
+CONTENT_LIFECYCLE: dict[str, ContentLifecycleRow] = _parse_content_lifecycle(_CONFIG_TEXT)
 TAGS: dict[str, TagRow] = _parse_tags(_CONFIG_TEXT)
 ACTIONS: dict[str, ActionRow] = _parse_actions(_CONFIG_TEXT)
 SKILL_SLUGS: dict[str, SkillSlugRow] = _parse_skill_slugs(_CONFIG_TEXT)
@@ -984,6 +1144,19 @@ if __name__ == "__main__":
     assert ARCHIVE_RETENTION_DAYS >= 1, "archive-retention did not parse"
     assert HISTORY_DIRNAME.startswith("."), "history dir must be a dot-directory"
     assert is_excluded_dir(HISTORY_DIRNAME), "history dir must be scan-excluded"
+
+    # A clean CONFIG.md drops no rows; a skip here means a malformed table row
+    # shrank a parsed vocabulary and must be fixed in CONFIG, not tolerated.
+    print(f"PARSE_SKIPS: {len(PARSE_SKIPS)}")
+    assert not PARSE_SKIPS, f"malformed table rows were skipped: {PARSE_SKIPS}"
+
+    # Vault-root resolver: env var wins, then the installed-layout walk-up.
+    _r_env = resolve_vault_root(env={"NOTE_KIT_VAULT_ROOT": str(_KIT_ROOT.parent)})
+    assert _r_env == _KIT_ROOT.parent, f"env resolve failed: {_r_env}"
+    if _KIT_ROOT.name == ".claude" and (_KIT_ROOT.parent / _archive_folder_name()).is_dir():
+        _r_walk = resolve_vault_root(env={})
+        assert _r_walk == _KIT_ROOT.parent, f"walk-up resolve failed: {_r_walk}"
+        print(f"resolve_vault_root() -> {_r_walk}")
 
     print()
     print("Self-tests passed.")

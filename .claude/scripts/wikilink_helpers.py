@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Shared wikilink parsing utilities for the note-kit.
 
-Public API used by rename_with_link_integrity.py and index_helpers.py.
+Public API used by rename_with_link_integrity.py, index_helpers.py, audit.py,
+and build_state_index.py.
 Standard library only — no kit-internal imports.
 """
 from __future__ import annotations
@@ -53,14 +54,26 @@ def _strip_code(text: str) -> str:
     return text
 
 
-def extract_wikilinks(text: str) -> list[str]:
-    """Return unique wikilink basenames found in text. Excludes embeds and any
-    link inside a fenced code block or inline code (template/example skeletons)."""
+def extract_wikilinks(text: str, include_embeds: bool = False) -> list[str]:
+    """Return unique wikilink basenames found in text. Any link inside a fenced
+    code block or inline code (template/example skeletons) is excluded.
+
+    include_embeds=False (default) — plain `[[Target]]` links only. This is the
+    link-GRAPH reading the rename helper and the index helpers take: an embed is
+    a transclusion of content, not a navigational edge, and rewriting or indexing
+    it belongs to their own embed-aware paths.
+
+    include_embeds=True — `![[Target]]` embeds count as references too. This is
+    the REFERENCE reading the inbound-link map takes: an embedded asset (an image
+    in a note, a figure beside its bundle) IS referenced, and reading it as
+    orphaned is the false positive this option exists to end. A target reachable
+    both ways still appears once — the result stays unique per basename.
+    """
     text = _strip_code(text)
     seen: set[str] = set()
     result: list[str] = []
     for embed_marker, interior in WIKILINK_RE.findall(text):
-        if embed_marker:  # skip ![[...]] embeds
+        if embed_marker and not include_embeds:  # skip ![[...]] embeds
             continue
         basename = normalize_link_target(interior)
         if basename and basename not in seen:

@@ -30,7 +30,26 @@ What it does:
          carries ~0 open findings (a fresh scaffold is already compliant).
      Fails loudly if the dry run wrote anything, or the snapshot names a kit
      file or carries open findings.
-  5. Removes the temp vault.
+  5. Asserts the Lane-F portability + write-safety acceptance checks:
+       - the fresh scaffold's settings.json (and the scaffold's own _HOOKS
+         fallback) carry the live-proven `$CLAUDE_PROJECT_DIR` + "shell": "bash"
+         hook form;
+       - install_daemon re-substitutes config.yaml from its pristine template
+         across a simulated vault move (two roots, correct paths both times);
+       - an audit.py --apply pass against the scaffolded sandbox lands its
+         pre-images in the per-run <archive>/<UTC-date>-audit-apply/ bundle with
+         a manifest line each, reparse-verifies the rewritten note, persists its
+         findings to the event ledger, and — across two runs with a hand-touch
+         between them — fires reviewed-stale in the run-2 PERSISTED snapshot.
+     (The cold-storage search-exclusion check is DEFERRED — it needs a live
+     daemon instance the headless battery cannot cheaply stand up.)
+  6. Removes the temp vault.
+
+The --apply exercise runs LAST and only against the disposable scaffolded
+sandbox, never the canon vault. It drives writes through env vars
+(JANITOR_VAULT_ROOT / JANITOR_APPLY=1 / a scratch JANITOR_LEASE_PATH), which
+every module and the build_state_index sub-subprocess read from the same
+environment; the whole fixture is built before the first run (settled tree).
 
 Each script is run as a fresh subprocess with the SAME interpreter, so an
 ImportError surfaces exactly as it would in production (sys.path is set up by
@@ -46,8 +65,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,6 +86,7 @@ from config_variables import _folder_by_semantic, token_path  # noqa: E402
 _INBOX_FOLDER = _folder_by_semantic("inbox")
 _ARCHIVE_FOLDER = _folder_by_semantic("archive")
 _AREAS_FOLDER = _folder_by_semantic("areas")
+_REFERENCE_FOLDER = _folder_by_semantic("reference")
 _INBOX_ASSETS_REL = token_path("inbox-assets")
 _LOGS_REL = token_path("logs")
 _USER_QUEUE_REL = token_path("user-queue")
@@ -383,6 +405,367 @@ def _assert_addendum_survives(tmp_vault: Path, scripts_dir: Path, env: dict) -> 
 
 
 # ---------------------------------------------------------------------------
+# Lane-F additions: hook-form, installer re-substitution, and the --apply
+# write-safety exercise. A deferred check is announced but not counted toward
+# PASS/FAIL, so the summary stays honest about what the headless battery covers.
+# ---------------------------------------------------------------------------
+
+def _note_deferred(name: str, reason: str) -> None:
+    """Announce a check the headless battery cannot cheaply run. Not recorded —
+    it neither passes nor fails, it is skipped for a stated reason."""
+    print(f"  [DEFER] {name} - {reason}")
+
+
+def _load_installed_module(name: str, path: Path):
+    """Import a module from an explicit file path (the INSTALLED copy in the
+    scaffold), so the battery tests the shipped code. None on any failure."""
+    try:
+        spec = importlib.util.spec_from_file_location(f"_smoke_{name}", path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        # Register before exec: a module-level construct that looks itself up in
+        # sys.modules during class creation (e.g. a @dataclass on Python 3.14)
+        # raises AttributeError if the module is not yet registered under its name.
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        sys.modules.pop(f"_smoke_{name}", None)  # never leave a partial module registered
+        return None
+
+
+# A proven hook command addresses its script through $CLAUDE_PROJECT_DIR (the
+# vault root Claude Code exports) — never the relative ./.claude/ form that
+# resolved to a doubled path and shipped silently-dead hooks.
+_PROVEN_HOOK_RE = re.compile(r"\$CLAUDE_PROJECT_DIR/\.claude/hooks/[^\s\"']+")
+
+
+def _hook_handlers(settings: dict):
+    """Yield every command-handler dict across all events and matcher groups."""
+    for groups in (settings.get("hooks") or {}).values():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            for handler in group.get("hooks") or []:
+                if isinstance(handler, dict):
+                    yield handler
+
+
+def _assert_hook_form_proven(label: str, settings: dict) -> None:
+    """Every hook handler uses the $CLAUDE_PROJECT_DIR command form under
+    "shell": "bash" — the live-proven form."""
+    handlers = list(_hook_handlers(settings))
+    if not handlers:
+        _record(label, False, "no hook handlers found")
+        return
+    bad = [
+        str(h.get("command") or "(empty)")
+        for h in handlers
+        if not _PROVEN_HOOK_RE.search(str(h.get("command") or ""))
+        or h.get("shell") != "bash"
+    ]
+    _record(
+        label,
+        not bad,
+        f"{len(handlers)} handler(s), all $CLAUDE_PROJECT_DIR + shell:bash"
+        if not bad else f"{len(bad)} not proven-form: {bad[0][:60]}",
+    )
+
+
+def _assert_scaffold_hooks_proven(tmp_vault: Path, installed_scripts: Path) -> None:
+    """Item 1 acceptance: the fresh scaffold's settings.json parses and every
+    hook registration uses the live-proven form; and the scaffold's own module-
+    level _HOOKS fallback (written when a bare clone ships no settings.json)
+    carries the same form."""
+    settings_path = tmp_vault / ".claude" / "settings.json"
+    if not settings_path.exists():
+        _record("hooks: fresh scaffold settings.json present", False, f"MISSING: {settings_path}")
+        return
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        _record("hooks: fresh scaffold settings.json parses", False, f"parse error: {exc}")
+        return
+    _record("hooks: fresh scaffold settings.json parses", True, "valid JSON")
+    _assert_hook_form_proven(
+        "hooks: fresh scaffold registrations are the proven form", settings
+    )
+
+    mod = _load_installed_module("scaffold_vault", installed_scripts / "scaffold_vault.py")
+    if mod is None or not isinstance(getattr(mod, "_HOOKS", None), dict):
+        _record("hooks: scaffold _HOOKS fallback is the proven form", False,
+                "could not load installed scaffold_vault._HOOKS")
+        return
+    _assert_hook_form_proven(
+        "hooks: scaffold _HOOKS fallback is the proven form", mod._HOOKS
+    )
+
+
+def _assert_installer_resubstitutes(tmp_vault: Path) -> None:
+    """Item 3 acceptance: install_daemon writes config.yaml FROM its pristine
+    config.yaml.template and never edits the template, so a re-install after a
+    vault move re-substitutes the new root instead of re-indexing the old path.
+    Two substitutions to the SAME dest from two different roots must each produce
+    that root's paths, and the template must keep its placeholders."""
+    daemon_dir = tmp_vault / ".claude" / "vault-search"
+    template = daemon_dir / "config.yaml.template"
+    installer_path = daemon_dir / "install_daemon.py"
+    if not (template.exists() and installer_path.exists()):
+        _record("installer: template + install_daemon.py present", False,
+                f"missing template or installer under {daemon_dir}")
+        return
+    _record("installer: template + install_daemon.py present", True, "present")
+
+    mod = _load_installed_module("install_daemon", installer_path)
+    if mod is None or not hasattr(mod, "_substitute_config"):
+        _record("installer: _substitute_config importable", False,
+                "could not load install_daemon._substitute_config")
+        return
+
+    work = Path(tempfile.mkdtemp(prefix="note-kit-installer-"))
+    try:
+        root_a = work / "vault-a"
+        root_b = work / "vault-b"
+        root_a.mkdir()
+        root_b.mkdir()
+        dest = work / "config.yaml"  # same dest both installs — a vault move
+        home = Path(os.path.expanduser("~"))
+
+        mod._substitute_config(template, dest, vault_root=root_a, home=home,
+                               data_dir=root_a / "data", inbox="Inbox")
+        text_a = dest.read_text(encoding="utf-8")
+        ok_a = root_a.as_posix() in text_a and root_b.as_posix() not in text_a
+        _record("installer: install #1 writes root-A paths", ok_a,
+                "root-A paths" if ok_a else "root-A path missing or contaminated")
+
+        mod._substitute_config(template, dest, vault_root=root_b, home=home,
+                               data_dir=root_b / "data", inbox="Inbox")
+        text_b = dest.read_text(encoding="utf-8")
+        ok_b = root_b.as_posix() in text_b and root_a.as_posix() not in text_b
+        _record("installer: install #2 (moved vault) re-substitutes root-B paths", ok_b,
+                "root-B, no stale root-A" if ok_b else "STALE root-A survived the move")
+
+        pristine = "<VAULT_ROOT>" in template.read_text(encoding="utf-8")
+        _record("installer: template stays pristine across installs", pristine,
+                "placeholders intact" if pristine else "template was substituted in place")
+    except Exception as exc:
+        _record("installer: re-substitution exercise", False, f"error: {exc}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _file_contains(path: Path, needle: str, tries: int = 4) -> bool:
+    """True when `needle` is in `path`. Re-reads a few times to defeat a stale
+    read-after-write hiccup on the audit subprocess's just-written file (Windows
+    temp storage occasionally serves an empty/partial read right after a foreign
+    process closes the file). A genuine absence stays absent across every retry,
+    so this hardens against a transient without masking a real miss."""
+    for attempt in range(tries):
+        try:
+            if path.exists() and needle in path.read_text(encoding="utf-8"):
+                return True
+        except OSError:
+            pass
+        if attempt < tries - 1:
+            import time
+            time.sleep(0.1)
+    return False
+
+
+def _split_frontmatter(text: str) -> tuple[str | None, str | None]:
+    """Minimal front-matter reparse: (frontmatter_block, body) or (None, None)
+    when the text is not a `---` frontmatter document."""
+    if not text.startswith("---"):
+        return None, None
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return None, None
+    return parts[1], parts[2]
+
+
+def _assert_apply_exercise(
+    tmp_vault: Path, installed_scripts: Path, installed_audit: Path
+) -> None:
+    """Item 4: exercise audit.py's mutating --apply path against the scaffolded
+    sandbox (never the canon vault). One pass whose per-run archive bundle,
+    reparse-verify, and findings persistence are asserted, plus the persisted-
+    snapshot reviewed-stale acceptance across two runs with a hand-touch between.
+
+    Settled tree: the whole fixture is built before the first run. Path globals:
+    the vault root, apply gate, and lease path travel as env vars every module
+    (and the build_state_index sub-subprocess) reads from the same environment.
+    The lease is a scratch temp file, never the vault's <logs>/run-lease.md.
+    """
+    if not installed_audit.exists():
+        _record("apply-exercise: audit.py installed", False, "audit.py not installed")
+        return
+
+    refs = tmp_vault / _REFERENCE_FOLDER
+    refs.mkdir(parents=True, exist_ok=True)
+
+    # (a) a note missing only `date` — pass16 stamps it (the kit's highest-volume
+    #     frontmatter write), routing its pre-image into the run bundle.
+    missing_date = refs / "Apply-Missing-Date-Fixture.md"
+    missing_date.write_text(
+        "---\ntype: reference\ntags:\n  - reference\n"
+        'parent: "[[Apply-Fixture-Parent]]"\n---\n\n'
+        "# Apply-Missing-Date-Fixture\n\nNo date; pass16 stamps it under --apply.\n",
+        encoding="utf-8",
+    )
+    # (b) reviewed-stale pair: a reviewed:true note linking an upstream reference
+    #     whose body is edited between the two runs.
+    upstream = refs / "Apply-Stale-Upstream.md"
+    upstream.write_text(
+        "---\ntype: reference\ntags:\n  - reference\ndate: 2020-01-01\n"
+        'parent: "[[Apply-Fixture-Parent]]"\n---\n\n'
+        "# Apply-Stale-Upstream\n\nUpstream body version one.\n",
+        encoding="utf-8",
+    )
+    reviewed_note = refs / "Apply-Reviewed-Stale-Note.md"
+    reviewed_note.write_text(
+        "---\ntype: reference\ntags:\n  - reference\ndate: 2020-01-01\n"
+        'parent: "[[Apply-Fixture-Parent]]"\nreviewed: true\n---\n\n'
+        "# Apply-Reviewed-Stale-Note\n\nReviewed against [[Apply-Stale-Upstream]].\n",
+        encoding="utf-8",
+    )
+    missing_before = _hash(missing_date)
+
+    # Scratch lease OUTSIDE the vault's own <logs>/run-lease.md (live-held): a
+    # dedicated temp file, cleaned up at the end.
+    lease_fd, lease_name = tempfile.mkstemp(prefix="note-kit-apply-lease-", suffix=".md")
+    os.close(lease_fd)
+    lease_path = Path(lease_name)
+    lease_path.unlink(missing_ok=True)
+
+    apply_env = {
+        **os.environ,
+        "JANITOR_VAULT_ROOT": str(tmp_vault),
+        "JANITOR_APPLY": "1",
+        "JANITOR_LEASE_PATH": str(lease_path),
+    }
+
+    def _run_apply(tag: str) -> bool:
+        proc = subprocess.run(
+            [sys.executable, str(installed_audit), "--apply"],
+            capture_output=True, text=True, env=apply_env, cwd=str(tmp_vault), timeout=300,
+        )
+        stderr = proc.stderr or ""
+        trace = any(m in stderr for m in _TRACEBACK_MARKERS)
+        ok = proc.returncode == 0 and not trace
+        tail = " / ".join(stderr.strip().splitlines()[-2:]) if stderr.strip() else "clean"
+        return _record(
+            f"apply-exercise: audit.py --apply [{tag}] clean exit",
+            ok, "rc 0" if ok else f"rc {proc.returncode}: {tail}",
+        )
+
+    try:
+        # RUN 1 — the mutating pass.
+        if not _run_apply("run 1"):
+            return
+
+        # (1) per-run bundle <archive>/<UTC-date>-audit-apply/ with a mirrored
+        #     pre-image and a manifest line per archived file.
+        bundles = sorted((tmp_vault / _ARCHIVE_FOLDER).glob("*-audit-apply"))
+        bundle = bundles[-1] if bundles else None
+        _record(
+            "apply-exercise: per-run <archive>/<date>-audit-apply/ bundle created",
+            bundle is not None,
+            bundle.name if bundle else "no <archive>/*-audit-apply/ dir",
+        )
+        if bundle is None:
+            return
+        preimage = bundle / _REFERENCE_FOLDER / "Apply-Missing-Date-Fixture.md"
+        _record(
+            "apply-exercise: bundle holds the mirrored pre-image",
+            preimage.exists(),
+            "mirrored source-relative" if preimage.exists() else f"MISSING: {preimage}",
+        )
+        manifest = bundle / "manifest.md"
+        man_ok = _file_contains(manifest, "Apply-Missing-Date-Fixture.md")
+        _record(
+            "apply-exercise: manifest carries a line per archived file",
+            man_ok,
+            "manifest line present" if man_ok else "no manifest line for the rewritten file",
+        )
+        # The pre-image is the ARCHIVE-FIRST original: it lacks the `date:` the
+        # live file gained under the rewrite.
+        pre_is_original = preimage.exists() and "date:" not in preimage.read_text(encoding="utf-8")
+        _record(
+            "apply-exercise: pre-image is the archive-first original",
+            pre_is_original,
+            "pre-rewrite bytes" if pre_is_original else "pre-image already carries the rewrite",
+        )
+
+        # (2) reparse-verify: the rewritten note reparses to a valid frontmatter
+        #     document with the stamped date and its body intact. structured_rewrite
+        #     restores the pre-image on an invariant failure, so a valid live file
+        #     is proof the post-write reparse passed.
+        block, body = _split_frontmatter(missing_date.read_text(encoding="utf-8"))
+        reparse_ok = (
+            block is not None
+            and "date:" in block
+            and body is not None
+            and "pass16 stamps it" in body
+        )
+        _record(
+            "apply-exercise: reparse-verify — rewritten note valid post-write",
+            reparse_ok,
+            "valid frontmatter + stamped date, body intact" if reparse_ok else "post-write reparse failed",
+        )
+        _record(
+            "apply-exercise: rewrite changed the file (mutating path ran)",
+            _hash(missing_date) != missing_before,
+            "mutated" if _hash(missing_date) != missing_before else "UNCHANGED — apply path did not write",
+        )
+
+        # (3) findings persisted: the completed action survives in the append-only
+        #     ledger, and the shared snapshot was refreshed.
+        ledger = tmp_vault / _LOGS_REL / "janitor-agent" / "janitor-agent.md"
+        led_ok = _file_contains(ledger, "Apply-Missing-Date-Fixture.md")
+        _record(
+            "apply-exercise: findings persisted to the event ledger",
+            led_ok,
+            "date-resolved event recorded" if led_ok else "no ledger trace of the run",
+        )
+        snap = _snapshot_path(tmp_vault)
+        _record(
+            "apply-exercise: shared snapshot refreshed under --apply",
+            snap.exists(),
+            "snapshot present" if snap.exists() else f"MISSING: {snap}",
+        )
+
+        # (4) persisted-snapshot reviewed-stale: hand-touch the reviewed note's
+        #     upstream between two --apply runs; the SECOND run's PERSISTED
+        #     snapshot must fire reviewed-stale (the double-snapshot fix — the
+        #     finding lands in the durable snapshot, not only the transient
+        #     pre-pass one).
+        upstream.write_text(
+            "---\ntype: reference\ntags:\n  - reference\ndate: 2020-01-01\n"
+            'parent: "[[Apply-Fixture-Parent]]"\n---\n\n'
+            "# Apply-Stale-Upstream\n\nUpstream body version TWO — edited content.\n",
+            encoding="utf-8",
+        )
+        lease_path.unlink(missing_ok=True)
+        if not _run_apply("run 2"):
+            return
+        snap_text = snap.read_text(encoding="utf-8") if snap.exists() else ""
+        fired = any(
+            "reviewed-stale" in ln and "Apply-Reviewed-Stale-Note.md" in ln
+            for ln in snap_text.splitlines()
+        )
+        _record(
+            "apply-exercise: persisted snapshot fires reviewed-stale on run 2",
+            fired,
+            "reviewed-stale row present" if fired else "reviewed-stale absent from persisted snapshot",
+        )
+    finally:
+        lease_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -490,6 +873,20 @@ def main() -> int:
             )
         else:
             _record("sync_config.py --vault-root", False, "not installed; cannot run")
+
+        # 3. Lane-F acceptance checks. The read-only ones (hook form, installer
+        #    re-substitution) run first; the DEFERRED cold-storage check is only
+        #    announced. The --apply exercise MUTATES the sandbox, so it runs LAST
+        #    — after every clean-vault assertion above.
+        _assert_scaffold_hooks_proven(tmp_vault, installed_scripts)
+        _assert_installer_resubstitutes(tmp_vault)
+        _note_deferred(
+            "cold-storage search-exclusion (aged-out file returns no search hit)",
+            "needs a live vault-search daemon (venv + embedding model + port 8765); "
+            "not headless-cheap and would collide with a running daemon. "
+            "Covered by Lane V's own daemon tests.",
+        )
+        _assert_apply_exercise(tmp_vault, installed_scripts, installed_audit)
 
     finally:
         # 3. Clean up the temp vault unless --keep.

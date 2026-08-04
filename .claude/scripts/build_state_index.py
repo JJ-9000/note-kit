@@ -279,6 +279,7 @@ _PATH_KEYS = {"path", "target"}
 DETECTOR_STATUS_CODES = frozenset({
     "near-duplicate-skipped",
     "near-duplicate-truncated",
+    "deploy-drift-skipped",
 })
 
 
@@ -2187,8 +2188,19 @@ def main() -> None:
     # differs or is missing. The analyst adjudicates (report vs queue); the
     # janitor takes no action on this code. Raw byte hashes — deploys copy
     # bytes, so a newline-only difference is real drift on this pair.
+    #
+    # The comparison is armed by THIS vault's own agent-run evidence: a vault
+    # whose agent logs carry no run-start line has never deployed, so the
+    # `<user-home>` copies it would read belong to some other install — a fresh
+    # scaffold on a developer's machine, or none at all on a clean box. Either
+    # way the detector SKIPS AND LOGS (`deploy-drift-skipped`, ## Detector
+    # status) rather than filing another install's state as this vault's drift.
     _dd_kit = VAULT_ROOT / ".claude"
     _dd_home = Path.home() / ".claude"
+    _dd_evidence = any(
+        "run-start" in _sa_read(VAULT_ROOT / LOGS_REL / _a / f"{_a}.md")
+        for _a in ("janitor-agent", "filing-agent", "analyst-agent", "action-agent")
+    )
 
     def _dd_hash(p: Path):
         try:
@@ -2223,19 +2235,26 @@ def main() -> None:
                     _dd_home / "skills" / _skill_dir.name,
                     f"skills/{_skill_dir.name}",
                 ))
-    for _src_dir, _dep_dir, _label in _dd_pairs:
-        if not _dep_dir.is_dir():
-            open_findings.append(("deploy-drift", _label, "deployed copy missing"))
-            continue
-        for _sf in _dd_tree_files(_src_dir):
-            _rel_in = _sf.relative_to(_src_dir).as_posix()
-            _df = _dep_dir / _rel_in
-            if not _df.is_file():
-                open_findings.append(
-                    ("deploy-drift", f"{_label}/{_rel_in}", "absent from deployed copy"))
-            elif _dd_hash(_sf) != _dd_hash(_df):
-                open_findings.append(
-                    ("deploy-drift", f"{_label}/{_rel_in}", "deployed differs from vault source"))
+    if not _dd_evidence:
+        open_findings.append((
+            "deploy-drift-skipped", "kit",
+            "no agent run-start in this vault's logs — never deployed, so the "
+            "<user-home>/.claude copies are not this vault's to compare",
+        ))
+    else:
+        for _src_dir, _dep_dir, _label in _dd_pairs:
+            if not _dep_dir.is_dir():
+                open_findings.append(("deploy-drift", _label, "deployed copy missing"))
+                continue
+            for _sf in _dd_tree_files(_src_dir):
+                _rel_in = _sf.relative_to(_src_dir).as_posix()
+                _df = _dep_dir / _rel_in
+                if not _df.is_file():
+                    open_findings.append(
+                        ("deploy-drift", f"{_label}/{_rel_in}", "absent from deployed copy"))
+                elif _dd_hash(_sf) != _dd_hash(_df):
+                    open_findings.append(
+                        ("deploy-drift", f"{_label}/{_rel_in}", "deployed differs from vault source"))
 
     # --- Detector: duplicate-run (same agent firing twice in one slot) ---
     # Reads each agent's live log head for run-start lines and flags two starts

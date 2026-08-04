@@ -39,7 +39,7 @@ The snapshot carries fixed-field rows (CONFIG § Log files). Act by `code`:
 - `dangling-link`: a body wikilink whose basename resolves to no file in the vault — the standing reference-cohort metric `build_state_index` drives toward zero. Repair it in place per § 2's repair ladder, reference-typed sources first; this is correctable work the janitor closes, not solely a queue route.
 - `body-wikilink-resolution`, a `*-would-*`, `*-collision`, or `*-failed` code: something the script could not finish; resolve it or route it to the queue.
 
-Honor `compliance_exceptions: [<slug>]` on a file; skip the listed checks. Read no other sources.
+Read no other sources.
 
 Check `audit.py`'s pass on three signals:
 
@@ -55,18 +55,7 @@ The janitor infers — scripts act on the deterministic, agents infer the ambigu
 
 **Queue or fix in place.** Fix in place, tagged `inferred`, when one rung of the ladder yields a single confident answer. Route a row to the queue in two cases: the choice would **change how the user thinks of the file** (its type, project, or home), or **two or more answers stay plausible** after the ladder runs. When unsure whether a fix is cosmetic or identity-changing, treat it as cosmetic and fix it.
 
-For each deferred-call row, walk the ladder for its field and take the first rung that yields one confident answer; apply the value and add the `inferred` tag. A rung holding two or more meaningfully different answers stops the ladder and sends the row to the queue.
-
-| field | rung 1 | rung 2 | rung 3 | default |
-|---|---|---|---|---|
-| type | folder maps to one type-default | filename or structure signal (date-prefixed in a session subfolder → session; link-dense body → index; ≥3 code blocks → snippet) | body peers: dominant match against files in a candidate type's folder | `note` |
-| parent | enclosing project, area, or domain folder's index | dominant index among the body's wikilinks | `vault_search` the file's distinctive terms for the owning parent index, then read sibling files in the candidate folder for their dominant `parent`, narrowing by type, tags, and enclosing folder | type needs `parent`, two or more plausible indexes survive rung 3 → queue; `note` → leave unstamped, the `inferred` tag exempts it from orphan detection |
-| project | `<projects>/<project>/…` → `[[<project>]]` | dominant project among the body's wikilinks | `vault_search` the file's distinctive terms for the owning project, then read sibling files in the candidate folder for their dominant `project`, narrowing by type, tags, and enclosing folder | session or research, two or more plausible projects survive rung 3 → queue |
-| date | the archived pre-migration copy's date | the originating session log's date | first appearance in `<history>` or the import records | the import date, tagged `inferred` |
-
-(`audit.py` resolves most dates deterministically; the ladder covers the remainder.) No field stays permanently unresolvable and re-reported — every row ends in a value or a queue item.
-
-Each rung is a structured lookup against the canonical tables and the existing vault, never a free guess. Three guards: parent inference **rejects self-reference** — a root or cover note's parent is its enclosing area or domain index, or none, never itself; an inferred value is written **only to frontmatter**, never as a body line; the sibling-consensus rungs count only values not themselves tagged `inferred` (CONFIG § Tags). A scan error on one file appends to the event log and the pass continues.
+Walk each deferred-call row's field down **CONFIG § Inference ladder** — the rung table, walk rule, and guards are canon there; the two queue cases above are this agent's escalation. (`audit.py` resolves most dates deterministically; the ladder covers the remainder.) No field stays permanently unresolvable and re-reported — every row ends in a value or a queue item. A scan error on one file appends to the event log and the pass continues.
 
 **Completed-idea archival.** Resolve an `idea-archive` row by reading, not reflex: open the idea and its linked session and confirm the session carried the idea's substance forward. If it did, archive the idea (CONFIG § Versioning and archiving discipline) and append the decision to the log; handoff's labeling was the consent, so no queue proposal. If the session did not address the idea, leave it and log why; a non-match is the analyst's to revisit.
 
@@ -91,7 +80,7 @@ Each rung is a structured lookup against the canonical tables and the existing v
   - De-link it to plain text in a living document: `[[some-memory-slug]]` → `some-memory-slug`.
   - The class surfaces as `dangling-link` (or the legacy `body-wikilink-resolution`), since a memory file resolves to no vault path.
   - This is the standing resolution for the class: archive-first, one log line, no queue item.
-  - `build_state_index` suppresses a lowercase-kebab memory slug cited inside an immutable session log (CONFIG § Helper-script automation) — sessions only, every other type in scope — so a row outside a session is a genuine miss: a memory slug to de-link, or a broken link to walk through the ladder.
+  - A lowercase-kebab memory slug cited inside an immutable session log is suppressed via its `<logs>/Conventions.md` store row, consulted at detect time (CONFIG § Helper-script automation) — sessions only, every other type in scope — so a row outside a session is a genuine miss: a memory slug to de-link, or a broken link to walk through the ladder.
 
 **Content lifecycle** (CONFIG § Content lifecycle — the four rows this agent owns). Work them on the daily per-file pass, taking the state-index findings and `audit.py`'s `retired-token` hits as the work list. Each retirement archives per CONFIG § Versioning and archiving discipline and appends one log line naming the class, the file, and the trigger that fired.
 
@@ -104,5 +93,5 @@ Each rung is a structured lookup against the canonical tables and the existing v
 
 - **In place:** completed frontmatter and `parent:` stamps, each inferred value carrying the `inferred` tag; `review-flag` on concerns. Per CONFIG § Tags a `review-flag` never exists without its matching queue item — when the janitor flags, it writes the queue proposal in the same pass.
 - **Event log:** append one line per resolution to `<logs>/janitor-agent/janitor-agent.md` (CONFIG § Log files), one line per cluster routed to the queue. A run that resolves nothing appends no resolution lines; the run-boundary lines — rotation, retention flag, and the release below — record the pass itself and stand on every run.
-- **Queue:** a proposal only where the ladder stopped on a genuine user choice (CONFIG § Queue protocol). Before appending, scan `<user-queue>` for a pending entry already covering that file or cluster; if present, skip. Suppress any slug listed in the file's `compliance_exceptions`.
+- **Queue:** a proposal only where the ladder stopped on a genuine user choice (CONFIG § Queue protocol). Before appending, scan `<user-queue>` for a pending entry already covering that file or cluster; if present, skip.
 - **Run close:** release the run lease and log it — the final step of every pass, run on each exit path: the pass that resolved rows, the deferred pass, the earn-the-run stop at § 1, and the pass that stopped on an error. Read `<logs>/run-lease.md`; where it still carries a line this agent took, clear the file so the next mutating agent runs on its own cadence (CONFIG § Concurrency rule 1). Append one `lease-released` line to `<logs>/janitor-agent/janitor-agent.md` naming the lease path and the state found: released, already clear, or held by another agent.

@@ -37,9 +37,6 @@ Safety rails:
     asset folder is typed, parented, renamed, or normalized.
   - Mutating passes run over fixed file-list snapshots, never live iterators.
 
-Honors `compliance_exceptions: [<slug>]` per file — listed checks are skipped
-and matching queue candidates are suppressed.
-
 Environment:
     JANITOR_VAULT_ROOT — absolute path to vault root (required)
     JANITOR_APPLY      — enable writes when set to an allowlisted value (`1`/
@@ -545,31 +542,6 @@ def _log_queue(rule: str, path: str, summary: str,
         "suggested_options": suggested_options,
         "cluster_key": cluster_key,
     })
-
-
-# ---------------------------------------------------------------------------
-# compliance_exceptions — per-file check suppression
-# ---------------------------------------------------------------------------
-
-def _exceptions_for(fm: dict | None) -> set[str]:
-    """Return the set of compliance-check slugs this file opts out of.
-
-    Honors `compliance_exceptions: [<slug>]` (list) or a single string value.
-    """
-    if not fm:
-        return set()
-    raw = fm.get("compliance_exceptions")
-    if raw is None:
-        return set()
-    if isinstance(raw, str):
-        return {s.strip() for s in re.split(r"[,\s]+", raw) if s.strip()}
-    if isinstance(raw, (list, tuple)):
-        return {str(s).strip() for s in raw if str(s).strip()}
-    return set()
-
-
-def _excepted(slug: str, exceptions: set[str]) -> bool:
-    return slug in exceptions
 
 
 # ---------------------------------------------------------------------------
@@ -1248,7 +1220,7 @@ def pass2_type_normalize(path: Path, fm: dict) -> tuple[dict, bool]:
 # Pass 3 — Tag normalization
 # ---------------------------------------------------------------------------
 
-def pass3_tag_normalize(path: Path, fm: dict, exceptions: set[str]) -> tuple[dict, bool]:
+def pass3_tag_normalize(path: Path, fm: dict) -> tuple[dict, bool]:
     """Normalize tags list. Returns (fm, changed)."""
     raw_tags = fm.get("tags")
     if not isinstance(raw_tags, list):
@@ -2091,8 +2063,6 @@ def _uplink_type_mismatch(path: Path, rel: str, fm: dict, proj_name: str,
     so an ambiguous basename never reports a mismatch it cannot prove."""
     if _is_preserved_copy(path):
         return
-    if _excepted("uplink-type-mismatch", _exceptions_for(fm)):
-        return
 
     observed: list[str] = []
     for tgt in resolved:
@@ -2194,7 +2164,7 @@ def pass11_project_folder(path: Path, fm: dict, basename_index: dict[str, list[P
 # ---------------------------------------------------------------------------
 
 def pass12_body_wikilinks(
-    path: Path, fm: dict, body: str, basename_index: dict[str, list[Path]], exceptions: set[str]
+    path: Path, fm: dict, body: str, basename_index: dict[str, list[Path]]
 ) -> None:
     """Resolve broken body wikilinks in filed files.
 
@@ -2206,8 +2176,6 @@ def pass12_body_wikilinks(
          never added or dropped), so a count change aborts the write.
       2. Otherwise emit a queue candidate for the janitor to resolve by hand.
     """
-    if _excepted("body-wikilink-resolution", exceptions):
-        return
     # Skip inbox and archive
     try:
         path.relative_to(INBOX_FOLDER)
@@ -2267,7 +2235,7 @@ def pass12_body_wikilinks(
 # ---------------------------------------------------------------------------
 
 def pass14_flag_completed_idea(
-    path: Path, fm: dict, basename_index: dict[str, list[Path]], exceptions: set[str]
+    path: Path, fm: dict, basename_index: dict[str, list[Path]]
 ) -> None:
     """Flag — never move — an in-progress idea whose session has completed.
 
@@ -2280,10 +2248,8 @@ def pass14_flag_completed_idea(
     need naming the session to read; the janitor agent then reads both the idea
     and the session, confirms archiving is appropriate, and only then archives
     (CONFIG: direct auto-archive on completion, agent-judged). Skips the inbox
-    and archive; honors an `archive-completed-idea` exception slug.
+    and archive.
     """
-    if _excepted("archive-completed-idea", exceptions):
-        return
     if (fm.get("type") or "") != "idea":
         return
     if str(fm.get("status") or "").strip() != "in-progress":
@@ -2603,8 +2569,6 @@ def pass16_missing_dates(
             continue  # unparseable YAML is pass 1's finding, not a date hole
         if fm.get("date"):
             continue
-        if _excepted("date-resolution", _exceptions_for(fm)):
-            continue
 
         rel = _rel(p)
         key = p.stem.lower()
@@ -2758,8 +2722,6 @@ def pass17_plan_multiplicity(all_md: list[Path]) -> None:
             continue
         if normalize_type(str(fm.get("type") or "")) != "plan":
             continue
-        if _excepted("plan-multiplicity", _exceptions_for(fm)):
-            continue
         rel = _rel(p)
         if rel.startswith(inbox_rel + "/"):
             inner = rel[len(inbox_rel) + 1:].split("/")
@@ -2824,8 +2786,6 @@ def pass19_session_word_budget(all_md: list[Path]) -> None:
             continue
         if normalize_type(str(fm.get("type") or "")) != "session":
             continue
-        if _excepted("session-word-budget", _exceptions_for(fm)):
-            continue
         words = _body_word_count(body)
         if words > _SESSION_WORD_BUDGET:
             _log_detect(
@@ -2862,8 +2822,6 @@ def pass20_plan_shape(all_md: list[Path]) -> None:
         if err or not fm:
             continue
         if normalize_type(str(fm.get("type") or "")) != "plan":
-            continue
-        if _excepted("plan-shape", _exceptions_for(fm)):
             continue
         if not _CHECKBOX_RE.search(body):
             _log_detect("plan-no-checkbox", _rel(p), "zero checkbox items")
@@ -3216,8 +3174,6 @@ def pass22_merge_residue(all_md: list[Path]) -> None:
         fm, body, err = _parse_frontmatter(text)
         if err or fm is None:
             continue
-        if _excepted("merge-residue", _exceptions_for(fm)):
-            continue
         ftype = normalize_type(str(fm.get("type") or "")) or ""
         prose = _prose_only(body)
 
@@ -3298,8 +3254,6 @@ def pass23_provenance(all_md: list[Path]) -> None:
         if err or fm is None:
             continue
         if normalize_type(str(fm.get("type") or "")) != "reference":
-            continue
-        if _excepted("provenance", _exceptions_for(fm)):
             continue
 
         tags = [str(t).strip().casefold() for t in (fm.get("tags") or [])]
@@ -3428,8 +3382,6 @@ def pass24_retired_tokens(all_md: list[Path]) -> None:
         fm, _body, err = _parse_frontmatter(text)
         if not err and fm:
             if normalize_type(str(fm.get("type") or "")) in _IMMUTABLE_RECORD_TYPES:
-                continue
-            if _excepted("retired-token", _exceptions_for(fm)):
                 continue
         md_targets.append((p, text))
 
@@ -3983,25 +3935,19 @@ def _audit_passes(baseline: Path | None) -> None:
         if fm is None:
             fm = {}
 
-        # Per-file compliance-check opt-outs
-        exceptions = _exceptions_for(fm)
-
         changed = False
 
         # Pass 2 — Type normalization
-        if not _excepted("type-normalize", exceptions):
-            fm, ch = pass2_type_normalize(path, fm)
-            changed = changed or ch
+        fm, ch = pass2_type_normalize(path, fm)
+        changed = changed or ch
 
         # Pass 3 — Tag normalization
-        if not _excepted("tag-normalize", exceptions):
-            fm, ch = pass3_tag_normalize(path, fm, exceptions)
-            changed = changed or ch
+        fm, ch = pass3_tag_normalize(path, fm)
+        changed = changed or ch
 
         # Pass 4 — Type inference (if still no type)
-        if not _excepted("type-inference", exceptions):
-            fm, ch = pass4_type_inference(path, fm, body)
-            changed = changed or ch
+        fm, ch = pass4_type_inference(path, fm, body)
+        changed = changed or ch
 
         # Write frontmatter if changed so far (frontmatter-only: body preserved).
         if changed and not DRY_RUN:
@@ -4009,38 +3955,33 @@ def _audit_passes(baseline: Path | None) -> None:
             changed = False
 
         # Pass 5 — Type-folder match (may move file)
-        if not _excepted("type-folder-match", exceptions):
-            path, fm, moved = pass5_type_folder_match(path, fm, basename_index)
-            if moved:
-                # Rebuild indices after move
-                basename_index, inbound_index = _build_indices(_walk_vault())
-                changed = False
+        path, fm, moved = pass5_type_folder_match(path, fm, basename_index)
+        if moved:
+            # Rebuild indices after move
+            basename_index, inbound_index = _build_indices(_walk_vault())
+            changed = False
 
         # Pass 6 — Naming normalization (may rename file)
-        if not _excepted("naming", exceptions):
-            path, renamed = pass6_naming(path, fm)
-            if renamed:
-                basename_index, inbound_index = _build_indices(_walk_vault())
+        path, renamed = pass6_naming(path, fm)
+        if renamed:
+            basename_index, inbound_index = _build_indices(_walk_vault())
 
         # Pass 7 — Parent inference (frontmatter-only: body preserved).
-        if not _excepted("parent-inference", exceptions):
-            fm, body, ch = pass7_parent_inference(path, fm, body, basename_index)
-            if ch and not DRY_RUN:
-                _write_frontmatter(path, fm)
+        fm, body, ch = pass7_parent_inference(path, fm, body, basename_index)
+        if ch and not DRY_RUN:
+            _write_frontmatter(path, fm)
 
         # Pass 8 — Index child registration
-        if not _excepted("index-children", exceptions):
-            pass8_index_children(path, fm, body, basename_index)
+        pass8_index_children(path, fm, body, basename_index)
 
         # Pass 9 — Orphan detection
-        if not _excepted("orphan-detection", exceptions):
-            pass9_orphan_detection(path, fm, body, basename_index, inbound_index)
+        pass9_orphan_detection(path, fm, body, basename_index, inbound_index)
 
         # Pass 12 — Body wikilink resolution (space->hyphen normalize, then queue)
-        pass12_body_wikilinks(path, fm, body, basename_index, exceptions)
+        pass12_body_wikilinks(path, fm, body, basename_index)
 
         # Pass 14 — Flag an in-progress idea whose session has completed (agent archives)
-        pass14_flag_completed_idea(path, fm, basename_index, exceptions)
+        pass14_flag_completed_idea(path, fm, basename_index)
 
     # Pass 10 — Loose asset relocation (fixed snapshot lists, never a live walk)
     print("Pass 10: loose asset relocation...", file=sys.stderr)
@@ -4055,8 +3996,6 @@ def _audit_passes(baseline: Path | None) -> None:
             continue
         fm, _, parse_ok = pass1_yaml_parse(p, text)
         if not parse_ok or not fm:
-            continue
-        if _excepted("project-folder", _exceptions_for(fm)):
             continue
         pass11_project_folder(p, fm, basename_index)
 

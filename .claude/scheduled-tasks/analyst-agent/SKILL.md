@@ -9,7 +9,7 @@ The only macro agent. Read across the whole corpus, every agent's log, and the s
 
 ## Method
 
-Every analysis is a detective pass, not a glance: read the evidence, confirm a pattern against a threshold or a second read, then propose only what clears it. A topical hunch is not a finding; a count alone is not a finding. State the evidence in the proposal so the user adjudicates from it.
+Every analysis is a detective pass, not a glance: read the evidence, confirm a pattern against a threshold or a second read, then propose only what clears it. A topical hunch is not a finding; a count alone is not a finding. State the evidence in the proposal so the user adjudicates from it. A departure from a type's `Format-<Type>` note or an agent's CONFIG § Agent responsibilities remit is a finding basis.
 
 - **Decompose and fan out.** Split a run into per-cluster and per-corpus-slice tasks; spawn one sub-agent per task, top line model; assemble their findings into the one report. Independent analyses over disjoint data run in parallel. Every spawn prompt names the retrieval tools its analysis reads through, including `mcp__vault__vault_search`, and carries the **known set** — the current `<user-queue>` items and the prior run's findings register — so each sub-agent hunts past what is already raised. Running inside a sub-agent (no nested spawn): run the analyses serially in the current context.
 - **Resume from the report.** The in-progress report folder is the resume log: a run cut short resumes from the first analysis not yet written. No separate paused-run artifact.
@@ -18,6 +18,7 @@ Every analysis is a detective pass, not a glance: read the evidence, confirm a p
 - **Check surface parity.** At run start, run `python <kit-root>/scripts/verify_surface_parity.py` and triage each `surface-drift` row it emits: every row names a live `.claude/` file that no longer matches its template twin, and the row's hunk count is the size of the divergence to adjudicate (CONFIG § Helper-script automation).
 - **Refresh the index first.** At run start, compare the build time of `<logs>/Vault-State-Index.md` against the latest entry across the agent logs; if the index is older, run `build_state_index` before any analysis — a stale index understates the corpus. A standalone build omits the janitor's finding classes, so name the build mode in the index-refresh line this run logs and compare findings rollups only across runs of the same mode.
 - **Earn the run.** Open with a cheap check: no new log entries, no state-index change, nothing past a threshold since the last run → write nothing and stop.
+- **Earn each lane.** Before spawning an analysis, check its input slice against the prior report: a lane whose named inputs show no new entries and no state-index delta since that run records one `lane-skipped` manifest line and spawns nothing. The report's manifest names every lane as run or skipped, each with its slice evidence.
 - **Name the dark period.** Read this agent's `missed-cadence` rows in the state index. Where a scheduled slot went unrun, the report names the gap and its span, reads every cross-period metric as gapped, and the first run after a gap states the catch-up work it performed.
 - **State the coverage.** Every sampled analysis reports what it read as N of M in the report, so its verdict reads at the size of its sample.
 - **Read standard `weight`.** The per-axis standards indexes (voice/design/format covers) carry each standard's stored `weight`; steer restructuring toward the heaviest, most re-derived standards first.
@@ -50,6 +51,7 @@ The period record the analyst reasons over. One sub-agent per source group:
 | staged assets                                                                 | `<inbox-assets>`                                                           | stale unprocessed content                                                                           |
 | unresolved citations                                                          | verify-claims footnotes opening with an `UNRESOLVED` verdict tag, and research's prose `Limit: <category>` lines in a Synthesis's open questions | recurring verification-limit categories                                                             |
 | flagged and inferred items                                                    | `review-flag` and `inferred` tagged items, with context                    | open review items and agent-inferred content                                                        |
+| instrument remits                                                             | the deployed agent SKILLs (`<user-home>/.claude/scheduled-tasks/note-kit-*`), the hook registrations in `<kit-root>/settings.json` + `settings.local.json`, and the `<kit-root>/hooks/` scripts | each instrument's intended remit, read beside its log footprint (§ Instrument audit)                |
 | open plan items                                                               | unchecked `[ ]` boxes in `type: plan` notes and canonical progress docs    | loose threads and their next step (archive or activate)                                             |
 
 Read for aggregates. A finding that resolves to one file's frontmatter or naming belongs to the janitor. When the cold logs span six or more months, query them alongside the active window for long-range trends (inbox dwell-time trajectory, stale-queue growth, orphan-asset trend).
@@ -70,24 +72,25 @@ Each analysis carries one GOAL and a step-based METHOD. Spawn one sub-agent per 
 3. Confirm each instrument ran this period from dated evidence — a log line, the index build stamp, a finding row carrying this period's date.
 4. Report a metric whose instrument is absent or silent this period as **NOT MEASURED**, and carry that label everywhere the metric appears.
 5. Propose the missing instrument to the `<user-queue>` when a standing metric has none, naming the metric and the detector or script that would produce it.
+6. **Remit vs. log, per instrument.** For each scheduled agent and each hook, compare its remit — its SKILL, its CONFIG § Agent responsibilities row, its registration — against its own log footprint (volume, outcomes, friction) and the period's unresolved recurring problems; remit and evidence diverging → one queue proposal naming the instrument. Signatures this catches: a signal a method expects that no script emits; runnable work an agent defers; a cadence anomaly, read from the state index's `duplicate-run` and `missed-cadence` rows rather than recomputed from fire gaps.
+7. **Weigh the enforcing instrument.** A corpus defect recurring across periods is a finding against its enforcing instrument, not only the standard that names it: recurring type-shape drift weighs the enforcing agent's SKILL as much as the format note, and recurring session friction weighs the governing SKILL or hook, not only the always-injected files.
 
 ### Cluster detection
 
 **GOAL:** find one parent folder that has grown a settled sub-topic worth its own subfolder and index, including a sub-topic spread across projects and areas.
 
 **METHOD:**
-1. Read the state-index `## Folder histogram` for counts vault-wide. Count alone never triggers a split.
-2. In each folder of **Size** at least ~25 notes, measure the candidate sub-topic's **Dominance**: its share of the folder by dominant tag or by titles and wikilinks naming one sub-topic — at least ~40% relative share, not an absolute count.
-3. Confirm **Maturity** from the state index's `## Folder maturity (filesystem)` series, whose `fs-maturity` cell measures real dwell time on disk where `## Folder histogram`'s `maturity` reports the date a note claims: the sub-topic's files span more than a recent window (`oldest` at least ~60 days). A spike of new notes is not a cluster.
-4. All three hold → propose a subfolder plus an `index` note linking its members. Otherwise leave it.
-5. **Cross-corpus grouping.** Scan vault-wide for related notes that belong to no single folder — a shared dominant tag or interconnected wikilinks across projects and areas. Three or more clearing dominance and maturity → propose a vault-level index (`type: index`) linking the scattered members, naming the spanning folders; it moves no files.
+1. Read the state index's `## Cluster and index candidates` section and its `cluster-candidate` rows — `build_state_index` computes the Size (≥ ~25 notes), Dominance (≥ ~40% dominant-tag share), and Maturity (oldest filesystem arrival ≥ ~60 days) arithmetic each build, excluding type-name and provenance tags and any dominant tag whose subfolder already exists. The rows are candidates; adjudication is this analysis.
+2. Confirm each row by the read the script cannot do: titles and wikilinks in the folder naming one sub-topic (a shared tag is kinship only when the bodies agree), and any sub-topic the tag lens misses — a dominance visible in titles alone still qualifies at the same thresholds.
+3. A confirmed row → propose a subfolder plus an `index` note linking its members. Otherwise record the dismissal and its reason in the report, so a standing candidate is adjudicated once, not re-raised every run.
+4. **Cross-corpus grouping.** Read the `index-candidate` rows (a tag dominant across ≥3 folders, ≥15 notes, no `<Tag>.md` index) and confirm by the same body read; add the wikilink-interconnection lens the rows cannot see — related notes across projects and areas with no shared tag. Three or more confirmed → propose a vault-level index (`type: index`) linking the scattered members, naming the spanning folders; it moves no files.
 
 ### Reference consolidation
 
 **GOAL:** keep the reference corpus navigable: nest a sub-domain at critical mass, index a related set, re-home a domain note that landed in the catchall away from its kin.
 
 **METHOD:**
-1. Read the `<reference>` histogram slice and the reference index members. A sub-domain clearing the cluster-detection signal with no subfolder → propose its subfolder plus an `index` note in the `<user-queue>`. Nesting is earned by mass and age, never on count alone.
+1. Read the `<reference>` histogram slice, the reference index members, and any `cluster-candidate` rows under `<reference>` folders. A sub-domain clearing the cluster signal (§ Cluster detection's candidate rows plus its confirming read) with no subfolder → propose its subfolder plus an `index` note in the `<user-queue>`. Nesting is earned by mass and age, never on count alone.
 2. References that interlink or share a dominant tag but sit under no index → propose an `index` note linking them, with the `parent` both-way link.
 3. Scan `<catchall>` for a markdown note with a resolvable domain and kin in `<reference>` (shared tag, subject, or inbound wikilinks) → propose a `Relocate file` to that reference subfolder. A loose asset with no kin stays; only a domain note with a home elsewhere moves.
 
@@ -167,8 +170,9 @@ Severity vocabulary: **red-flag** — misleads a reader or an agent into wrong a
 **GOAL:** the deployed kit copies match their vault sources, and the schedule runs once per slot.
 
 **METHOD:**
-1. Hash-compare `<kit-root>` sources against the deployed `<user-home>/.claude/scheduled-tasks/note-kit-*` and `<user-home>/.claude/skills/note-kit-*` copies. Report drift to the log; queue only a contradiction.
-2. Scan the logs for duplicated scheduled runs — the same job firing twice in one slot (e.g. the state-index build firing twice ~1s apart) — and report.
+1. Read the state index's `deploy-drift` rows — `build_state_index` hash-compares every `<kit-root>` scheduled-task and `note-kit-*` skill tree against its deployed `<user-home>/.claude` twin each build, one row per differing or missing file. Report the rows to the log; queue only a contradiction.
+2. Read the `duplicate-run` rows — two run-starts inside one slot in any agent's log head. Report each with its instrument reading from § Instrument audit.
+3. A period whose index build is silent leaves both metrics **NOT MEASURED** (§ Instrument audit); this analysis recomputes nothing by hand.
 
 ### Prompt-effectiveness
 
@@ -228,7 +232,8 @@ Severity vocabulary: **red-flag** — misleads a reader or an agent into wrong a
 1. Read the state-index `## Indexes` (each index and its folder's spread) and `## Folder histogram` (dominance and maturity).
 2. Flag as separate findings: a folder clearing the dominance-and-maturity signal with no index (propose Create index, CONFIG § Actions); an index with zero members or far past its folder's spread (propose retiring or splitting it, reusing Cluster detection's signal). Re-homing a misfiled note belongs to Reference consolidation.
 3. Use the relative-dominance and maturity model the histogram carries; encode no absolute count here.
-4. Propose through the queue (Create index, or the revisit shape naming the index); never edit an index directly.
+4. **Sample for legibility, not only existence.** Deep-read 3–5 indexes per run, rotating: entries carry the one-line descriptions the cover's own style uses, ordering is deliberate (chapters tracking real subdivisions, CONFIG § Types `index` row), and no entry dangles or points at an `<inbox>` path. A cover failing legibility → the revisit proposal names the specific defect, never just the count.
+5. Propose through the queue (Create index, or the revisit shape naming the index); never edit an index directly.
 
 ### Idea-session reconciliation
 
@@ -245,7 +250,8 @@ Severity vocabulary: **red-flag** — misleads a reader or an agent into wrong a
 **METHOD:**
 1. Scan `<catchall>` for items placed since the last run, reading § 1's `<catchall>` row against the state index's `## Catch-all status` and `## Orphan assets` sections. List each: name, date placed, source (detect-and-stage vs. direct placement), whether any active project note references it. Unreferenced items are candidates for permanent catchall residence; surface them. A domain note with kin in references belongs to Reference consolidation; a rule that is not truly global resolves here, as a `Relocate file` proposal to the matching voice, design, or format home, naming the rule and quoting the scope that narrows it.
 2. Scan `<inbox-assets>` for staged assets older than 14 days (name, staging date, references). A stale asset no note references → propose archiving it to `<catchall>` via a `Relocate file` entry.
-3. Write one report section: items landed in the catchall this period, and the stale-assets list with proposed dispositions.
+3. **Sweep the filed asset homes.** Once per period, scan the filed project `Assets/` folders for an asset that notes outside its owning project reference (inbound wikilinks or path references) — a cross-project asset is a relocation or shared-index candidate, proposed to the queue, detection-only.
+4. Write one report section: items landed in the catchall this period, the stale-assets list with proposed dispositions, and any cross-project asset candidates.
 
 ### Memory stewardship
 

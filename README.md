@@ -13,6 +13,9 @@ Throughout this document, tokens like `<inbox>` and `<projects>` appear — thes
 > [!WARNING]
 > **Note-Kit is in development and does not work perfectly. Stay tuned for developments.**
 
+> [!TIP]
+> **Already have Python, Obsidian, and Claude Code?** Download the kit, open Claude Code in the note-kit folder, and ask: *"Read README.md and set up note-kit in my vault at `<your-vault-path>`."* The assistant walks the steps below for you.
+
 ---
 
 ## Contents

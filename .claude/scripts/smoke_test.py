@@ -850,6 +850,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Preflight the one core dependency by name: without it every downstream
+    # step dies as a bare ModuleNotFoundError traceback, which reads as a kit
+    # bug rather than a one-line install step (README § Before you install).
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        print("SMOKE TEST: FAIL (preflight) — PyYAML is not installed in this "
+              "Python. The kit's maintenance scripts read frontmatter through "
+              "it. Fix: pip install pyyaml")
+        return 1
+
     print("note-kit smoke test")
     print(f"  kit root: {_KIT_ROOT}")
 

@@ -309,12 +309,29 @@ def _decodings(blob: bytes) -> list[tuple[str, str]]:
     return out
 
 
-def _iter_blobs(repo: Optional[Path], mode: str, paths: list[str]):
-    """Yield (display_path, blob_bytes) for the selected surface."""
+def _iter_blobs(repo: Optional[Path], mode: str, paths: list[str],
+                skipped_binary: Optional[list[str]] = None):
+    """Yield (display_path, blob_bytes) for the selected surface.
+
+    A directory argument recurses; every binary-typed file met along the way
+    is RECORDED in ``skipped_binary`` rather than silently dropped, so the
+    summary can name the gap — a skipped file is a visible hole in the scan,
+    never an implied clean.
+    """
     if mode == "paths":
+        def _files(p: Path):
+            if p.is_dir():
+                for sub in sorted(p.rglob("*")):
+                    if sub.is_file() and ".git" not in sub.parts:
+                        yield sub
+            elif p.is_file():
+                yield p
         for p in paths:
-            fp = Path(p)
-            if fp.is_file() and fp.suffix.lower() not in _BINARY_EXT:
+            for fp in _files(Path(p)):
+                if fp.suffix.lower() in _BINARY_EXT:
+                    if skipped_binary is not None:
+                        skipped_binary.append(str(fp))
+                    continue
                 yield str(fp), fp.read_bytes()
         return
     assert repo is not None
@@ -443,7 +460,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     all_hits: list[Hit] = []
     scanned = 0
-    for path, blob in _iter_blobs(repo, mode, args.paths or []):
+    skipped_binary: list[str] = []
+    for path, blob in _iter_blobs(repo, mode, args.paths or [], skipped_binary):
         scanned += 1
         all_hits.extend(_scan_blob(path, blob, canaries, allowlist))
 
@@ -460,9 +478,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     for p in ref_problems:
         print(f"HIT  refs | {p}")
 
+    for sb in skipped_binary:
+        print(f"note skipped-binary  {sb} | binary type — bytes NOT scanned; "
+              f"clear it by eye or exclude it from the boundary")
+
     verdict_hits = len(live) + len(ref_problems)
     print(f"verify_publish_anonymity: mode={mode} files={scanned} "
-          f"canaries={len(canaries)} hits={verdict_hits} licensed={len(licensed)}")
+          f"canaries={len(canaries)} hits={verdict_hits} licensed={len(licensed)} "
+          f"skipped_binary={len(skipped_binary)}")
+    if scanned == 0:
+        print("FAIL CLOSED: zero eligible files scanned — an empty scan proves "
+              "nothing; name real files, or a directory that holds some.")
+        return 2
     if verdict_hits:
         print("The push holds until every hit above is removed, replaced with its "
               "proposed token, or recorded in the allowlist with a reason.")

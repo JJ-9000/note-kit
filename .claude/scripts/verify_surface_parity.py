@@ -290,6 +290,13 @@ LICENSED_PAIRS: list[LicensedPair] = [
         "a live-only allow entry this install recorded — a reviewed "
         "publication exception with its reason comment; entries never ship",
     ),  # template 6-5 -> live 6-13
+    LicensedPair(
+        "install-local-config", "CONFIG.md",
+        "0c65cb6df00c2b58", "2190ad48b69a0f9e",
+        "the gate-launcher helper row — the live copy carries this install's "
+        "registration state and hold; the template states the register-after-"
+        "auth instruction generically",
+    ),  # template 586-586 -> live 602-602
 ]
 
 

@@ -25,7 +25,7 @@ status: draft
 
 # YYYY-MM-DD-kebab-slug
 
-Target length ~400 words. A session that ran long earns its length only through Failures worth repeating to a future reader — never through narration.
+Target length ~600 words. A session that ran long earns its length only through Failures worth repeating to a future reader — never through narration.
 
 ## Successes
 

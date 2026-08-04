@@ -78,7 +78,7 @@ Note-kit is just plain markdown files in a normal folder tree on your disk. Two 
 
 **You need three programs.** Each is a normal download-and-install:
 
-1. **Python 3.9 or newer** (python.org) — runs the kit's scripts. **Windows users:** on the installer's first screen, tick **"Add python.exe to PATH"** before clicking Install. Without it, the commands below won't be found.
+1. **Python 3.9 or newer** (python.org) — runs the kit's scripts. **Windows users:** on the installer's first screen, tick **"Add python.exe to PATH"** before clicking Install. Without it, the commands below won't be found. After Python installs, run `pip install pyyaml` once — the kit's maintenance scripts read frontmatter through it, and the smoke test names it if it's missing.
 2. **Obsidian** (obsidian.md) — the notes app. Free. Name and set up an empty vault location, and copy the path.
 3. **Claude Code desktop app** (claude.com/claude-code) — the AI assistant. **How you run it for interactive work is your choice:** the Desktop app, the CLI, and the VS Code extension all open the vault and drive the kit the same way. **Scheduling is the exception.** Running the four agents automatically on a clock needs the **Desktop app**, the only runtime that registers routines today; spawning agents from the terminal on a schedule is possible but unconfigured in this kit. **The kit does not run on the Claude web app,** which cannot reach your files. The skills and agents may also run on local non-Claude platforms (Codex, Ollama, and the like), though those are untested and unconfigured.
 

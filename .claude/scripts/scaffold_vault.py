@@ -82,6 +82,12 @@ _KIT_ROOT = _SCRIPTS_DIR.parent
 for _var in ("NOTE_KIT_CONFIG", "NOTE_KIT_VAULT_ROOT"):
     os.environ.pop(_var, None)
 
+# An installer writes no bytecode: compiled caches embed this machine's
+# absolute paths — identity a fresh vault must not carry. The env form rides
+# into every helper this process spawns.
+sys.dont_write_bytecode = True
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
 sys.path.insert(0, str(_SCRIPTS_DIR))
 from config_variables import (  # noqa: E402
     FOLDER_ROUTING,
@@ -1050,6 +1056,17 @@ def main() -> int | None:
         for _d in _dupe_covers:
             print(f"[scaffold]   {_d}")
         return 1
+
+    # Sweep any bytecode a helper run compiled into the installed kit despite
+    # the no-bytecode guards: a fresh vault ships no cache carrying the
+    # installing machine's paths.
+    _swept = 0
+    for _pc in list(kit_dir.rglob("__pycache__")):
+        if _pc.is_dir():
+            shutil.rmtree(_pc, ignore_errors=True)
+            _swept += 1
+    if _swept:
+        print(f"[scaffold] {_swept} bytecode cache dir(s) swept from the installed kit.")
 
     print(f"\nScaffold vault: {vault}")
 

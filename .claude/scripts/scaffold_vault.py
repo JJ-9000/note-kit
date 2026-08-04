@@ -780,11 +780,10 @@ def main() -> int | None:
     else:
         machine_queue.write_text(
             "# Machine Queue\n\n"
-            "You write checklist items here; the AI acts on them "
-            "(CONFIG § Queue protocol).\n\n"
+            "Write to-do items here; the AI picks them up and acts on them.\n\n"
             "## Example items\n\n"
-            "These are worked examples to try the system with — run one, or "
-            "delete them all and write your own:\n\n"
+            "Try one to see the system work, or delete them all and write "
+            "your own:\n\n"
             "- [ ] research the best way to organize a recipe collection\n"
             "- [ ] make a note summarizing how this vault's folders are organized\n"
             "- [ ] plan a small first project so I can watch the project workflow run\n",
@@ -809,14 +808,10 @@ def main() -> int | None:
     else:
         user_queue.write_text(
             "# User Queue\n\n"
-            "The AI writes proposals here; you resolve each by checkbox "
-            "(CONFIG § Queue protocol; item shape per Format-User-Queue). "
-            "Every item is a `###` heading with at least one `- [ ]` option "
-            "beneath it — the note-kit-ui Decide bucket surfaces only that "
-            "shape.\n\n"
+            "The AI writes its questions here. Answer one by checking a box.\n\n"
             "## scaffold — example proposals\n\n"
-            "Worked examples in the canonical proposal shape — check an option "
-            "to see the loop run, or delete them:\n\n"
+            "Two examples to try — check an option to see what happens, or "
+            "delete them:\n\n"
             "### Welcome-Note.md needs a home (example)\n\n"
             "An inbox draft needs a home; choose where it files.\n\n"
             f"- [ ] file it as a note under `{_example_note_home}/Welcome-Note.md`\n"

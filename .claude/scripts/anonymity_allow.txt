@@ -1,0 +1,4 @@
+# Extra allowlist for verify_publish_anonymity.py (--allow-file).
+# One exact licensed token per line; the reason rides in a comment above it.
+# Entries are install-local: they record this operator's reviewed exceptions
+# and never ship beyond the machine that earned them.

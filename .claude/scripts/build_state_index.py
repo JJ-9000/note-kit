@@ -1598,6 +1598,118 @@ def main() -> None:
     ))
     sections.append("")
 
+    # --- 5c. Cluster and index candidates (analyst adjudicates rows) ---
+    # Mechanizes the arithmetic half of the analyst's Cluster-detection method
+    # so the model adjudicates candidate rows instead of recomputing
+    # share-of-folder and age-span each run. Thresholds mirror the analyst
+    # SKILL's stated defaults: Size >= 25 notes, Dominance >= 40% relative share
+    # by dominant tag, Maturity oldest arrival >= 60 days (the filesystem
+    # series). A row is a CANDIDATE — the judgment (split or not, index or not)
+    # stays the analyst's; the janitor takes no action on these codes.
+    CLUSTER_MIN_NOTES = 25
+    CLUSTER_MIN_SHARE = 0.40
+    CLUSTER_MIN_OLDEST_DAYS = 60
+    INDEX_CANDIDATE_MIN_FOLDERS = 3
+    INDEX_CANDIDATE_MIN_NOTES = 15
+    # open_findings is minted later in this function; candidate rows collect
+    # here and fold in at that definition.
+    candidate_findings: list[tuple[str, str, str]] = []
+
+    def _tag_titlecase(tag: str) -> str:
+        return "-".join(w.capitalize() for w in str(tag).split("-") if w)
+
+    cluster_rows: list[list[str]] = []
+    for folder in sorted(folder_total_counts.keys()):
+        if folder.startswith((ARCHIVE_FOLDER, INBOX_FOLDER)):
+            continue
+        total = folder_total_counts[folder]
+        if total < CLUSTER_MIN_NOTES:
+            continue
+        tag_hist = folder_tag_hist.get(folder)
+        if not tag_hist:
+            continue
+        top_tag, top_n = max(tag_hist.items(), key=lambda kv: kv[1], default=(None, 0))
+        if not top_tag or (top_n / total) < CLUSTER_MIN_SHARE:
+            continue
+        # A sub-TOPIC is a topical tag: type names and provenance tags
+        # (CONFIG § Tags) dominate their homes by construction and split nothing.
+        from config_variables import CANONICAL_TAG_KEYS as _CC_PROVENANCE
+        if str(top_tag) in _CC_PROVENANCE or normalize_type(str(top_tag)):
+            continue
+        arrivals = folder_fs_ages_days.get(folder) or []
+        oldest = max(arrivals) if arrivals else 0
+        if oldest < CLUSTER_MIN_OLDEST_DAYS:
+            continue
+        # A dominant tag that already has its subfolder is a settled split.
+        if f"{folder}/{_tag_titlecase(top_tag)}" in folder_total_counts:
+            continue
+        share_pct = round(100.0 * top_n / total, 1)
+        cluster_rows.append([folder, total, top_tag, f"{share_pct}%", f"{oldest}d"])
+        candidate_findings.append((
+            "cluster-candidate", folder,
+            f"tag={top_tag} share={share_pct}% n={total} oldest={oldest}d",
+        ))
+
+    # Index candidates: a tag DOMINANT in several folders with no index note
+    # named for it — the mechanical face of the analyst's cross-corpus
+    # grouping test ("a shared dominant tag across projects and areas").
+    # Presence alone is not kinship: only each folder's top tag counts, and
+    # type-name and provenance tags are excluded as above. Existence of
+    # `<Tag>.md` anywhere (cover or standalone index) settles the class.
+    from config_variables import CANONICAL_TAG_KEYS as _IC_PROVENANCE
+    index_basenames = {Path(r["path"]).stem.lower() for r in index_files}
+    tag_folder_spread: dict[str, list[str]] = defaultdict(list)
+    tag_note_totals: dict[str, int] = defaultdict(int)
+    for folder, hist in folder_tag_hist.items():
+        if folder.startswith((ARCHIVE_FOLDER, INBOX_FOLDER)):
+            continue
+        if not hist:
+            continue
+        _dom_tag, _dom_n = max(hist.items(), key=lambda kv: kv[1], default=(None, 0))
+        if not _dom_tag:
+            continue
+        _t = str(_dom_tag)
+        if _t in _IC_PROVENANCE or normalize_type(_t):
+            continue
+        tag_folder_spread[_t].append(folder)
+        tag_note_totals[_t] += _dom_n
+    index_candidate_rows: list[list[str]] = []
+    for tag, folders in sorted(tag_folder_spread.items()):
+        if len(folders) < INDEX_CANDIDATE_MIN_FOLDERS:
+            continue
+        if tag_note_totals[tag] < INDEX_CANDIDATE_MIN_NOTES:
+            continue
+        if _tag_titlecase(tag).lower() in index_basenames:
+            continue
+        index_candidate_rows.append([
+            tag, len(folders), tag_note_totals[tag],
+            "; ".join(sorted(folders)[:4]),
+        ])
+        candidate_findings.append((
+            "index-candidate", f"tag:{tag}",
+            f"folders={len(folders)} n={tag_note_totals[tag]}",
+        ))
+
+    sections.append("## Cluster and index candidates")
+    sections.append(
+        f"<!-- Candidate rows only — the analyst adjudicates; the janitor takes "
+        f"no action on cluster-candidate/index-candidate codes. Cluster bar: "
+        f">={CLUSTER_MIN_NOTES} notes, >={int(CLUSTER_MIN_SHARE * 100)}% dominant-tag "
+        f"share, oldest arrival >={CLUSTER_MIN_OLDEST_DAYS}d (filesystem series); a "
+        f"dominant tag with its subfolder already split is dropped. Index bar: tag "
+        f"spanning >={INDEX_CANDIDATE_MIN_FOLDERS} folders with "
+        f">={INDEX_CANDIDATE_MIN_NOTES} notes and no `<Tag>.md` index anywhere. -->"
+    )
+    sections.append(_md_table(
+        ["folder", "total-notes", "dominant-tag", "share", "oldest-arrival"],
+        cluster_rows,
+    ))
+    sections.append(_md_table(
+        ["tag", "folders", "total-notes", "example-folders"],
+        index_candidate_rows,
+    ))
+    sections.append("")
+
     # --- 6. Catch-all status ---
     sections.append("## Catch-all status")
     sections.append(_md_table(
@@ -1785,6 +1897,8 @@ def main() -> None:
 
     # Findings as (code, target, value) tuples.
     open_findings: list[tuple[str, str, str]] = []
+    # Cluster/index candidate rows computed with the folder histogram above.
+    open_findings.extend(candidate_findings)
 
     # status-coherence hits, case -> [rel]. Rendered as counts + a bounded sample
     # in ## Status coherence and folded into ## Open findings below.
@@ -1966,7 +2080,7 @@ def main() -> None:
     # the janitor performs the repair by reading the line (janitor SKILL § 2).
     # Uses the kit's fenced- and inline-code-aware extract_wikilinks (helper_links)
     # so template and example links never count. Inbox drafts and the archive are
-    # skipped; a file opts out with compliance_exceptions: [body-wikilink-resolution].
+    # skipped.
     # ---------------------------------------------------------------------------
 
     # Existing-file basename index over the WHOLE vault, matching Obsidian's
@@ -1980,7 +2094,6 @@ def main() -> None:
         for _f in _fn:
             all_basenames_lower.add(Path(_f).stem.lower())
 
-    _DANGLING_EXEMPT = {"body-wikilink-resolution", "dangling-link"}
     # Confirmed-knowledge sources surface first in the detail rows.
     _DANGLING_TYPE_RANK = {"reference": 0, "index": 1, "design": 1, "format": 1, "voice": 1}
     dangling_findings: list[tuple[int, str, str]] = []
@@ -1989,11 +2102,6 @@ def main() -> None:
         if rel.startswith(INBOX_FOLDER + "/"):
             continue  # inbox drafts are expected to dangle until filed
         fm = record.get("fm") or {}
-        exempt = fm.get("compliance_exceptions") or []
-        if isinstance(exempt, str):
-            exempt = [exempt]
-        if any(str(e).strip() in _DANGLING_EXEMPT for e in exempt):
-            continue
         ctype = normalize_type(str(fm.get("type") or "")) or ""
         rank = _DANGLING_TYPE_RANK.get(ctype, 5)
         for ghost in record.get("helper_links", []):
@@ -2017,7 +2125,13 @@ def main() -> None:
 
     # Fold in caller-supplied findings (e.g. audit.py's run-scoped inference and
     # queue findings), parsed from a `code | target | value`-per-line file.
+    # These pass the same settled-convention gate as native detections: the
+    # facts a store predicate reads (type / cover / in-asset-folder) are rebuilt
+    # from this run's fm_records, so a row like the parent-finding pair can
+    # suppress them. A target that is not a walked vault file gets empty facts,
+    # so only path clauses can match it — no facts, no fact-based suppression.
     if args.findings is not None and args.findings.exists():
+        _cf_by_rel = {r["rel_path"]: r for r in fm_records}
         try:
             for line in args.findings.read_text(encoding="utf-8").splitlines():
                 parts = [p.strip() for p in line.split("|")]
@@ -2025,7 +2139,18 @@ def main() -> None:
                     code = parts[0]
                     target = parts[1]
                     value = parts[2] if len(parts) >= 3 else ""
-                    open_findings.append((code, target, value))
+                    _cf_rec = _cf_by_rel.get(target)
+                    _cf_raw = ((_cf_rec.get("fm") or {}).get("type")
+                               if _cf_rec else None)
+                    _cf_ctx = {
+                        "type": (normalize_type(str(_cf_raw)) or "") if _cf_raw else "",
+                        "cover": _cover_flag(target) if _cf_rec else "false",
+                        "in-asset-folder": ("true" if _cf_rec is not None
+                                            and in_asset_folder(_cf_rec["abspath"], VAULT_ROOT)
+                                            else "false"),
+                    }
+                    if not _by_convention(code, target, value, _cf_ctx):
+                        open_findings.append((code, target, value))
         except OSError:
             pass
 
@@ -2054,6 +2179,90 @@ def main() -> None:
             return None
 
     _sa_today = now_utc.date()
+
+    # --- Detector: deploy-drift (vault kit sources vs deployed ~/.claude copies) ---
+    # Mechanizes the arithmetic half of the analyst's Deploy-drift method: hash
+    # the vault-source scheduled-task and skill trees against their deployed
+    # `<user-home>/.claude` twins and emit one `deploy-drift` row per file that
+    # differs or is missing. The analyst adjudicates (report vs queue); the
+    # janitor takes no action on this code. Raw byte hashes — deploys copy
+    # bytes, so a newline-only difference is real drift on this pair.
+    _dd_kit = VAULT_ROOT / ".claude"
+    _dd_home = Path.home() / ".claude"
+
+    def _dd_hash(p: Path):
+        try:
+            import hashlib as _hl
+            return _hl.sha256(p.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def _dd_tree_files(root: Path) -> list[Path]:
+        out = []
+        for p in root.rglob("*"):
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc":
+                out.append(p)
+        return out
+
+    _dd_pairs: list[tuple[Path, Path, str]] = []
+    _sched_src = _dd_kit / "scheduled-tasks"
+    if _sched_src.is_dir():
+        for _agent_dir in sorted(_sched_src.iterdir()):
+            if _agent_dir.is_dir():
+                _dd_pairs.append((
+                    _agent_dir,
+                    _dd_home / "scheduled-tasks" / f"note-kit-{_agent_dir.name}",
+                    f"scheduled-tasks/{_agent_dir.name}",
+                ))
+    _skills_src = _dd_kit / "skills"
+    if _skills_src.is_dir():
+        for _skill_dir in sorted(_skills_src.glob("note-kit-*")):
+            if _skill_dir.is_dir():
+                _dd_pairs.append((
+                    _skill_dir,
+                    _dd_home / "skills" / _skill_dir.name,
+                    f"skills/{_skill_dir.name}",
+                ))
+    for _src_dir, _dep_dir, _label in _dd_pairs:
+        if not _dep_dir.is_dir():
+            open_findings.append(("deploy-drift", _label, "deployed copy missing"))
+            continue
+        for _sf in _dd_tree_files(_src_dir):
+            _rel_in = _sf.relative_to(_src_dir).as_posix()
+            _df = _dep_dir / _rel_in
+            if not _df.is_file():
+                open_findings.append(
+                    ("deploy-drift", f"{_label}/{_rel_in}", "absent from deployed copy"))
+            elif _dd_hash(_sf) != _dd_hash(_df):
+                open_findings.append(
+                    ("deploy-drift", f"{_label}/{_rel_in}", "deployed differs from vault source"))
+
+    # --- Detector: duplicate-run (same agent firing twice in one slot) ---
+    # Reads each agent's live log head for run-start lines and flags two starts
+    # within DUPLICATE_RUN_WINDOW_MIN minutes — same-slot double-fires land
+    # seconds apart, so a 10-minute window bounds one slot without spanning two.
+    DUPLICATE_RUN_WINDOW_MIN = 10
+    _dr_ts_re = re.compile(
+        r"^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?Z?\s*\|[^|]*\|\s*run-start\s*\|")
+    for _agent in ("janitor-agent", "filing-agent", "analyst-agent", "action-agent"):
+        _log_head = VAULT_ROOT / LOGS_REL / _agent / f"{_agent}.md"
+        _starts: list[datetime] = []
+        for _line in _sa_read(_log_head).splitlines():
+            _m = _dr_ts_re.match(_line.strip())
+            if _m:
+                try:
+                    _starts.append(datetime(
+                        *map(int, _m.group(1).split("-")),
+                        int(_m.group(2)), int(_m.group(3)), int(_m.group(4) or 0)))
+                except ValueError:
+                    continue
+        _starts.sort()
+        for _a, _b in zip(_starts, _starts[1:]):
+            _gap = (_b - _a).total_seconds()
+            if 0 <= _gap < DUPLICATE_RUN_WINDOW_MIN * 60:
+                open_findings.append((
+                    "duplicate-run", _agent,
+                    f"run-starts {_a.isoformat()}Z + {_b.isoformat()}Z ({int(_gap)}s apart)"))
 
     # --- Detector 1: index-vs-disk diff (index-missing / index-drift) + coverage ---
     # Per index-type note: set-difference of its folder's on-disk direct .md

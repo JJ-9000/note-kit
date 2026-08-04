@@ -862,6 +862,18 @@ def _sync_harness_permissions(vault_root: Path) -> str:
     if not rules:
         return "section-missing"
 
+    # Resolve path tokens at mirror time: the harness matches literal paths,
+    # so a rule mirrored with its `<user-home>` token intact matches nothing.
+    # The raw token form of a mirrored rule is this function's own stale
+    # output — dropped when its resolved twin lands; hand-added entries are
+    # never touched.
+    home = Path.home().as_posix()
+    root = vault_root.resolve().as_posix()
+    resolved = [
+        r.replace("<user-home>", home).replace("<vault-root>", root)
+        for r in rules
+    ]
+
     settings_path = vault_root.resolve() / ".claude" / "settings.local.json"
     data: dict = {}
     if settings_path.exists():
@@ -872,7 +884,9 @@ def _sync_harness_permissions(vault_root: Path) -> str:
     perms = data.setdefault("permissions", {})
     allow = perms.setdefault("allow", [])
     before = list(allow)
-    for rule in rules:
+    for raw, rule in zip(rules, resolved):
+        if raw != rule and raw in allow:
+            allow.remove(raw)
         if rule not in allow:
             allow.append(rule)
     if allow == before:

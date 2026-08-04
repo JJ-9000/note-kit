@@ -312,6 +312,7 @@ def _run_upgrade(vault_root: Path) -> int:
             dst = kit_dir / sub
             shutil.copytree(src, dst, dirs_exist_ok=True)
             refreshed.append(f".claude/{sub}/")
+        refreshed += _refresh_ui(vault_root)
 
     preserved = [
         f".claude/{name}" for name in _UPGRADE_PRESERVED_CLAUDE if (kit_dir / name).exists()
@@ -354,7 +355,85 @@ def _run_upgrade(vault_root: Path) -> int:
     return 0
 
 
-# --upgrade short-circuits the fresh-vault flow: refresh code, re-sync, exit.
+def _refresh_ui(vault_root: Path) -> list[str]:
+    """Refresh an installed vault's UI from this kit: re-copy the note-kit-ui
+    plugin build and the Note-Kit theme, and keep appearance.json's theme
+    selection pointing at the kit theme across a manifest rename. A vault
+    without the plugin installed stays plugin-free — the UI is an optional
+    add-on; a kit shipped without a plugin build skips with a note. Returns
+    report lines for the refreshed surfaces."""
+    refreshed: list[str] = []
+    plugin_dest = vault_root / ".obsidian" / "plugins" / "note-kit-ui"
+    if not plugin_dest.is_dir():
+        print(
+            "[upgrade] UI: vault has no note-kit-ui install — left plugin-free "
+            "(the fresh flow's --with-ui-plugin installs it)."
+        )
+        return refreshed
+
+    plugin_src = _KIT_ROOT.parent / "plugin" / "note-kit-ui"
+    plugin_files = ("main.js", "manifest.json", "styles.css")
+    present = [f for f in plugin_files if (plugin_src / f).is_file()]
+    if not present:
+        print(
+            f"[upgrade] UI: no plugin build at {plugin_src} — installed plugin "
+            "left at its current version."
+        )
+    else:
+        for fname in present:
+            shutil.copy2(plugin_src / fname, plugin_dest / fname)
+        refreshed.append(f".obsidian/plugins/note-kit-ui/ ({', '.join(present)})")
+
+    theme_src = _KIT_ROOT.parent / "theme" / "Note-Kit"
+    theme_present = [
+        f for f in ("theme.css", "manifest.json") if (theme_src / f).is_file()
+    ]
+    if "theme.css" not in theme_present:
+        return refreshed
+    shipped_name = theme_src.name
+    try:
+        manifest = json.loads((theme_src / "manifest.json").read_text(encoding="utf-8"))
+        if (
+            isinstance(manifest, dict)
+            and isinstance(manifest.get("name"), str)
+            and manifest["name"].strip()
+        ):
+            shipped_name = manifest["name"].strip()
+    except Exception:
+        pass
+    themes_dir = vault_root / ".obsidian" / "themes"
+    legacy_dir = themes_dir / theme_src.name
+    theme_dest = themes_dir / shipped_name
+    if not theme_dest.is_dir() and not legacy_dir.is_dir():
+        print(
+            f"[upgrade] UI: vault has no '{shipped_name}' theme — theme left "
+            "uninstalled."
+        )
+        return refreshed
+    theme_dest.mkdir(parents=True, exist_ok=True)
+    for fname in theme_present:
+        shutil.copy2(theme_src / fname, theme_dest / fname)
+    refreshed.append(f".obsidian/themes/{shipped_name}/ ({', '.join(theme_present)})")
+
+    # Reconcile appearance.json across a theme rename: a selection that pointed
+    # at the kit theme's old folder name follows it to the shipped name; any
+    # other selection is the user's and stays untouched.
+    ap_path = vault_root / ".obsidian" / "appearance.json"
+    if shipped_name != theme_src.name and ap_path.exists():
+        try:
+            appearance = json.loads(ap_path.read_text(encoding="utf-8"))
+        except Exception:
+            appearance = None
+        if isinstance(appearance, dict) and appearance.get("cssTheme") == theme_src.name:
+            appearance["cssTheme"] = shipped_name
+            ap_path.write_text(
+                json.dumps(appearance, indent=2) + "\n", encoding="utf-8"
+            )
+            refreshed.append(f".obsidian/appearance.json (cssTheme -> {shipped_name})")
+    return refreshed
+
+
+# --upgrade short-circuits the fresh-vault flow: refresh code + UI, re-sync, exit.
 
 
 def main() -> int | None:
@@ -379,7 +458,9 @@ def main() -> int | None:
         help="Refresh an existing install's executable code (scripts/, skills/, "
              "scheduled-tasks/, hooks/, templates/) from this kit, preserving user-owned files "
              "(CONFIG.md, CLAUDE.md, AGENTS.md, RULES.md, settings.json, .mcp.json, "
-             "and vault content). Then re-runs sync-config.",
+             "and vault content). An installed note-kit-ui plugin and Note-Kit theme "
+             "are refreshed in the same pass (a vault without them stays plugin-free). "
+             "Then re-runs sync-config.",
     )
     parser.add_argument(
         "--with-ui-plugin",
@@ -392,6 +473,14 @@ def main() -> int | None:
              "into .obsidian/community-plugins.json (created if absent; existing "
              "entries are never removed). The sibling Note-Kit theme "
              "(<kit>/theme/Note-Kit) is installed in the same pass.",
+    )
+    parser.add_argument(
+        "--into-existing",
+        action="store_true",
+        help="Confirm installing into a non-empty directory that is not yet a "
+             "kit vault (e.g. an existing notes folder). Without it, a non-empty "
+             "non-kit --path asks for confirmation when run interactively and "
+             "refuses in a non-interactive run.",
     )
     args = parser.parse_args()
     if args.upgrade is not None:
@@ -453,6 +542,48 @@ def main() -> int | None:
             file=sys.stderr,
         )
         sys.exit(2)
+
+    # Refuse to drop the PARA roots into a non-empty folder nobody confirmed.
+    # A non-empty --path with no .claude/ is usually the user's existing notes
+    # (the README's install-into-your-vault flow — a confirmed install is
+    # welcome), but an unattended or mistyped --path must not scaffold over a
+    # random project. --into-existing is the standing confirmation; an
+    # interactive run may answer y at the prompt; --clean (disposable temp
+    # tree) and the in-place checkout are exempt.
+    if (
+        not args.clean
+        and not in_place
+        and not kit_dir.is_dir()
+        and not args.into_existing
+        and any(vault.iterdir())
+    ):
+        if sys.stdin is not None and sys.stdin.isatty():
+            # isatty can report True on a console whose stdin still reads EOF
+            # (a spawned/redirected run) — an unanswerable prompt is a decline,
+            # never a crash and never a proceed.
+            try:
+                reply = input(
+                    f"[scaffold] {vault} is not empty and holds no kit install. "
+                    "Scaffold the kit folders into it? [y/N] "
+                ).strip().lower()
+            except EOFError:
+                reply = ""
+            if reply not in ("y", "yes"):
+                print(
+                    "\n[scaffold] Declined — nothing written. Re-run with "
+                    "--into-existing to confirm installing into an existing "
+                    "folder.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+        else:
+            print(
+                f"[scaffold] REFUSING: {vault} is not empty and holds no kit "
+                "install, and this run cannot ask. Re-run with --into-existing "
+                "to confirm installing into an existing folder.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
 
     # ---------------------------------------------------------------------------

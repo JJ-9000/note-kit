@@ -180,27 +180,6 @@ def open_holds(cwd: str, owner: str) -> list[str]:
     return out[:5]
 
 
-# DORMANT (2026-07-25): the needs-live-session marker is retired (CONFIG § Retired tokens);
-# no producer writes it, and `open_holds` above is the live replacement. Kept only so a
-# legacy machine-queue line written before the retirement still surfaces once; delete when
-# no vault in service carries the marker.
-def pending_live_session_items(cwd: str, owner: str) -> list[str]:
-    """Open machine-queue items annotated needs-live-session that name `owner`."""
-    machine_queue_rel, _ = _queue_paths(cwd)
-    path = os.path.join(cwd, machine_queue_rel)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except OSError:
-        return []
-    owner_l = owner.lower()
-    return [
-        ln.strip()
-        for ln in lines
-        if "needs-live-session" in ln and "[ ]" in ln and owner_l in ln.lower()
-    ][:5]
-
-
 def pending_user_queue_clusters(cwd: str, owner: str) -> list[str]:
     """User-queue clusters that name `owner` and await a live session.
 
@@ -394,14 +373,12 @@ def main() -> None:
     owner = _active_owner(cwd)
     if owner:
         holds = open_holds(cwd, owner)
-        live = pending_live_session_items(cwd, owner)
         clusters = pending_user_queue_clusters(cwd, owner)
-        if holds or live or clusters:
+        if holds or clusters:
             block_lines = [f"## {owner} — waiting on a live session"]
             # Resume records first: each is already written as the opening move
             # of the session picking it up, so it reads as the next action.
             block_lines += [f"- hold: {h}" for h in holds]
-            block_lines += [f"- machine-queue: {ln}" for ln in live]
             block_lines += [f"- user-queue: {t}" for t in clusters]
             block = "\n".join(block_lines)
             ctx = (ctx + "\n\n" + block) if ctx else block

@@ -64,7 +64,7 @@ Note-kit is just plain markdown files in a normal folder tree on your disk. Two 
 - **Obsidian is your review window:** the calm surface you check on your own cadence (every hour, once a day, whenever) to read what's waiting and approve it. You don't run the AI assistant from inside Obsidian.
 - **Claude Code does the work, against the vault folder itself.** Open that folder as the project (the Desktop app, the CLI, or the VS Code extension) and the AI assistant edits the files directly. It is the same folder Obsidian has open, worked by both.
 
-**You steer the kit by setting values in your notes.** Approving a draft is flipping `reviewed: true`; answering the kit is ticking a checkbox in a queue; handing it work is dropping a file in `<outbox>`. That is the whole control surface. Asking the AI assistant in a live session to set a value works too, at one step more than changing it yourself.
+**You steer the kit by setting values in your notes.** Approving a draft is flipping `reviewed: true`; answering the kit is ticking a checkbox in a queue; handing it work is dropping a file at the `<inbox>` root. That is the whole control surface. Asking the AI assistant in a live session to set a value works too, at one step more than changing it yourself.
 
 > [!WARNING]
 > You can operate note-kit outside the Obsidian UI — the files are plain markdown and the agents still run. Without the plugin and theme, though, you navigate the vault as raw folders and frontmatter, which is much harder.
@@ -119,6 +119,8 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 
    You can omit `--with-ui-plugin plugin/note-kit-ui` for a headless install, but the UI is how you'll actually read the vault.
 
+   Pointing the install at a folder that already has notes? The scaffold asks before adding its folders to a non-empty folder that isn't yet a kit vault — answer `y` at the prompt, or pass `--into-existing` to pre-answer in a scripted run.
+
 3. **Move to your vault folder.** The remaining steps run from the vault, not the kit folder:
 
    ```
@@ -153,7 +155,7 @@ Move into a folder: `cd <path>` (for example `cd C:\Users\you\Downloads\note-kit
 
    - **janitor-agent** — reads the whole vault; writes frontmatter and filename fixes; runs `audit.py`
    - **filing-agent** — reads `<inbox>` and the destinations; moves approved drafts to their homes
-   - **action-agent** — reads both queues and `<outbox>`; executes approved items and routes drops
+   - **action-agent** — reads both queues and the `<inbox>` root; executes approved items and routes user drops
    - **analyst-agent** — reads the whole vault; writes only to `<inbox>` and the logs
 
    None of them need network or credential access.
@@ -192,7 +194,7 @@ Run one setup session before any real work. Open Claude Code in the vault root a
 
 One loop runs through everything, from idea to archive:
 
-1. **Capture.** An idea lands — a note in `<outbox>`, a line in chat, a journal entry. Raw material becomes vault-ready here: `/note-kit-transcription` cleans up a voice note or meeting dump, `/note-kit-youtube-to-note` turns a lecture link into a cited note, and `/note-kit-processor` imports or atomizes material that already exists (a book, a foreign note collection).
+1. **Capture.** An idea lands — a file dropped at the `<inbox>` root, a line in chat, a journal entry. Raw material becomes vault-ready here: `/note-kit-transcription` cleans up a voice note or meeting dump, `/note-kit-youtube-to-note` turns a lecture link into a cited note, and `/note-kit-processor` imports or atomizes material that already exists (a book, a foreign note collection).
 2. **Research,** `/note-kit-research` turns user queries related to that idea into a cited, adversarially-checked research document.
 3. **Plan.** `/note-kit-plan` turns research findings and user criticism into one canonical plan that is updated and persists across sessions.
 4. **Work.** AI chat sessions (interactive) and sub-agents (automatic) execute the plan. Each session ends with `/note-kit-handoff`, which writes the session log and pulls out any notes the work earned.
@@ -211,7 +213,7 @@ You appear in this loop briefly — at the start with the idea, at the review ga
 
 These surfaces are yours. Everything else runs on its own.
 
-**Drop things in `<outbox>`.** This is the AI agent's intake: a voice note to clean up, a URL to capture, a brief for a skill, a checklist of tasks in the queue. The **action agent** reads every drop and routes it — and it respects what you declared, never summarized into something else. Results come back to `<inbox>` for your review.
+**Drop things at the `<inbox>` root.** A frontmatter-less file there is the AI agent's intake: a voice note to clean up, a URL to capture, a brief for a skill, a checklist of tasks in the queue. The **action agent** reads every drop and routes it — and it respects what you declared, never summarized into something else. Results come back as `reviewed: false` drafts for your review.
 
 **Answer the `<user-queue>`.** When an agent needs your judgment (a structural change, a clarifying question a skill couldn't proceed without), it writes a plain-language query item to the check-box **user queue** in the `<inbox>`. You check the box; the action agent does the rest on its next pass.
 
@@ -225,7 +227,7 @@ One more surface is quietly yours: **the vault root.** A file sitting loose at t
 ---
 ## The folder system — PARA by default, yours by config
 
-The kit's default folders follow **PARA**, a widely used organizing method: **P**rojects (active work with an end), **A**reas (ongoing roles and systems you maintain), **R**esources (always true reference knowledge), and **A**rchive (finished or dormant material). The kit adds an `<inbox>` and `<outbox>` in front as the human and machine gates, and a `<snippets>` root for ready-to-paste code. That's the whole tree: seven roots, everything else grows underneath on demand.
+The kit's default folders follow **PARA**, a widely used organizing method: **P**rojects (active work with an end), **A**reas (ongoing roles and systems you maintain), **R**esources (always true reference knowledge), and **A**rchive (finished or dormant material). The kit adds an `<inbox>` in front as the shared gate — your review surface for AI drafts, and the AI's intake for your drops and both queues — and a `<snippets>` root for ready-to-paste code. That's the whole tree: six roots, everything else grows underneath on demand.
 
 
 ---
@@ -257,7 +259,20 @@ Every note type ships with a `Format-<Type>` note (`Format-Session`, `Format-Pla
 | janitor-agent | daily   | per-file hygiene: names, frontmatter, inference the scripts couldn't resolve                       |
 | filing-agent  | daily   | moves `reviewed: true` drafts from `<inbox>` to their homes, checking each fits in its destination |
 | analyst-agent | weekly  | the wide view: proposes splits, indexes, consolidation; flags repeated corrections                 |
-| action-agent  | hourly  | executes approved queue items and routes every `<outbox>` drop                                     |
+| action-agent  | hourly  | executes approved queue items and routes every user drop at the `<inbox>` root                     |
+
+---
+
+## Keeping costs down
+
+Two things dominate what the kit spends. **Sub-agents default to the top-line model** — every judgment lane (research crit, audits, synthesis) deliberately spawns the most capable tier, and the fan-out pipeline skills (`note-kit-research`, `note-kit-review`, `note-kit-verify-claims`, and above all `note-kit-red-vs-blue`) multiply that by several agents per run. **The scheduled agents run on a clock, not on work** — an hourly action agent fires whether or not anything changed; on one measured install, 92% of a month's hourly fires found nothing to do, at about $2 per empty pass.
+
+The levers, in order of effect:
+
+- **Stretch the action agent's cadence.** Hourly buys fast queue turnaround; every doubling of the interval roughly halves its idle spend. A few runs a day still clears the queues the day you check them.
+- **Run mechanical lanes on a cheaper model.** Judgment lanes earn the top tier; transcription, extraction, and formatting do not — CONFIG § Sub-agent execution already licenses the demotion, and the mechanical pipeline skills (`transcription`, `youtube-to-note`, `processor`) are the natural first candidates.
+- **Use the fan-out skills deliberately.** `note-kit-red-vs-blue` is the most expensive skill in the kit — an adversarial round spawns many top-tier agents. Reach for it when an instrument matters, not as routine review.
+- **Disable an agent you don't need yet.** A vault without daily inflow does fine with filing and the janitor on a slower clock; each agent's registration has its own enable toggle and cadence.
 
 ---
 
@@ -295,8 +310,8 @@ The kit is complete without community plugins — `note-kit-ui` already shows ty
 
 - **Obsidian Git** — commits and pushes the vault from inside Obsidian on a schedule. The natural companion to the git sync setup above.
 - **Dataview**, or the core **Bases** feature — dashboards over the kit's frontmatter: every `status: active` project, drafts waiting on review, notes by type.
-- **QuickAdd** — one-keystroke capture into `<outbox>`; the action agent routes it from there.
-- **Advanced URI**, and **Actions for Obsidian** on iOS — capture from your phone via share sheet or Shortcuts. Point captures at `<outbox>` and the loop takes over.
+- **QuickAdd** — one-keystroke capture into the `<inbox>` root; the action agent routes it from there.
+- **Advanced URI**, and **Actions for Obsidian** on iOS — capture from your phone via share sheet or Shortcuts. Point captures at the `<inbox>` root and the loop takes over.
 - **MCP servers for Obsidian** — community servers (most ride on the Local REST API plugin) that let AI tools drive the Obsidian app itself. The kit needs none: Claude Code edits vault files directly and ships its own `vault` MCP for semantic search. What one adds is app control — opening notes, arranging the workspace. If you run one, include it in the first-session audit like any other pre-existing tool.
 - **Style Settings** — exposes the `Note-Kit` theme's options, including the AMOLED true-black toggle. Optional; the theme is complete without it.
 
@@ -313,7 +328,7 @@ cd <path-to-new>\note-kit
 python .claude/scripts/scaffold_vault.py --upgrade <your-vault>
 ```
 
-This refreshes the kit's *code* — `scripts/`, `skills/`, `scheduled-tasks/`, `hooks/` — and never touches your notes. Two limits: files you own (`CLAUDE.md`, `RULES.md`, your edited `CONFIG.md`) are preserved rather than overwritten, so new config information in the kit's versions are not merged automatically — compare by hand if the release notes flag them. The Desktop app keeps its own copy of each registered agent, so after an upgrade, delete and re-register any agent whose `SKILL.md` changed.
+This refreshes the kit's *code* — `scripts/`, `skills/`, `scheduled-tasks/`, `hooks/`, `templates/` — and, when the vault has the UI installed, the `note-kit-ui` plugin build and `Note-Kit` theme, so a UI release reaches installed vaults (your `appearance.json` stays yours; the theme selection is repointed only if the theme's name changed). It never touches your notes. Two limits: files you own (`CLAUDE.md`, `RULES.md`, your edited `CONFIG.md`) are preserved rather than overwritten, so new config information in the kit's versions are not merged automatically — compare by hand if the release notes flag them. The Desktop app keeps its own copy of each registered agent, so after an upgrade, delete and re-register any agent whose `SKILL.md` changed.
 
 ---
 
@@ -336,6 +351,6 @@ Work from the outside in, so nothing is left running against a missing vault:
 1. **Stop the search daemon:** `python .claude/vault-search/daemonctl.py stop` from the vault folder, and remove its service entry if you registered one.
 2. **Delete the four agents** from your Desktop routines.
 3. **Delete the kit's files:** `<vault>/.claude/`, `<vault>/.mcp.json`, and the plugin folder `<vault>/.obsidian/plugins/note-kit-ui/` if you installed it.
-4. **Keep or remove the folder scaffolding** (`<inbox>`, `<outbox>`, the project/area/reference/snippet/archive roots) — keep any notes you want; they're plain markdown and belong to you.
+4. **Keep or remove the folder scaffolding** (`<inbox>`, the project/area/reference/snippet/archive roots) — keep any notes you want; they're plain markdown and belong to you.
 
 Or skip the manual steps: open Claude Code in the vault directory and ask — *"read README.md and uninstall note-kit; archive my notes first."*

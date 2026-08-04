@@ -39,6 +39,14 @@ classes it applied:
                                — the install's own trees under <user-home>/repos
   install-placeholder-fill     a template `<PLACEHOLDER>` filled with this
                                install's literal (vault-search/config.yaml)
+  owner-example-anonymization  a live example naming this install's own tools
+                               or projects where the template ships a generic
+                               one (SKILL examples, script docstrings)
+  licensed-wording-divergence  a sentence whose two copies read differently by
+                               owner licence — pinned pair-exact rather than
+                               reconciled
+  install-local-config         a machine-local config line this install added
+                               (an exclude path, a local override)
 
 Pinning the pair is what makes the licence a licence for one divergence rather
 than a blanket pardon for a line. Editing a licensed line changes its signature,
@@ -209,6 +217,73 @@ LICENSED_PAIRS: list[LicensedPair] = [
         "5187243f603498d1", "5e804795ccdc510b",
         "`<DATA_DIR>` filled with this install's daemon-log path",
     ),
+    LicensedPair(
+        "owner-example-anonymization", "scheduled-tasks/action-agent/SKILL.md",
+        "4836bf48ee1396d8", "55f1e17835fb5773",
+        "escalated-hold example — the template's generic project and file kind "
+        "stand in for this install's own tool-specific example",
+    ),
+    LicensedPair(
+        "owner-example-anonymization", "scheduled-tasks/janitor-agent/audit.py",
+        "787c476a971765e8", "36b85ee46d375a82",
+        "retired-token docstring — the template describes the all-caps "
+        "machine-name case generically where the live copy names this "
+        "install's retired machine",
+    ),
+    LicensedPair(
+        "owner-example-anonymization", "scripts/index_helpers.py",
+        "a6b6e34621b8668b", "c895385c86a979b0",
+        "doctest example — the template's generic topic index stands in for "
+        "this install's own domain index",
+    ),
+    LicensedPair(
+        "owner-example-anonymization", "skills/note-kit-handoff/SKILL.md",
+        "32062da1a1064a26", "1a7e2fe3d6351b09",
+        "gate-checklist example row — template generic device example vs this "
+        "install's own tool example",
+    ),
+    LicensedPair(
+        "owner-example-anonymization", "skills/note-kit-handoff/SKILL.md",
+        "8a376f472ed207aa", "ba5aee126c22b9ca",
+        "machine-gates paragraph — template generic user-presence examples vs "
+        "this install's own tool examples",
+    ),
+    LicensedPair(
+        "owner-example-anonymization", "CONFIG.md",
+        "52df8c5003e14636", "4dfea49c225319d9",
+        "Numbering legacy-marker row — the template's generic cover-index "
+        "example vs this install's own domain cover",
+    ),  # template 135-135 -> live 135-135
+    LicensedPair(
+        "owner-example-anonymization", "CONFIG.md",
+        "99fe18a5f91507a9", "253dbbf4fc4428a1",
+        "Holds local-automation row — the template's generic spawner example "
+        "vs this install's own tool-specific one",
+    ),  # template 377-377 -> live 377-377
+    LicensedPair(
+        "licensed-wording-divergence", "CONFIG.md",
+        "9066a0c7b330274e", "1e3f49456fa8a372",
+        "Queue-protocol hold-disposition sentence — the live copy carries the "
+        "post-reform phrasing, the template the older count; owner licensed "
+        "pair-exact 2026-08-03 over reconciling",
+    ),  # template 431-431 -> live 431-431
+    LicensedPair(
+        "install-local-config", "CONFIG.md",
+        "1425069577f7e017", "dd2e46cf787af603",
+        "Harness-permissions intro — the live copy names this install's "
+        "decided global permission mode where the template states the "
+        "mechanism generically",
+    ),  # template 382-382 -> live 382-382
+    LicensedPair(
+        "install-placeholder-fill", "vault-search/config.yaml",
+        "b41c00ccc7353e38", "a58f9ccc353f1804",
+        "`<VAULT_ROOT>` header filled with this install's vault path",
+    ),  # template 1-2 -> live 1-2
+    LicensedPair(
+        "install-local-config", "vault-search/config.yaml",
+        "e3b0c44298fc1c14", "7dd124d3460a2181",
+        "a live-only exclude-path line this install added to the index scope",
+    ),  # template 26-25 -> live 26-26
 ]
 
 

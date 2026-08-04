@@ -654,6 +654,15 @@ def main() -> int | None:
         # write a fresh one carrying THIS install's root from the template.
         _write_fresh_daemon_config(kit_dir, vault)
 
+    # The kit README rides into the vault root, so the manual a new vault's
+    # owner needs is inside the vault they open — not left behind in the
+    # download folder. An existing README (any casing) is never overwritten.
+    _readme_src = _KIT_ROOT.parent / "README.md"
+    _readme_dest = vault / "README.md"
+    if _readme_src.is_file() and not _readme_dest.exists():
+        shutil.copy2(_readme_src, _readme_dest)
+        print("[scaffold] README.md copied to the vault root.")
+
 
     # ---------------------------------------------------------------------------
     # 3. Mark the installed .claude/CLAUDE.md as a scaffolded sandbox.

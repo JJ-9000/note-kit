@@ -284,6 +284,12 @@ LICENSED_PAIRS: list[LicensedPair] = [
         "e3b0c44298fc1c14", "7dd124d3460a2181",
         "a live-only exclude-path line this install added to the index scope",
     ),  # template 26-25 -> live 26-26
+    LicensedPair(
+        "install-local-config", "scripts/anonymity_allow.txt",
+        "e3b0c44298fc1c14", "32f8fdb6782463ec",
+        "a live-only allow entry this install recorded — a reviewed "
+        "publication exception with its reason comment; entries never ship",
+    ),  # template 6-5 -> live 6-13
 ]
 
 
